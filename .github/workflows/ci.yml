@@ -124,10 +124,10 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-      - name: SBOM
-        uses: anchore/sbom-action@v3
+      - name: SBOM (trivy SPDX)
+        uses: aquasecurity/trivy-action@master
         with:
-          image: mediarr:${{ steps.ver.outputs.tag }}
+          image-ref: mediarr:${{ steps.ver.outputs.tag }}
           format: spdx-json
           output: mediarr-sbom.spdx.json
 
