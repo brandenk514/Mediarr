@@ -98,20 +98,19 @@ jobs:
             echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build image (multi-arch)
+      # Always build locally (single-arch, loaded into the daemon) so the
+      # Trivy scan and SBOM have an image to read. No registry push on PRs.
+      - name: Build image (local)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
-          platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ steps.ver.outputs.tag }}
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
-          tags: |
-            mediarr:${{ steps.ver.outputs.tag }}
-            ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+          tags: mediarr:${{ steps.ver.outputs.tag }}
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -136,6 +135,23 @@ jobs:
         with:
           name: mediarr-sbom
           path: mediarr-sbom.spdx.json
+
+      # Publish multi-arch to ghcr only on trusted events (main + release tags).
+      - name: Publish multi-arch image to ghcr
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.tag }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          tags: ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ------------------------------------------------------------------- smoke
   smoke:
