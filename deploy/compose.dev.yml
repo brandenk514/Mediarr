@@ -1,0 +1,78 @@
+# Mediarr development stack.
+#
+# Usage:
+#   docker compose -f deploy/compose.dev.yml up --build
+#
+# Brings up: mediarr (built from source) + Postgres 16 + Redis 7.
+# All data lives in named volumes. Stop with: docker compose down
+
+name: mediarr-dev
+
+services:
+  mediarr:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VERSION: ${MEDIARR_VERSION:-dev}
+        COMMIT: ${MEDIARR_COMMIT:-local}
+        BUILD_DATE: ${MEDIARR_BUILD_DATE:-local}
+    image: mediarr:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      MEDIARR_HTTP_ADDR: ":8080"
+      MEDIARR_HTTP_BASE_URL: "http://localhost:8080"
+      MEDIARR_POSTGRES_DSN: "postgres://mediarr:mediarr@postgres:5432/mediarr?sslmode=disable"
+      MEDIARR_REDIS_URL: "redis://redis:6379"
+      MEDIARR_ENCRYPTION_KEY: ${MEDIARR_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      MEDIARR_AUTH_PINNING: "true"
+    ports:
+      - "8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/mediarr", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mediarr
+      POSTGRES_PASSWORD: mediarr
+      POSTGRES_DB: mediarr
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # No published port in dev unless you need psql from the host.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediarr -d mediarr"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

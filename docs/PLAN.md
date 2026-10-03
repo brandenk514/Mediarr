@@ -229,16 +229,14 @@ mediarr/
 │   ├── indexers/         # provider framework + adapters
 │   ├── downloads/        # client adapters (qbittorrent, sabnzbd)
 │   ├── providers/        # tmdb, tvdb, musicbrainz, openlibrary
-│   └── storage/
-│       ├── postgres/     # repositories, migrations
-│       └── redis/        # cache, streams, pubsub
-├── migrations/           # numbered SQL up/down
+│   ├── postgres/         # store.Store impl + embedded migrations
+│   └── redis/            # cache, streams, pubsub
 ├── deploy/
 │   ├── Dockerfile
 │   ├── compose.dev.yml
 │   ├── compose.prod.yml
-│   └── helm/             # (M6)
-├── ui/                   # (M5) React SPA, separate build
+│   └── helm/             # (M7)
+├── ui/                   # (M6) React SPA, separate build
 ├── test/
 │   ├── e2e/              # pipeline smoke tests
 │   └── fixtures/         # mock indexer, mock download client
