@@ -1,0 +1,167 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+
+# Only one concurrent CI run per branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.27.1'
+
+jobs:
+  # ------------------------------------------------------------------ verify
+  lint-and-test:
+    name: Lint, vet, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mediarr
+          POSTGRES_PASSWORD: mediarr
+          POSTGRES_DB: mediarr
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mediarr"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      MEDIARR_POSTGRES_DSN: postgres://mediarr:***@127.0.0.1:5432/mediarr?sslmode=disable
+      MEDIARR_REDIS_URL: redis://127.0.0.1:6379
+      MEDIARR_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: gofmt check
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Unit tests
+        run: go test ./internal/api/... ./internal/auth/... ./internal/config/... ./internal/health/... -count=1 -cover
+
+      - name: Integration tests (Postgres + Redis)
+        run: go test ./internal/postgres/... ./internal/auth/... -count=1 -timeout 300s
+
+  # ------------------------------------------------------------------- build
+  docker:
+    name: Build + scan image
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute version
+        id: ver
+        run: |
+          if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" == v* ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build image (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.tag }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          tags: |
+            mediarr:${{ steps.ver.outputs.tag }}
+            ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: mediarr:${{ steps.ver.outputs.tag }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: SBOM
+        uses: anchore/sbom-action@v3
+        with:
+          image: mediarr:${{ steps.ver.outputs.tag }}
+          format: spdx-json
+          output: mediarr-sbom.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediarr-sbom
+          path: mediarr-sbom.spdx.json
+
+  # ------------------------------------------------------------------- smoke
+  smoke:
+    name: Docker smoke test
+    needs: docker
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the image against real Postgres + Redis
+        run: |
+          set -euo pipefail
+          docker compose -f deploy/compose.dev.yml up -d --build
+          # Wait for readiness.
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/readyz >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          echo "=== /healthz ==="
+          curl -fsS http://localhost:8080/healthz
+          echo
+          echo "=== /readyz ==="
+          curl -fsS http://localhost:8080/readyz
+          echo
+          echo "=== /version ==="
+          curl -fsS http://localhost:8080/version
+          echo
+          docker compose -f deploy/compose.dev.yml down --remove-orphans
