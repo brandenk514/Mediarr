@@ -28,13 +28,20 @@ services:
       MEDIARR_HTTP_BASE_URL: "http://localhost:8080"
       MEDIARR_POSTGRES_DSN: "postgres://mediarr:mediarr@postgres:5432/mediarr?sslmode=disable"
       MEDIARR_REDIS_URL: "redis://redis:6379"
-      MEDIARR_ENCRYPTION_KEY: ${MEDIARR_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      MEDIARR_ENCRYPTION_KEY: ${MEDIARR_ENCRYPTION_KEY:-00000000000000000000000000000000000000000000000000000000000000000}
       MEDIARR_AUTH_PINNING: "true"
+      # Writable scratch for the mock download client and imported media.
+      # (The container rootfs is read-only, so these must be mounted.)
+      MEDIARR_DOWNLOADS_DIR: "/downloads"
+      MEDIARR_MEDIA_ROOT: "/media/movies"
     ports:
       - "8080:8080"
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      - downloads:/downloads
+      - media:/media
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -76,3 +83,5 @@ services:
 volumes:
   pgdata:
   redisdata:
+  downloads:
+  media:

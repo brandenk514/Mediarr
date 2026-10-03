@@ -109,6 +109,13 @@ func (s *Service) RunPipeline(ctx context.Context, movieID int64) (string, error
 		return "", nil // already imported
 	}
 
+	// The download client is optional (e.g. its directory isn't writable).
+	// Without it the pipeline can't fetch a file, so say so clearly.
+	if s.deps.Client == nil {
+		s.record(ctx, movieID, "no-client", "no download client configured")
+		return "", fmt.Errorf("movies: no download client configured")
+	}
+
 	// 1. Search.
 	results, err := s.searchAll(ctx, m.Title, m.Year)
 	if err != nil {

@@ -23,6 +23,10 @@ type FakeIndexer struct {
 }
 
 // NewFakeIndexer builds a FakeIndexer with the given name.
+//
+// The release pool starts empty so tests register exactly the candidates they
+// assert on. The dev server (cmd/mediarr) seeds a small demo pool separately so
+// a live "search" returns plausible candidates for any title.
 func NewFakeIndexer(name string) *FakeIndexer {
 	return &FakeIndexer{Name_: name}
 }
