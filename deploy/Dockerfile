@@ -17,6 +17,11 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 # Build context: source only (Dockerfile is the context root).
 COPY . .
 
+# Writable scratch dirs, pre-created here so the runtime COPY can chown them.
+# Named volumes seeded from these directories inherit the ownership, letting
+# the nonroot app user (65532) write its downloads and imported media.
+RUN mkdir -p /writables/downloads /writables/media
+
 # Reproducible, static binary. Version stamped from CI / local git.
 ARG VERSION=dev
 ARG COMMIT=none
@@ -37,6 +42,13 @@ FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 # nonroot user (uid/gid 65532) is baked into the base image; the nonroot
 # variant already runs as that user.
 COPY --from=build /out/mediarr /mediarr
+
+# Writable scratch for the mock download client (/downloads) and imported
+# media (/media). These are pre-created and chowned to the app user in the
+# build stage; seeding the named volumes from these image paths makes the
+# mounted volumes inherit that ownership so the nonroot user can write them.
+COPY --from=build --chown=nonroot:nonroot --chmod=775 /writables/downloads /downloads
+COPY --from=build --chown=nonroot:nonroot --chmod=775 /writables/media /media
 
 EXPOSE 8080
 
