@@ -24,9 +24,12 @@ import (
 	"github.com/brandenk514/mediarr/internal/api"
 	"github.com/brandenk514/mediarr/internal/auth"
 	"github.com/brandenk514/mediarr/internal/config"
+	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/health"
+	"github.com/brandenk514/mediarr/internal/indexers"
 	"github.com/brandenk514/mediarr/internal/postgres"
 	"github.com/brandenk514/mediarr/internal/redis"
+	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 )
 
 // Build-time stamped values (see -ldflags in Dockerfile / Makefile).
@@ -142,6 +145,31 @@ func run() error {
 	checker := health.NewChecker(pg, cache)
 	srv := api.NewServer(checker)
 	srv.SetAuth(&api.AuthDeps{Repo: auth.NewRepo(pg.DB())})
+
+	// --- Movies pipeline -----------------------------------------------
+	// M1: wire the movie pipeline end-to-end. The running service uses a fake
+	// indexer + mock download client to prove the architecture; real indexer
+	// and download-client adapters (qBittorrent/SABnzbd, TorrentRSS/Torznab)
+	// replace them in M5. The mock client writes into cfg.DownloadsDir and
+	// import moves files under cfg.MediaRoot.
+	mockClient, err := downloads.NewMockClient("mock", cfg.DownloadsDir)
+	if err != nil {
+		logger.Warn("download client init failed; movie pipeline disabled", "error", err)
+	} else {
+		fake := indexers.NewFakeIndexer("fake")
+		movieSvc := moviesvc.New(moviesvc.Deps{
+			Repo:           postgres.NewMovieRepo(pg.DB()),
+			Indexers:       []indexers.Searcher{fake},
+			Client:         mockClient,
+			MediaRoot:      cfg.MediaRoot,
+			DefaultProfile: "HD-1080p",
+		})
+		srv.SetMovies(&api.MoviesDeps{Svc: movieSvc})
+		logger.Info("movie pipeline ready",
+			"media_root", cfg.MediaRoot,
+			"downloads_dir", cfg.DownloadsDir,
+			"indexers", "fake", "client", "mock")
+	}
 
 	logger.Info("server starting", "addr", cfg.HTTPAddr)
 	return srv.Serve(ctx,

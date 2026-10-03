@@ -26,6 +26,14 @@ type Config struct {
 	Redis    URL // Redis connection URL
 	RedisDB  int // Redis logical database index
 
+	// Media
+	// MediaRoot is the directory where imported media files are placed
+	// (e.g. /media/movies). Required for the import step to know its target.
+	MediaRoot string
+	// DownloadsDir is where the download client writes completed files before
+	// import moves them under MediaRoot.
+	DownloadsDir string
+
 	// Security
 	EncryptionKey string // 32-byte hex key for AES-256-GCM at-rest encryption
 	// AuthPinning: when true, the first user created is the only one that can
@@ -56,6 +64,8 @@ func Load(env map[string]string) (*Config, error) {
 		WriteTimeout:    getInt(env, "MEDIARR_WRITE_TIMEOUT", 60),
 		ShutdownTimeout: getInt(env, "MEDIARR_SHUTDOWN_TIMEOUT", 10),
 		RedisDB:         getInt(env, "MEDIARR_REDIS_DB", 0),
+		MediaRoot:       get("MEDIARR_MEDIA_ROOT", "/media/movies"),
+		DownloadsDir:    get("MEDIARR_DOWNLOADS_DIR", "/downloads"),
 	}
 
 	// Postgres DSN (required)
