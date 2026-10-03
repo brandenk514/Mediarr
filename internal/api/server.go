@@ -16,9 +16,10 @@ import (
 
 // Server is the HTTP server. It owns the mux and middleware chain.
 type Server struct {
-	mux      *http.ServeMux
-	health   *health.Checker
-	authDeps *AuthDeps
+	mux        *http.ServeMux
+	health     *health.Checker
+	authDeps   *AuthDeps
+	moviesDeps *MoviesDeps
 }
 
 // NewServer builds a Server with the given readiness checker.
