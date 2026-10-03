@@ -152,24 +152,51 @@ func run() error {
 	// and download-client adapters (qBittorrent/SABnzbd, TorrentRSS/Torznab)
 	// replace them in M5. The mock client writes into cfg.DownloadsDir and
 	// import moves files under cfg.MediaRoot.
-	mockClient, err := downloads.NewMockClient("mock", cfg.DownloadsDir)
-	if err != nil {
-		logger.Warn("download client init failed; movie pipeline disabled", "error", err)
-	} else {
-		fake := indexers.NewFakeIndexer("fake")
-		movieSvc := moviesvc.New(moviesvc.Deps{
-			Repo:           postgres.NewMovieRepo(pg.DB()),
-			Indexers:       []indexers.Searcher{fake},
-			Client:         mockClient,
-			MediaRoot:      cfg.MediaRoot,
-			DefaultProfile: "HD-1080p",
-		})
-		srv.SetMovies(&api.MoviesDeps{Svc: movieSvc})
-		logger.Info("movie pipeline ready",
-			"media_root", cfg.MediaRoot,
-			"downloads_dir", cfg.DownloadsDir,
-			"indexers", "fake", "client", "mock")
+	//
+	// The movie endpoints (add/list/get) only need the repository, so they are
+	// ALWAYS registered. The download client is optional: when it can't be
+	// created (e.g. the downloads dir isn't writable), the movie routes still
+	// work and only the pipeline reports that no download client is available.
+	fake := indexers.NewFakeIndexer("fake")
+	// Dev-only demo pool: the live fake indexer is empty by default (so tests
+	// register exactly what they assert). Seed a few plausible releases so a
+	// running dev server's "search → match" actually finds candidates for a
+	// handful of popular titles, letting the full download+import path be
+	// exercised via the API. This does not affect tests, which build their own.
+	fake.AddRelease(indexers.SearchResult{Title: "Inception.2010.1080p.WEB.x264", SizeBytes: 4_300_000_000})
+	fake.AddRelease(indexers.SearchResult{Title: "Inception.2010.2160p.WEB-DL.x265", SizeBytes: 9_800_000_000})
+	fake.AddRelease(indexers.SearchResult{Title: "Dune.Part.Two.2024.1080p.WEB.x264", SizeBytes: 5_100_000_000})
+	fake.AddRelease(indexers.SearchResult{Title: "Dune.Part.Two.2024.2160p.WEB-DL.x265", SizeBytes: 11_400_000_000})
+	fake.AddRelease(indexers.SearchResult{Title: "Interstellar.2014.1080p.WEB.x264", SizeBytes: 4_700_000_000})
+	fake.AddRelease(indexers.SearchResult{Title: "Tenet.2020.1080p.WEB.x264", SizeBytes: 4_900_000_000})
+	var mockClient *downloads.MockClient
+	var clientErr error
+	mockClient, clientErr = downloads.NewMockClient("mock", cfg.DownloadsDir)
+	if clientErr != nil {
+		logger.Warn("download client init failed; movie pipeline disabled", "error", clientErr)
 	}
+	var dlClient downloads.Client
+	if mockClient != nil {
+		dlClient = mockClient
+	}
+	movieSvc := moviesvc.New(moviesvc.Deps{
+		Repo:           postgres.NewMovieRepo(pg.DB()),
+		Indexers:       []indexers.Searcher{fake},
+		Client:         dlClient,
+		MediaRoot:      cfg.MediaRoot,
+		DefaultProfile: "HD-1080p",
+	})
+	srv.SetMovies(&api.MoviesDeps{Svc: movieSvc})
+	logger.Info("movie pipeline ready",
+		"media_root", cfg.MediaRoot,
+		"downloads_dir", cfg.DownloadsDir,
+		"indexers", "fake",
+		"client", func() string {
+			if dlClient != nil {
+				return "mock"
+			}
+			return "none"
+		}())
 
 	logger.Info("server starting", "addr", cfg.HTTPAddr)
 	return srv.Serve(ctx,
