@@ -237,7 +237,7 @@ func TestTVRepo_QueueAndHistory(t *testing.T) {
 	qid, err := r.CreateQueue(ctx, tv.QueueEntry{
 		SeriesID: seriesID, Season: 1, Episode: 1,
 		ReleaseTitle: "Westworld.S01E01.1080p.WEB.x264",
-		Indexer: "fake", DownloadClient: "mock", State: tv.QueueQueued,
+		Indexer:      "fake", DownloadClient: "mock", State: tv.QueueQueued,
 	})
 	if err != nil {
 		t.Fatalf("create queue: %v", err)
@@ -284,7 +284,7 @@ func TestTVRepo_MultiEpisodeAndSeasonPack(t *testing.T) {
 	qid, err := r.CreateQueue(ctx, tv.QueueEntry{
 		SeriesID: seriesID, Season: 1, Episode: 0,
 		ReleaseTitle: "Game.of.Thrones.S01.COMPLETE.1080p.WEB.x264",
-		Indexer: "fake", DownloadClient: "mock", State: tv.QueueQueued,
+		Indexer:      "fake", DownloadClient: "mock", State: tv.QueueQueued,
 	})
 	if err != nil {
 		t.Fatalf("create season-pack queue: %v", err)
