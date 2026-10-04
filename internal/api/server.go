@@ -20,6 +20,7 @@ type Server struct {
 	health     *health.Checker
 	authDeps   *AuthDeps
 	moviesDeps *MoviesDeps
+	tvDeps     *TVDeps
 }
 
 // NewServer builds a Server with the given readiness checker.
