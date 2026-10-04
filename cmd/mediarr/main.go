@@ -30,6 +30,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/postgres"
 	"github.com/brandenk514/mediarr/internal/redis"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
+	tvs "github.com/brandenk514/mediarr/internal/services/tv"
 )
 
 // Build-time stamped values (see -ldflags in Dockerfile / Makefile).
@@ -198,6 +199,40 @@ func run() error {
 			return "none"
 		}())
 
+	// --- TV pipeline ---------------------------------------------------
+	// M2: wire the TV pipeline end-to-end, mirroring the movie pipeline. The
+	// TV service shares the same fake indexer + mock download client so a
+	// running dev server can exercise the full add → want → search → match →
+	// download → import path for series/episodes. A TV media root defaults to
+	// <MediaRoot>/tv so the two domains land in separate trees.
+	tvFake := indexers.NewFakeIndexer("fake")
+	// Dev-only demo pool (mirrors the movie pool): a few plausible TV release
+	// names so a live "search" returns candidates for a handful of series.
+	tvFake.AddRelease(indexers.SearchResult{Title: "Breaking.Bad.S01E01.Piloto.1080p.WEB.x264", SizeBytes: 1_900_000_000})
+	tvFake.AddRelease(indexers.SearchResult{Title: "Breaking.Bad.S01E02.1080p.WEB.x264", SizeBytes: 1_800_000_000})
+	tvFake.AddRelease(indexers.SearchResult{Title: "Breaking.Bad.S01.COMPLETE.1080p.WEB.x264", SizeBytes: 8_400_000_000})
+	tvFake.AddRelease(indexers.SearchResult{Title: "The.Wire.S01E01.1080p.WEB.x264", SizeBytes: 1_700_000_000})
+	tvFake.AddRelease(indexers.SearchResult{Title: "The.Wire.S01E01E02.1080p.WEB.x264", SizeBytes: 3_300_000_000})
+
+	tvMediaRoot := tvMediaRoot(cfg.MediaRoot)
+	tvSvc := tvs.New(tvs.Deps{
+		Repo:           postgres.NewTVRepo(pg.DB()),
+		Indexers:       []indexers.Searcher{tvFake},
+		Client:         dlClient,
+		MediaRoot:      tvMediaRoot,
+		DefaultProfile: "HD-1080p",
+	})
+	srv.SetTV(&api.TVDeps{Svc: tvSvc})
+	logger.Info("tv pipeline ready",
+		"media_root", tvMediaRoot,
+		"indexers", "fake",
+		"client", func() string {
+			if dlClient != nil {
+				return "mock"
+			}
+			return "none"
+		}())
+
 	logger.Info("server starting", "addr", cfg.HTTPAddr)
 	return srv.Serve(ctx,
 		cfg.HTTPAddr,
@@ -220,4 +255,15 @@ func hostOf(dsn string) string {
 		}
 	}
 	return dsn
+}
+
+// tvMediaRoot returns the on-disk root for imported TV files. It defaults to a
+// "tv" subdirectory under the shared media root so the TV and movie libraries
+// live in separate trees. If the shared media root is empty, it falls back to
+// a plain "tv" directory.
+func tvMediaRoot(mediaRoot string) string {
+	if mediaRoot == "" {
+		return "tv"
+	}
+	return mediaRoot + "/tv"
 }
