@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/health"
+	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 )
 
 // newTestServer builds a Server with a healthy checker.
@@ -132,6 +134,97 @@ func TestIsValidID(t *testing.T) {
 			t.Errorf("isValidID(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
+}
+
+// TestMusicRoutesRegister wires the full music route table onto a server so
+// that an ambiguous pattern in SetMusic (e.g. GET /api/v1/music/{id}/albums vs
+// GET /api/v1/music/albums/{id}, which Go 1.22+'s ServeMux panics on at
+// registration) fails here in the unit suite instead of crashing the process
+// at startup in the Docker smoke test. Registration-time panics are
+// unrecoverable from the middleware chain, so the test must survive one.
+func TestMusicRoutesRegister(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("SetMusic panicked while registering routes: %v", r)
+		}
+	}()
+	s := newTestServer()
+	s.SetMusic(&MusicDeps{Svc: musicsvc.New(musicsvc.Deps{Repo: stubMusicRepo{}})})
+}
+
+// stubMusicRepo implements musicdom.Repo with no-op methods. SetMusic only
+// registers routes (the deps are never called), so every method can panic
+// loudly if a handler is ever accidentally invoked.
+type stubMusicRepo struct{}
+
+func (stubMusicRepo) CreateArtist(context.Context, musicdom.Artist) (int64, error) {
+	panic("stubMusicRepo.CreateArtist should not be called")
+}
+func (stubMusicRepo) GetArtist(context.Context, int64) (*musicdom.Artist, error) {
+	panic("stubMusicRepo.GetArtist should not be called")
+}
+func (stubMusicRepo) ListArtists(context.Context) ([]musicdom.Artist, error) {
+	panic("stubMusicRepo.ListArtists should not be called")
+}
+func (stubMusicRepo) SetArtistMonitored(context.Context, int64, bool) error {
+	panic("stubMusicRepo.SetArtistMonitored should not be called")
+}
+func (stubMusicRepo) CreateAlbum(context.Context, musicdom.Album) (int64, error) {
+	panic("stubMusicRepo.CreateAlbum should not be called")
+}
+func (stubMusicRepo) GetAlbum(context.Context, int64) (*musicdom.Album, error) {
+	panic("stubMusicRepo.GetAlbum should not be called")
+}
+func (stubMusicRepo) ListAlbums(context.Context, int64) ([]musicdom.Album, error) {
+	panic("stubMusicRepo.ListAlbums should not be called")
+}
+func (stubMusicRepo) SetAlbumMonitored(context.Context, int64, bool) error {
+	panic("stubMusicRepo.SetAlbumMonitored should not be called")
+}
+func (stubMusicRepo) CreateTrack(context.Context, musicdom.Track) (int64, error) {
+	panic("stubMusicRepo.CreateTrack should not be called")
+}
+func (stubMusicRepo) GetTrack(context.Context, int64, int, int) (*musicdom.Track, error) {
+	panic("stubMusicRepo.GetTrack should not be called")
+}
+func (stubMusicRepo) ListTracks(context.Context, int64) ([]musicdom.Track, error) {
+	panic("stubMusicRepo.ListTracks should not be called")
+}
+func (stubMusicRepo) SetTrackMonitored(context.Context, int64, int, int, bool) error {
+	panic("stubMusicRepo.SetTrackMonitored should not be called")
+}
+func (stubMusicRepo) EnsureWantedAlbum(context.Context, int64) error {
+	panic("stubMusicRepo.EnsureWantedAlbum should not be called")
+}
+func (stubMusicRepo) EnsureWantedTrack(context.Context, int64, int64) error {
+	panic("stubMusicRepo.EnsureWantedTrack should not be called")
+}
+func (stubMusicRepo) GetWanted(context.Context, int64, int64) (*musicdom.Wanted, error) {
+	panic("stubMusicRepo.GetWanted should not be called")
+}
+func (stubMusicRepo) ListWanted(context.Context, int64) ([]musicdom.Wanted, error) {
+	panic("stubMusicRepo.ListWanted should not be called")
+}
+func (stubMusicRepo) MarkWantedSatisfied(context.Context, int64, int64, string) error {
+	panic("stubMusicRepo.MarkWantedSatisfied should not be called")
+}
+func (stubMusicRepo) CreateQueue(context.Context, musicdom.QueueEntry) (int64, error) {
+	panic("stubMusicRepo.CreateQueue should not be called")
+}
+func (stubMusicRepo) UpdateQueue(context.Context, musicdom.QueueEntry) error {
+	panic("stubMusicRepo.UpdateQueue should not be called")
+}
+func (stubMusicRepo) GetQueue(context.Context, int64) (*musicdom.QueueEntry, error) {
+	panic("stubMusicRepo.GetQueue should not be called")
+}
+func (stubMusicRepo) ListQueue(context.Context, int64) ([]musicdom.QueueEntry, error) {
+	panic("stubMusicRepo.ListQueue should not be called")
+}
+func (stubMusicRepo) AddHistory(context.Context, musicdom.HistoryEntry) error {
+	panic("stubMusicRepo.AddHistory should not be called")
+}
+func (stubMusicRepo) ListHistory(context.Context, int64, int) ([]musicdom.HistoryEntry, error) {
+	panic("stubMusicRepo.ListHistory should not be called")
 }
 
 // Ensure the server can be built and the handler chain works end-to-end.
