@@ -82,9 +82,9 @@ func TestParseRelease(t *testing.T) {
 			wantH: 2160, wantCodec: CodecH265, wantSrc: "web",
 		},
 		{
-			name:      "no episode marker -> typed error",
-			in:        "Breaking.Bad.1080p.WEB.x264",
-			wantErr:   true,
+			name:    "no episode marker -> typed error",
+			in:      "Breaking.Bad.1080p.WEB.x264",
+			wantErr: true,
 		},
 		{
 			name:    "bare garbage -> typed error",
