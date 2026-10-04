@@ -270,7 +270,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Add series + a monitored episode (which ensures a pending wanted row).
-	seriesID, err := svc.AddSeries(ctx, "Breaking Bad", "2008", "HD-1080p")
+	seriesID, err := svc.AddSeries(ctx, "Breaking Bad", "2008", "HD-1080p", true)
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestPipeline_MultiEpisode(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "The Wire", "2002", "HD-1080p")
+	seriesID, _ := svc.AddSeries(ctx, "The Wire", "2002", "HD-1080p", true)
 	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "The Details", true); err != nil {
 		t.Fatalf("add e1: %v", err)
 	}
@@ -382,6 +382,105 @@ func TestPipeline_MultiEpisode(t *testing.T) {
 	}
 }
 
+// TestPipeline_SeasonMonitor_Acceptance is the #16 acceptance E2E:
+//
+//	add series (unmonitored) → monitor S1E1-2 → pipeline satisfies exactly those
+//
+// The unmonitored series starts with no wanted rows; the two episodes that are
+// explicitly monitored each get a pending wanted row, and the pipeline services
+// exactly those. A distractor release for the unmonitored S1E3 is present in the
+// indexer but is never wanted, so it must NOT be imported — this proves
+// monitoring at episode granularity controls what the pipeline services.
+func TestPipeline_SeasonMonitor_Acceptance(t *testing.T) {
+	dlDir := t.TempDir()
+	mediaRoot := t.TempDir()
+	mock, _ := downloads.NewMockClient("mock", dlDir)
+	fake := indexers.NewFakeIndexer("fake")
+	// Releases for the two monitored episodes...
+	fake.AddRelease(indexers.SearchResult{Title: "Fringe.S01E01.Pilot.1080p.WEB.x264", SizeBytes: 1_900_000_000})
+	fake.AddRelease(indexers.SearchResult{Title: "Fringe.S01E02.Over-Looked.1080p.WEB.x264", SizeBytes: 1_900_000_000})
+	// ...and a distractor for the UNmonitored S1E3 that must be left alone.
+	fake.AddRelease(indexers.SearchResult{Title: "Fringe.S01E03.Bright.Lights.1080p.WEB.x264", SizeBytes: 1_900_000_000})
+
+	repo := newMemRepo()
+	svc := New(Deps{
+		Repo:           repo,
+		Indexers:       []indexers.Searcher{fake},
+		Client:         mock,
+		MediaRoot:      mediaRoot,
+		DefaultProfile: "HD-1080p",
+	})
+	ctx := context.Background()
+
+	// 1. Add the series unmonitored (no wanted rows yet).
+	seriesID, err := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", false)
+	if err != nil {
+		t.Fatalf("add series: %v", err)
+	}
+	s, _ := repo.GetSeries(ctx, seriesID)
+	if s.Monitored {
+		t.Errorf("series Monitored = true, want false (added unmonitored)")
+	}
+
+	// 2. Add three known episodes; the unmonitored E3 is present but unwanted.
+	for ep, title := range map[int]string{1: "Pilot", 2: "Over-Looked", 3: "Bright Lights"} {
+		if _, err := svc.AddEpisode(ctx, seriesID, 1, ep, title, false); err != nil {
+			t.Fatalf("add episode %d: %v", ep, err)
+		}
+	}
+	// No wanted rows exist yet.
+	if wants, _ := repo.ListWanted(ctx, seriesID); len(wants) != 0 {
+		t.Fatalf("wanted len = %d before monitoring, want 0", len(wants))
+	}
+
+	// 3. Monitor exactly S1E1 and S1E2 (S1E3 stays unmonitored).
+	if err := svc.SetEpisodeMonitored(ctx, seriesID, 1, 1, true); err != nil {
+		t.Fatalf("monitor E1: %v", err)
+	}
+	if err := svc.SetEpisodeMonitored(ctx, seriesID, 1, 2, true); err != nil {
+		t.Fatalf("monitor E2: %v", err)
+	}
+	wants, _ := repo.ListWanted(ctx, seriesID)
+	if len(wants) != 2 {
+		t.Fatalf("wanted len = %d after monitoring E1-E2, want 2", len(wants))
+	}
+
+	// 4. Run the pipeline: it must satisfy exactly E1 + E2, and ignore E3.
+	imported, err := svc.RunPipeline(ctx, seriesID)
+	if err != nil {
+		t.Fatalf("run pipeline: %v", err)
+	}
+	if imported != 2 {
+		t.Fatalf("imported = %d, want exactly 2 (E1 + E2)", imported)
+	}
+
+	// E1 and E2 satisfied...
+	for _, ep := range []int{1, 2} {
+		w, _ := repo.GetWanted(ctx, seriesID, 1, ep)
+		if w == nil {
+			t.Fatalf("no wanted row for S1E%02d", ep)
+		}
+		if w.Status != dom.WantedSatisfied {
+			t.Errorf("S1E%02d status = %q, want satisfied", ep, w.Status)
+		}
+	}
+	// ...and E3 has no wanted row at all (never wanted).
+	if _, err := repo.GetWanted(ctx, seriesID, 1, 3); err == nil {
+		t.Errorf("S1E03 unexpectedly has a wanted row (should stay unmonitored)")
+	}
+
+	// The two monitored episode files exist on disk at the documented layout.
+	for ep, title := range map[int]string{1: "Pilot", 2: "Over-Looked"} {
+		if _, err := os.Stat(episodePath(mediaRoot, "Fringe", 2008, 1, ep, title, ".mkv")); err != nil {
+			t.Errorf("imported file S1E%02d not on disk: %v", ep, err)
+		}
+	}
+	// The unmonitored E3 must NOT have been imported (its file is absent).
+	if _, err := os.Stat(episodePath(mediaRoot, "Fringe", 2008, 1, 3, "Bright Lights", ".mkv")); err == nil {
+		t.Errorf("unmonitored S1E03 was imported; it should have been left alone")
+	}
+}
+
 // TestPipeline_NoMatch verifies that when no release satisfies the profile, the
 // pipeline returns ErrNoMatch without importing or satisfying.
 func TestPipeline_NoMatch(t *testing.T) {
@@ -402,7 +501,7 @@ func TestPipeline_NoMatch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p")
+	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true)
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
 
 	_, err := svc.RunPipeline(ctx, seriesID)
