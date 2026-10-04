@@ -30,6 +30,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/postgres"
 	"github.com/brandenk514/mediarr/internal/redis"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
+	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 	tvs "github.com/brandenk514/mediarr/internal/services/tv"
 )
 
@@ -233,6 +234,41 @@ func run() error {
 			return "none"
 		}())
 
+	// --- Music pipeline --------------------------------------------
+	// M3: wire the music pipeline end-to-end, mirroring the TV pipeline. The
+	// music service shares the same fake indexer + mock download client so a
+	// running dev server can exercise the full add → want → search → match →
+	// download → import path for artists/albums/tracks. A music media root
+	// defaults to <MediaRoot>/music so the three domains land in separate
+	// trees.
+	musicFake := indexers.NewFakeIndexer("fake")
+	// Dev-only demo pool (mirrors the movie/TV pools): a few plausible music
+	// release names so a live "search" returns candidates for a handful of
+	// artists/albums.
+	musicFake.AddRelease(indexers.SearchResult{Title: "Bob Marley (1977) - Legend [FLAC 998kbps Lossless]", SizeBytes: 4_200_000_000})
+	musicFake.AddRelease(indexers.SearchResult{Title: "The Beatles (1968) - The White Album [FLAC Lossless]", SizeBytes: 6_100_000_000})
+	musicFake.AddRelease(indexers.SearchResult{Title: "Daft Punk (2001) - Discovery [FLAC 1411kbps Lossless]", SizeBytes: 5_800_000_000})
+	musicFake.AddRelease(indexers.SearchResult{Title: "Nirvana (1991) - Nevermind [MP3 320kbps]", SizeBytes: 1_100_000_000})
+
+	musicMediaRoot := musicMediaRoot(cfg.MediaRoot)
+	musicSvc := musicsvc.New(musicsvc.Deps{
+		Repo:           postgres.NewMusicRepo(pg.DB()),
+		Indexers:       []indexers.Searcher{musicFake},
+		Client:         dlClient,
+		MediaRoot:      musicMediaRoot,
+		DefaultProfile: "Lossless",
+	})
+	srv.SetMusic(&api.MusicDeps{Svc: musicSvc})
+	logger.Info("music pipeline ready",
+		"media_root", musicMediaRoot,
+		"indexers", "fake",
+		"client", func() string {
+			if dlClient != nil {
+				return "mock"
+			}
+			return "none"
+		}())
+
 	logger.Info("server starting", "addr", cfg.HTTPAddr)
 	return srv.Serve(ctx,
 		cfg.HTTPAddr,
@@ -266,4 +302,15 @@ func tvMediaRoot(mediaRoot string) string {
 		return "tv"
 	}
 	return mediaRoot + "/tv"
+}
+
+// musicMediaRoot returns the on-disk root for imported music files. It
+// defaults to a "music" subdirectory under the shared media root so the music
+// library lives in a separate tree from the movie and TV libraries. If the
+// shared media root is empty, it falls back to a plain "music" directory.
+func musicMediaRoot(mediaRoot string) string {
+	if mediaRoot == "" {
+		return "music"
+	}
+	return mediaRoot + "/music"
 }
