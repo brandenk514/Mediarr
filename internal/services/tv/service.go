@@ -29,6 +29,14 @@ var ErrNoMatch = fmt.Errorf("tv: no release matched the quality profile")
 // service (nothing to do).
 var ErrNoWanted = fmt.Errorf("tv: no pending wanted episodes")
 
+// ErrSeriesNotFound and ErrEpisodeNotFound are re-exported from the pure
+// domain so API/transport layers can map them to 404 without importing the
+// domain directly.
+var (
+	ErrSeriesNotFound  = dom.ErrSeriesNotFound
+	ErrEpisodeNotFound = dom.ErrEpisodeNotFound
+)
+
 // Deps bundles the Service's collaborators. Everything is an interface (or the
 // pure domain), so the service is testable with a fake indexer, a mock download
 // client, and either a real Postgres repo or an in-memory fake.
@@ -58,9 +66,12 @@ func New(deps Deps) *Service {
 	return &Service{deps: deps}
 }
 
-// AddSeries creates a series (if new) and records the add in history. Returns
-// the series id.
-func (s *Service) AddSeries(ctx context.Context, title, year, qualityProfile string) (int64, error) {
+// AddSeries creates a series (if new) and records the add in history. The
+// monitored flag sets the series-level monitor toggle (PLAN §4): a monitored
+// series is wanted by default; an unmonitored series is added quietly and is
+// wanted only when a season or episode is explicitly monitored. Returns the
+// series id.
+func (s *Service) AddSeries(ctx context.Context, title, year, qualityProfile string, monitored bool) (int64, error) {
 	if strings.TrimSpace(title) == "" {
 		return 0, fmt.Errorf("tv: title is required")
 	}
@@ -71,7 +82,7 @@ func (s *Service) AddSeries(ctx context.Context, title, year, qualityProfile str
 		Title:          strings.TrimSpace(title),
 		Year:           parseYear(year),
 		QualityProfile: qualityProfile,
-		Monitored:      true,
+		Monitored:      monitored,
 	}
 	id, err := s.deps.Repo.CreateSeries(ctx, series)
 	if err != nil {
@@ -137,6 +148,63 @@ func (s *Service) SetEpisodeMonitored(ctx context.Context, seriesID int64, seaso
 	}
 	if monitored {
 		return s.deps.Repo.EnsureWanted(ctx, seriesID, season, episode)
+	}
+	return nil
+}
+
+// SetSeriesMonitored toggles the series-level monitor (PLAN §4) and propagates
+// it to every known episode of the series, ensuring a pending wanted row for
+// each on toggle-on. The wanted rows are the pipeline's work queue (PLAN §4:
+// the worker creates/updates wanted entries). A series with no known episodes
+// simply records the toggle; episodes added later default to monitored via the
+// API, so the intent is not lost.
+func (s *Service) SetSeriesMonitored(ctx context.Context, seriesID int64, monitored bool) error {
+	if err := s.deps.Repo.SetSeriesMonitored(ctx, seriesID, monitored); err != nil {
+		return err
+	}
+	eps, err := s.deps.Repo.ListEpisodes(ctx, seriesID)
+	if err != nil {
+		return err
+	}
+	for _, e := range eps {
+		if err := s.SetEpisodeMonitored(ctx, seriesID, e.Season, e.Episode, monitored); err != nil {
+			return err
+		}
+	}
+	event := "monitored"
+	if !monitored {
+		event = "unmonitored"
+	}
+	s.record(ctx, seriesID, event, "series-level toggle")
+	return nil
+}
+
+// SetSeasonMonitored toggles monitoring for a single season (PLAN §4) by
+// fanning out to every known episode in that season, ensuring a pending wanted
+// row for each on toggle-on. Seasons are implicit (the model has no season
+// rows), so a season with no known episodes yet is a no-op — episodes added
+// later default to monitored via the API.
+func (s *Service) SetSeasonMonitored(ctx context.Context, seriesID int64, season int, monitored bool) error {
+	eps, err := s.deps.Repo.ListEpisodes(ctx, seriesID)
+	if err != nil {
+		return err
+	}
+	matched := false
+	for _, e := range eps {
+		if e.Season != season {
+			continue
+		}
+		matched = true
+		if err := s.SetEpisodeMonitored(ctx, seriesID, e.Season, e.Episode, monitored); err != nil {
+			return err
+		}
+	}
+	if matched {
+		event := "season-monitored"
+		if !monitored {
+			event = "season-unmonitored"
+		}
+		s.record(ctx, seriesID, event, fmt.Sprintf("season %d", season))
 	}
 	return nil
 }

@@ -101,3 +101,14 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	}
 	return id, true
 }
+
+// pathInt extracts a named positive-integer path segment ({season}/{episode}),
+// writing an error on failure. Returns ok=false when an error was written.
+func pathInt(w http.ResponseWriter, raw, name string) (int, bool) {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid "+name)
+		return 0, false
+	}
+	return n, true
+}
