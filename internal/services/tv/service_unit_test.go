@@ -3,6 +3,7 @@ package tv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,12 +72,12 @@ func TestAddSeries(t *testing.T) {
 	ctx := context.Background()
 
 	// Blank title is rejected.
-	if _, err := svc.AddSeries(ctx, "   ", "2008", ""); err == nil {
+	if _, err := svc.AddSeries(ctx, "   ", "2008", "", true); err == nil {
 		t.Error("expected error for blank title, got nil")
 	}
 
 	// Valid add: year parsed, default profile applied, history recorded.
-	id, err := svc.AddSeries(ctx, "  Severance  ", "2022", "")
+	id, err := svc.AddSeries(ctx, "  Severance  ", "2022", "", true)
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestAddSeries(t *testing.T) {
 	}
 
 	// Invalid year string maps to 0.
-	if _, err := svc.AddSeries(ctx, "No Year", "soon", ""); err != nil {
+	if _, err := svc.AddSeries(ctx, "No Year", "soon", "", true); err != nil {
 		t.Fatalf("add series (bad year): %v", err)
 	}
 }
@@ -111,7 +112,7 @@ func TestAddEpisode(t *testing.T) {
 	svc, repo := setupService(t)
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p")
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
 
 	// Monitored episode creates a pending wanted row.
 	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "Goodbye", true); err != nil {
@@ -140,8 +141,8 @@ func TestListAndGetSeries(t *testing.T) {
 	svc, _ := setupService(t)
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p")
-	if _, err := svc.AddSeries(ctx, "Halt", "2020", "HD-1080p"); err != nil {
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
+	if _, err := svc.AddSeries(ctx, "Halt", "2020", "HD-1080p", true); err != nil {
 		t.Fatalf("add second series: %v", err)
 	}
 
@@ -171,7 +172,7 @@ func TestListEpisodesAndWanted(t *testing.T) {
 	svc, _ := setupService(t)
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p")
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Goodbye", true)
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 2, "Looping", true)
 
@@ -196,7 +197,7 @@ func TestSetEpisodeMonitored(t *testing.T) {
 	svc, repo := setupService(t)
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p")
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Goodbye", true)
 	// The monitored add already created a pending wanted row; mark it satisfied
 	// so that re-monitoring must create/refresh a pending row.
@@ -246,7 +247,7 @@ func TestRunPipeline_NoClient(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p")
+	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true)
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
 
 	if _, err := svc.RunPipeline(ctx, seriesID); err == nil {
@@ -281,7 +282,7 @@ func TestRunPipeline_IndexerFailureDoesNotFailSearch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p")
+	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true)
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
 
 	// The failing indexer is skipped; the good one still yields a match, so the
@@ -310,7 +311,7 @@ func TestRunPipeline_ClientAddFails(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p")
+	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true)
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
 
 	// Client.Add fails -> download-failed recorded, nothing imported, no match.
@@ -471,4 +472,129 @@ func (neverCompleteClient) Name() string                                 { retur
 func (neverCompleteClient) Add(context.Context, downloads.Release) error { return nil }
 func (neverCompleteClient) Status(context.Context, string) (downloads.Status, error) {
 	return downloads.Status{Complete: false, Progress: 0}, nil
+}
+
+// wantCount returns how many wanted rows a series has in a given season.
+func wantCount(t *testing.T, repo *memRepo, seriesID int64, season int) int {
+	t.Helper()
+	wants, err := repo.ListWanted(ctx0(), seriesID)
+	if err != nil {
+		t.Fatalf("list wanted: %v", err)
+	}
+	n := 0
+	for _, w := range wants {
+		if w.Season == season {
+			n++
+		}
+	}
+	return n
+}
+
+// ctx0 is a scratch context for the small fan-out helpers below.
+func ctx0() context.Context { return context.Background() }
+
+// TestSetSeasonMonitored verifies the season-level toggle (PLAN §4) fans out to
+// the season's known episodes and ensures a wanted row for each on toggle-on.
+func TestSetSeasonMonitored(t *testing.T) {
+	svc, repo := setupService(t)
+	ctx := context.Background()
+
+	// Two seasons of known episodes, all added unmonitored.
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
+	for ep := 1; ep <= 2; ep++ {
+		if _, err := svc.AddEpisode(ctx, seriesID, 1, ep, fmt.Sprintf("s1e%d", ep), false); err != nil {
+			t.Fatalf("add s1e%d: %v", ep, err)
+		}
+	}
+	if _, err := svc.AddEpisode(ctx, seriesID, 2, 1, "s2e1", false); err != nil {
+		t.Fatalf("add s2e1: %v", err)
+	}
+
+	// Monitoring season 1 wants exactly its two episodes — not season 2.
+	if err := svc.SetSeasonMonitored(ctx, seriesID, 1, true); err != nil {
+		t.Fatalf("monitor season 1: %v", err)
+	}
+	if got := wantCount(t, repo, seriesID, 1); got != 2 {
+		t.Errorf("season 1 wanted = %d, want 2", got)
+	}
+	if got := wantCount(t, repo, seriesID, 2); got != 0 {
+		t.Errorf("season 2 wanted = %d, want 0 (untouched)", got)
+	}
+	for ep := 1; ep <= 2; ep++ {
+		e, _ := repo.GetEpisode(ctx, seriesID, 1, ep)
+		if !e.Monitored {
+			t.Errorf("S1E%02d Monitored = false after season toggle", ep)
+		}
+	}
+
+	// Toggling the season off de-monitors its episodes (no new wanted rows).
+	if err := svc.SetSeasonMonitored(ctx, seriesID, 1, false); err != nil {
+		t.Fatalf("unmonitor season 1: %v", err)
+	}
+	for ep := 1; ep <= 2; ep++ {
+		e, _ := repo.GetEpisode(ctx, seriesID, 1, ep)
+		if e.Monitored {
+			t.Errorf("S1E%02d still monitored after season un-monitor", ep)
+		}
+	}
+
+	// A season with no known episodes is a clean no-op.
+	if err := svc.SetSeasonMonitored(ctx, seriesID, 5, true); err != nil {
+		t.Fatalf("monitor empty season 5: %v", err)
+	}
+	if got := wantCount(t, repo, seriesID, 5); got != 0 {
+		t.Errorf("season 5 wanted = %d, want 0 (no episodes)", got)
+	}
+}
+
+// TestSetSeriesMonitored verifies the series-level toggle (PLAN §4) fans out to
+// every known episode of the series, and that an unknown series errors.
+func TestSetSeriesMonitored(t *testing.T) {
+	svc, repo := setupService(t)
+	ctx := context.Background()
+
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", false)
+	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "a", false); err != nil {
+		t.Fatalf("add e1: %v", err)
+	}
+	if _, err := svc.AddEpisode(ctx, seriesID, 2, 1, "b", false); err != nil {
+		t.Fatalf("add s2e1: %v", err)
+	}
+
+	// Monitor the whole series: both episodes across both seasons become wanted.
+	if err := svc.SetSeriesMonitored(ctx, seriesID, true); err != nil {
+		t.Fatalf("monitor series: %v", err)
+	}
+	s, _ := repo.GetSeries(ctx, seriesID)
+	if !s.Monitored {
+		t.Error("series Monitored = false after series toggle")
+	}
+	if got := len(repo.wanted); got != 2 {
+		t.Errorf("total wanted = %d, want 2 (one per known episode)", got)
+	}
+	if _, err := repo.GetWanted(ctx, seriesID, 1, 1); err != nil {
+		t.Errorf("S1E01 should have a wanted row: %v", err)
+	}
+	if _, err := repo.GetWanted(ctx, seriesID, 2, 1); err != nil {
+		t.Errorf("S2E01 should have a wanted row: %v", err)
+	}
+
+	// Unmonitoring the whole series de-monitors every episode.
+	if err := svc.SetSeriesMonitored(ctx, seriesID, false); err != nil {
+		t.Fatalf("unmonitor series: %v", err)
+	}
+	s, _ = repo.GetSeries(ctx, seriesID)
+	if s.Monitored {
+		t.Error("series still Monitored after un-monitor")
+	}
+	for _, e := range repo.episodes[seriesID] {
+		if e.Monitored {
+			t.Errorf("episode S%02dE%02d still monitored after series un-monitor", e.Season, e.Episode)
+		}
+	}
+
+	// Unknown series surfaces ErrSeriesNotFound.
+	if err := svc.SetSeriesMonitored(ctx, 999, true); !errors.Is(err, dom.ErrSeriesNotFound) {
+		t.Errorf("unknown series err = %v, want ErrSeriesNotFound", err)
+	}
 }
