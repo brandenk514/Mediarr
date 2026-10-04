@@ -14,21 +14,31 @@ type MusicDeps struct {
 
 // SetMusic wires the music endpoints. Called after construction, mirroring
 // SetTV, so NewServer stays usable for health-only boot and tests.
+//
+// Artist routes are prefixed /api/v1/music/artists, not the bare
+// /api/v1/music/{id}. The alternative would register the artist's album
+// collection (GET /api/v1/music/{id}/albums) alongside the album's by-id
+// route (GET /api/v1/music/albums/{id}); those two patterns are ambiguous
+// for /api/v1/music/albums/albums, and Go 1.22+'s ServeMux panics on the
+// registration — which kills the process at startup before the HTTP server
+// ever runs. The prefixed artist routes are disjoint from the prefixed
+// album routes, so the whole table registers cleanly (guarded by
+// TestMusicRoutesRegister).
 func (s *Server) SetMusic(deps *MusicDeps) {
 	s.musicDeps = deps
-	s.mux.HandleFunc("POST /api/v1/music", s.requireAuth(s.AddArtist))
-	s.mux.HandleFunc("GET /api/v1/music", s.requireAuth(s.ListArtists))
-	s.mux.HandleFunc("GET /api/v1/music/{id}", s.requireAuth(s.GetArtist))
-	s.mux.HandleFunc("PUT /api/v1/music/{id}", s.requireAuth(s.SetArtistMonitored))
-	s.mux.HandleFunc("POST /api/v1/music/{id}/albums", s.requireAuth(s.AddAlbum))
-	s.mux.HandleFunc("GET /api/v1/music/{id}/albums", s.requireAuth(s.ListAlbums))
+	s.mux.HandleFunc("POST /api/v1/music/artists", s.requireAuth(s.AddArtist))
+	s.mux.HandleFunc("GET /api/v1/music/artists", s.requireAuth(s.ListArtists))
+	s.mux.HandleFunc("GET /api/v1/music/artists/{id}", s.requireAuth(s.GetArtist))
+	s.mux.HandleFunc("PUT /api/v1/music/artists/{id}", s.requireAuth(s.SetArtistMonitored))
+	s.mux.HandleFunc("POST /api/v1/music/artists/{id}/albums", s.requireAuth(s.AddAlbum))
+	s.mux.HandleFunc("GET /api/v1/music/artists/{id}/albums", s.requireAuth(s.ListAlbums))
 	s.mux.HandleFunc("GET /api/v1/music/albums/{id}", s.requireAuth(s.GetAlbum))
 	s.mux.HandleFunc("PUT /api/v1/music/albums/{id}", s.requireAuth(s.SetAlbumMonitored))
 	s.mux.HandleFunc("POST /api/v1/music/albums/{id}/tracks", s.requireAuth(s.AddTrack))
 	s.mux.HandleFunc("GET /api/v1/music/albums/{id}/tracks", s.requireAuth(s.ListTracks))
 	s.mux.HandleFunc("PUT /api/v1/music/albums/{id}/tracks/{disc}/{number}", s.requireAuth(s.SetTrackMonitored))
 	s.mux.HandleFunc("GET /api/v1/music/albums/{id}/wanted", s.requireAuth(s.ListAlbumWanted))
-	s.mux.HandleFunc("POST /api/v1/music/{id}/pipeline", s.requireAuth(s.RunMusicPipeline))
+	s.mux.HandleFunc("POST /api/v1/music/artists/{id}/pipeline", s.requireAuth(s.RunMusicPipeline))
 }
 
 // addArtistRequest is the body for POST /api/v1/music. Monitored is a pointer
@@ -39,7 +49,7 @@ type addArtistRequest struct {
 	Monitored *bool  `json:"monitored"`
 }
 
-// AddArtist handles POST /api/v1/music. An artist is monitored by default; an
+// AddArtist handles POST /api/v1/music/artists. An artist is monitored by default; an
 // explicit "monitored": false opts out (PLAN §4 artist-level monitor).
 func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 	var req addArtistRequest
@@ -63,7 +73,7 @@ func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
-// ListArtists handles GET /api/v1/music.
+// ListArtists handles GET /api/v1/music/artists.
 func (s *Server) ListArtists(w http.ResponseWriter, r *http.Request) {
 	artists, err := s.musicDeps.Svc.ListArtists(r.Context())
 	if err != nil {
@@ -73,7 +83,7 @@ func (s *Server) ListArtists(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, artists)
 }
 
-// GetArtist handles GET /api/v1/music/{id}.
+// GetArtist handles GET /api/v1/music/artists/{id}.
 func (s *Server) GetArtist(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -221,7 +231,7 @@ func (s *Server) ListAlbumWanted(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, wants)
 }
 
-// RunMusicPipeline handles POST /api/v1/music/{id}/pipeline.
+// RunMusicPipeline handles POST /api/v1/music/artists/{id}/pipeline.
 func (s *Server) RunMusicPipeline(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -254,7 +264,7 @@ func writeMusicMonitoredError(w http.ResponseWriter, err error) {
 	writeError(w, status, err.Error())
 }
 
-// SetArtistMonitored handles PUT /api/v1/music/{id}. It toggles the
+// SetArtistMonitored handles PUT /api/v1/music/artists/{id}. It toggles the
 // artist-level monitor, which fans out to the artist's known albums (PLAN §4).
 func (s *Server) SetArtistMonitored(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
