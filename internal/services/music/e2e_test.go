@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -116,6 +117,10 @@ func (r *memRepo) ListAlbums(ctx context.Context, artistID int64) ([]dom.Album, 
 			out = append(out, a)
 		}
 	}
+	// Mirror MusicRepo.ListAlbums (ORDER BY id == insertion order). Go map
+	// iteration is randomized, so without this the E2E tests that index
+	// positionally (albums[0], albums[1]) flake.
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
 }
 
@@ -197,6 +202,9 @@ func (r *memRepo) ListWanted(ctx context.Context, albumID int64) ([]dom.Wanted, 
 			out = append(out, w)
 		}
 	}
+	// Mirror MusicRepo.ListWanted (album-level first, then track-level, by
+	// track id). Album-level has TrackID==0 so it sorts first.
+	sort.Slice(out, func(i, j int) bool { return out[i].TrackID < out[j].TrackID })
 	return out, nil
 }
 
