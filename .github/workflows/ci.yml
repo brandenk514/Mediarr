@@ -58,7 +58,7 @@ jobs:
           # #22 smoke-test route regression would have slipped through.
           go test ./internal/api/... ./internal/auth/... ./internal/config/... \
             ./internal/health/... ./internal/domains/... ./internal/services/... \
-            ./internal/secrets/... -count=1 -cover -coverprofile=unit.coverage.out
+            ./internal/secrets/... ./internal/indexers/... -count=1 -cover -coverprofile=unit.coverage.out
           go tool cover -func unit.coverage.out | tail -1
 
           # Enforce the overall coverage floor (PLAN §10: >= 60% overall).
