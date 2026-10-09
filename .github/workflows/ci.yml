@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.27.1'
+  GO_VERSION: '1.27.2'
 
 jobs:
   # ------------------------------------------------------------------ verify
@@ -64,7 +64,34 @@ jobs:
           govulncheck ./...
 
       - name: Unit tests
-        run: go test ./internal/api/... ./internal/auth/... ./internal/config/... ./internal/health/... -count=1 -cover
+        run: |
+          set -euo pipefail
+          # Pure (no Docker / DSN / network) unit tests across every domain,
+          # service, and supporting package. domains/ and services/ were
+          # previously only covered by `make test`, not the CI gate — the
+          # #22 smoke-test route regression would have slipped through.
+          go test ./internal/api/... ./internal/auth/... ./internal/config/... \
+            ./internal/health/... ./internal/domains/... ./internal/services/... \
+            ./internal/secrets/... -count=1 -cover -coverprofile=unit.coverage.out
+          go tool cover -func unit.coverage.out | tail -1
+
+          # Enforce the overall coverage floor (PLAN §10: >= 60% overall).
+          # The per-package 80% target for domain/ and services/ is reported
+          # below but is NOT yet a hard gate: domains/movies (66%) and
+          # services/movies (67%) are still climbing to it — promote those
+          # to a hard gate once they land (tracked as a follow-up).
+          total=$(go tool cover -func unit.coverage.out | awk '/^total/ {gsub("%","",$3); print $3}')
+          if awk -v v="${total:-0}" 'BEGIN { exit !(v < 60) }'; then
+            echo "FAIL: overall unit coverage ${total}% is below the 60% floor (PLAN §10)" >&2
+            exit 1
+          fi
+          echo "overall unit coverage: ${total}% (floor 60%) — per-package (target 80%):"
+          for pkg in $(go list ./internal/domains/... ./internal/services/...); do
+            go test -covermode=atomic -coverpkg="$pkg" -coverprofile=cov.out "$pkg" -count=1 >/dev/null
+            pct=$(go tool cover -func cov.out | awk '/^total/ {print $3}')
+            printf '  %-55s %s\n' "$pkg" "$pct"
+          done
+          rm -f cov.out
 
       - name: Integration tests (Postgres + Redis)
         run: go test ./internal/postgres/... ./internal/auth/... -count=1 -timeout 300s
