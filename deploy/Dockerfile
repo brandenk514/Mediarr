@@ -4,7 +4,7 @@
 # in "runtime". The runtime image has NO shell, NO package manager, and no
 # writable filesystem outside explicitly declared volumes.
 
-ARG GO_VERSION=1.27.1
+ARG GO_VERSION=1.27.2
 
 # ---- build -----------------------------------------------------------------
 FROM golang:${GO_VERSION}-bookworm AS build
