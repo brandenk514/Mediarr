@@ -21,27 +21,13 @@ jobs:
     name: Lint, vet, test
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: mediarr
-          POSTGRES_PASSWORD: mediarr
-          POSTGRES_DB: mediarr
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U mediarr"
-          --health-interval 5s --health-timeout 3s --health-retries 10
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 3s --health-retries 10
-    env:
-      MEDIARR_POSTGRES_DSN: postgres://mediarr:***@127.0.0.1:5432/mediarr?sslmode=disable
-      MEDIARR_REDIS_URL: redis://127.0.0.1:6379
-      MEDIARR_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+    # Postgres (and Redis) for the integration tests are provisioned per-test
+    # via testcontainers (internal/postgres/*_integration_test.go,
+    # internal/auth/integration_test.go). We deliberately do NOT declare a
+    # services: block here: the runner pulls those images *before any step
+    # runs*, and that anonymous pull intermittently hit Docker Hub's
+    # 100-pull/6h rate limit ("toomanyrequests"), failing the job before a
+    # single test ran.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,6 +79,17 @@ jobs:
           done
           rm -f cov.out
 
+      # Authenticate to Docker Hub (if credentials are configured) so the
+      # testcontainers pull of postgres:16-alpine is authenticated and does not
+      # hit the anonymous rate limit that intermittently breaks GitHub-hosted
+      # runners. No-op if DOCKERHUB_TOKEN is not set.
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Integration tests (Postgres + Redis)
         run: go test ./internal/postgres/... ./internal/auth/... -count=1 -timeout 300s
 
@@ -124,6 +121,16 @@ jobs:
           else
             echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           fi
+
+      # Authenticate to Docker Hub (if configured) so the golang base-image
+      # pull during the build is authenticated (avoids the anonymous rate
+      # limit). No-op if DOCKERHUB_TOKEN is not set.
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Always build locally (single-arch, loaded into the daemon) so the
       # Trivy scan and SBOM have an image to read. No registry push on PRs.
@@ -197,6 +204,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      # Authenticate to Docker Hub (if configured) so compose's pull of
+      # postgres/redis is authenticated (avoids the anonymous rate limit).
+      # No-op if DOCKERHUB_TOKEN is not set.
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Run the image against real Postgres + Redis
         run: |
           set -euo pipefail
