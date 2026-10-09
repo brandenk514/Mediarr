@@ -1,24 +1,15 @@
-// Package books is the 100% pure domain model for the books media kind
-// (issue #24, PLAN §4 / §15.4). It defines the author / title / edition
-// hierarchy that the store and services program against, mirroring the music
-// domain's artist / album / track model. This is a pure (no I/O) definition:
-// the structs are data and Repo is the interface. The concrete repository
-// lives in the postgres adapter so this package stays free of database imports
-// — the same thin-common-interface pattern the movies, TV, and music domains
-// use (PLAN §4: per-kind tables + a thin common interface).
+// Package books is the pure domain model for the books library (M4): the
+// author → title → edition hierarchy plus the pipeline state (wanted, queue,
+// history) that drives the search → download → import flow. It is pure: no
+// database, file, or network I/O. Concrete behaviour lives in the repository
+// (postgres) and the service (services/books), which implement/program the
+// interfaces here — the same thin-common-interface pattern the movies, TV,
+// and music domains use (PLAN §4: per-kind tables + a thin common interface).
 //
-// Identity: v1 identifies a book at the TITLE level (author + name). An
-// EDITION is a specific publication of that title — a format (epub / mobi /
-// azw3, PLAN §15.4) plus, when known, the ISBN / publisher / year / pages that
-// disambiguate it from other editions of the same title. The edition is the
-// unit the format matcher (#25) and the wanted/monitor granularity (#27) will
-// operate on. Monitoring is carried on each level so a whole author, a whole
-// title, or a single edition can be tracked.
-//
-// NOTE: wanted / queue / history entities and their Repo methods are
-// deliberately NOT defined here; they land with the wanted/monitor (#27) and
-// pipeline (#28) work, matching how this milestone slice stays focused on the
-// data model.
+// Identity: v1 identifies an author by name. A title is identified within its
+// author by name; an edition within its title by (format, isbn). Wanted items
+// carry the title or edition specifier so monitoring works at both title and
+// edition granularity (mirroring music's album/track granularity).
 package books
 
 import (
@@ -27,8 +18,7 @@ import (
 	"time"
 )
 
-// Author is a tracked book author (a "series" of titles), the parent of the
-// hierarchy.
+// Author is a tracked book author.
 type Author struct {
 	ID        int64
 	Name      string
@@ -36,9 +26,8 @@ type Author struct {
 	AddedAt   time.Time
 }
 
-// Title is a specific book by an author — the identity unit. An edition is a
-// particular publication of the same title (a format + publisher/year). The
-// natural key is (author_id, name).
+// Title is a book title (a logical book, e.g. "The Dispossessed") within an
+// author. A title has zero or more editions (physical/digital variants).
 type Title struct {
 	ID        int64
 	AuthorID  int64
@@ -47,37 +36,89 @@ type Title struct {
 	AddedAt   time.Time
 }
 
-// Edition is a specific publication of a title: which format (epub / mobi /
-// azw3, PLAN §15.4) and, when known, the ISBN / publisher / year / page count
-// that disambiguate it from other editions of the same title. The Format string
-// is validated by the format matcher (issue #25), not here, so the model stays
-// decoupled from the accepted-format list.
+// Edition is a specific variant of a title, identified by its ISBN within the
+// title. ISBN, Publisher, Year, and Pages are optional (""/0) because a title
+// may have editions without all metadata.
 type Edition struct {
 	ID        int64
 	TitleID   int64
-	Format    string
-	Publisher string
-	ISBN      string
-	Year      int
-	Pages     int
-	Monitored bool // edition-level monitor toggle
+	Format    string // epub / mobi / azw3 (see format.go)
+	ISBN      string // "" = unset
+	Publisher string // "" = unset
+	Year      int    // 0 = unset
+	Pages     int    // 0 = unset
+	Monitored bool   // edition-level monitor toggle
 	AddedAt   time.Time
 }
 
-// Sentinel errors returned by domain-level validation. The Postgres repository
-// maps its not-found SQL errors onto these same sentinels so callers get a
-// consistent, typed contract regardless of the underlying store.
-var (
-	ErrAuthorNotFound  = errors.New("books: author not found")
-	ErrTitleNotFound   = errors.New("books: title not found")
-	ErrEditionNotFound = errors.New("books: edition not found")
+// WantedStatus is the lifecycle of a wanted request.
+type WantedStatus string
+
+const (
+	WantedPending   WantedStatus = "pending"
+	WantedSatisfied WantedStatus = "satisfied"
 )
+
+// Wanted is a "we want a file" request at title or edition granularity.
+// EditionID == 0 is a whole-title request; EditionID > 0 is a specific edition.
+type Wanted struct {
+	TitleID      int64
+	EditionID    int64 // 0 = whole title
+	Status       WantedStatus
+	ReleaseTitle string // the release that satisfied it (when satisfied)
+	CreatedAt    time.Time
+	SatisfiedAt  *time.Time
+}
+
+// QueueState is the state of a download-queue entry.
+type QueueState string
+
+const (
+	QueueQueued      QueueState = "queued"
+	QueueDownloading QueueState = "downloading"
+	QueueComplete    QueueState = "complete"
+	QueueFailed      QueueState = "failed"
+)
+
+// QueueEntry is one download job in the queue (a book release).
+type QueueEntry struct {
+	ID             int64
+	AuthorID       int64
+	TitleID        int64
+	ReleaseTitle   string
+	Indexer        string
+	DownloadClient string
+	State          QueueState
+	Progress       int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// HistoryEntry is an auditable event in an author's library lifecycle.
+type HistoryEntry struct {
+	ID       int64
+	AuthorID int64
+	Event    string // "added", "monitored", "searched", "download", "import", ...
+	Detail   string
+	At       time.Time
+}
+
+// ErrAuthorNotFound is returned when an author id does not exist.
+var ErrAuthorNotFound = errors.New("books: author not found")
+
+// ErrTitleNotFound is returned when a title does not exist.
+var ErrTitleNotFound = errors.New("books: title not found")
+
+// ErrEditionNotFound is returned when an edition does not exist.
+var ErrEditionNotFound = errors.New("books: edition not found")
+
+// ErrCollision is returned when an import target file already exists on disk;
+// the existing file is never overwritten (PLAN §6/§8).
+var ErrCollision = errors.New("books: import: destination file already exists")
 
 // Repo is the persistence surface the books pipeline needs. Implemented by the
 // postgres adapter; tests can satisfy it with a fake. The service programs
-// against this interface, never against *sql.DB. This is the data-model surface
-// for issue #24 (author / title / edition CRUD); the wanted / queue / history
-// methods are added in #27 / #28.
+// against this interface, never against *sql.DB.
 type Repo interface {
 	// Authors
 	CreateAuthor(ctx context.Context, a Author) (int64, error)
@@ -96,4 +137,21 @@ type Repo interface {
 	GetEdition(ctx context.Context, id int64) (*Edition, error)
 	ListEditions(ctx context.Context, titleID int64) ([]Edition, error)
 	SetEditionMonitored(ctx context.Context, id int64, monitored bool) error
+
+	// Wanted (title or edition granularity)
+	EnsureWantedTitle(ctx context.Context, titleID int64) error
+	EnsureWantedEdition(ctx context.Context, titleID, editionID int64) error
+	GetWanted(ctx context.Context, titleID, editionID int64) (*Wanted, error)
+	ListWanted(ctx context.Context, titleID int64) ([]Wanted, error)
+	MarkWantedSatisfied(ctx context.Context, titleID, editionID int64, releaseTitle string) error
+
+	// Queue
+	CreateQueue(ctx context.Context, e QueueEntry) (int64, error)
+	UpdateQueue(ctx context.Context, e QueueEntry) error
+	GetQueue(ctx context.Context, id int64) (*QueueEntry, error)
+	ListQueue(ctx context.Context, authorID int64) ([]QueueEntry, error)
+
+	// History
+	AddHistory(ctx context.Context, e HistoryEntry) error
+	ListHistory(ctx context.Context, authorID int64, limit int) ([]HistoryEntry, error)
 }
