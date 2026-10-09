@@ -33,10 +33,10 @@ func TestMigrate_DownRevertsAndReapplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after up: %v", err)
 	}
-	if v != "0004_music" {
-		t.Fatalf("version = %q, want 0004_music (highest applied)", v)
+	if v != "0005_books" {
+		t.Fatalf("version = %q, want 0005_books (highest applied)", v)
 	}
-	for _, tbl := range []string{"users", "movies", "tv_series", "music_artists", "schema_migrations"} {
+	for _, tbl := range []string{"users", "movies", "tv_series", "music_artists", "book_authors", "schema_migrations"} {
 		ok, err := hasTable(tbl)
 		if err != nil {
 			t.Fatalf("check %s: %v", tbl, err)
@@ -60,6 +60,7 @@ func TestMigrate_DownRevertsAndReapplies(t *testing.T) {
 	for _, tbl := range []string{"users", "settings", "api_tokens", "movies", "wanted", "queue", "history",
 		"tv_series", "tv_episodes", "tv_wanted", "tv_queue", "tv_history",
 		"music_artists", "music_albums", "music_tracks", "music_wanted", "music_queue", "music_history",
+		"book_authors", "book_titles", "book_editions",
 		"schema_migrations"} {
 		ok, err := hasTable(tbl)
 		if err != nil {
@@ -83,11 +84,14 @@ func TestMigrate_DownRevertsAndReapplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after re-up: %v", err)
 	}
-	if v != "0004_music" {
-		t.Fatalf("version after re-up = %q, want 0004_music", v)
+	if v != "0005_books" {
+		t.Fatalf("version after re-up = %q, want 0005_books", v)
 	}
 	if ok, _ := hasTable("music_artists"); !ok {
 		t.Error("music_artists missing after re-migrate up")
+	}
+	if ok, _ := hasTable("book_authors"); !ok {
+		t.Error("book_authors missing after re-migrate up")
 	}
 	if ok, _ := hasTable("tv_series"); !ok {
 		t.Error("tv_series missing after re-migrate up")
