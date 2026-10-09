@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	booksdom "github.com/brandenk514/mediarr/internal/domains/books"
 	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/health"
+	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 )
 
@@ -225,6 +227,97 @@ func (stubMusicRepo) AddHistory(context.Context, musicdom.HistoryEntry) error {
 }
 func (stubMusicRepo) ListHistory(context.Context, int64, int) ([]musicdom.HistoryEntry, error) {
 	panic("stubMusicRepo.ListHistory should not be called")
+}
+
+// TestBooksRoutesRegister wires the full books route table onto a server so
+// that an ambiguous pattern in SetBooks (e.g. a bare /api/v1/books/{id}
+// colliding with a collection route, which Go 1.22+'s ServeMux panics on at
+// registration) fails here in the unit suite instead of crashing the process
+// at startup in the Docker smoke test. Registration-time panics are
+// unrecoverable from the middleware chain, so the test must survive one.
+func TestBooksRoutesRegister(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("SetBooks panicked while registering routes: %v", r)
+		}
+	}()
+	s := newTestServer()
+	s.SetBooks(&BooksDeps{Svc: bookssvc.New(bookssvc.Deps{Repo: stubBooksRepo{}})})
+}
+
+// stubBooksRepo implements booksdom.Repo with no-op (panicking) methods.
+// SetBooks only registers routes (the deps are never called), so every method
+// can panic loudly if a handler is ever accidentally invoked.
+type stubBooksRepo struct{}
+
+func (stubBooksRepo) CreateAuthor(context.Context, booksdom.Author) (int64, error) {
+	panic("stubBooksRepo.CreateAuthor should not be called")
+}
+func (stubBooksRepo) GetAuthor(context.Context, int64) (*booksdom.Author, error) {
+	panic("stubBooksRepo.GetAuthor should not be called")
+}
+func (stubBooksRepo) ListAuthors(context.Context) ([]booksdom.Author, error) {
+	panic("stubBooksRepo.ListAuthors should not be called")
+}
+func (stubBooksRepo) SetAuthorMonitored(context.Context, int64, bool) error {
+	panic("stubBooksRepo.SetAuthorMonitored should not be called")
+}
+func (stubBooksRepo) CreateTitle(context.Context, booksdom.Title) (int64, error) {
+	panic("stubBooksRepo.CreateTitle should not be called")
+}
+func (stubBooksRepo) GetTitle(context.Context, int64) (*booksdom.Title, error) {
+	panic("stubBooksRepo.GetTitle should not be called")
+}
+func (stubBooksRepo) ListTitles(context.Context, int64) ([]booksdom.Title, error) {
+	panic("stubBooksRepo.ListTitles should not be called")
+}
+func (stubBooksRepo) SetTitleMonitored(context.Context, int64, bool) error {
+	panic("stubBooksRepo.SetTitleMonitored should not be called")
+}
+func (stubBooksRepo) CreateEdition(context.Context, booksdom.Edition) (int64, error) {
+	panic("stubBooksRepo.CreateEdition should not be called")
+}
+func (stubBooksRepo) GetEdition(context.Context, int64) (*booksdom.Edition, error) {
+	panic("stubBooksRepo.GetEdition should not be called")
+}
+func (stubBooksRepo) ListEditions(context.Context, int64) ([]booksdom.Edition, error) {
+	panic("stubBooksRepo.ListEditions should not be called")
+}
+func (stubBooksRepo) SetEditionMonitored(context.Context, int64, bool) error {
+	panic("stubBooksRepo.SetEditionMonitored should not be called")
+}
+func (stubBooksRepo) EnsureWantedTitle(context.Context, int64) error {
+	panic("stubBooksRepo.EnsureWantedTitle should not be called")
+}
+func (stubBooksRepo) EnsureWantedEdition(context.Context, int64, int64) error {
+	panic("stubBooksRepo.EnsureWantedEdition should not be called")
+}
+func (stubBooksRepo) GetWanted(context.Context, int64, int64) (*booksdom.Wanted, error) {
+	panic("stubBooksRepo.GetWanted should not be called")
+}
+func (stubBooksRepo) ListWanted(context.Context, int64) ([]booksdom.Wanted, error) {
+	panic("stubBooksRepo.ListWanted should not be called")
+}
+func (stubBooksRepo) MarkWantedSatisfied(context.Context, int64, int64, string) error {
+	panic("stubBooksRepo.MarkWantedSatisfied should not be called")
+}
+func (stubBooksRepo) CreateQueue(context.Context, booksdom.QueueEntry) (int64, error) {
+	panic("stubBooksRepo.CreateQueue should not be called")
+}
+func (stubBooksRepo) UpdateQueue(context.Context, booksdom.QueueEntry) error {
+	panic("stubBooksRepo.UpdateQueue should not be called")
+}
+func (stubBooksRepo) GetQueue(context.Context, int64) (*booksdom.QueueEntry, error) {
+	panic("stubBooksRepo.GetQueue should not be called")
+}
+func (stubBooksRepo) ListQueue(context.Context, int64) ([]booksdom.QueueEntry, error) {
+	panic("stubBooksRepo.ListQueue should not be called")
+}
+func (stubBooksRepo) AddHistory(context.Context, booksdom.HistoryEntry) error {
+	panic("stubBooksRepo.AddHistory should not be called")
+}
+func (stubBooksRepo) ListHistory(context.Context, int64, int) ([]booksdom.HistoryEntry, error) {
+	panic("stubBooksRepo.ListHistory should not be called")
 }
 
 // Ensure the server can be built and the handler chain works end-to-end.

@@ -22,6 +22,7 @@ type Server struct {
 	moviesDeps *MoviesDeps
 	tvDeps     *TVDeps
 	musicDeps  *MusicDeps
+	booksDeps  *BooksDeps
 }
 
 // NewServer builds a Server with the given readiness checker.

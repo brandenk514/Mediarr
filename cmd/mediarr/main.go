@@ -29,6 +29,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/indexers"
 	"github.com/brandenk514/mediarr/internal/postgres"
 	"github.com/brandenk514/mediarr/internal/redis"
+	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 	tvs "github.com/brandenk514/mediarr/internal/services/tv"
@@ -269,6 +270,35 @@ func run() error {
 			return "none"
 		}())
 
+	// Books pipeline (M4): a books media root defaults to <MediaRoot>/books so
+	// the four domains land in separate trees. A dev-only fake indexer pool
+	// (mirrors the movie/TV/music pools) lets a running dev server exercise the
+	// full add author → add title/edition → want → search → format match →
+	// download → import path.
+	booksFake := indexers.NewFakeIndexer("fake")
+	booksFake.AddRelease(indexers.SearchResult{Title: "Ursula K. Le Guin - The Dispossessed [EPUB]", SizeBytes: 1_100_000})
+	booksFake.AddRelease(indexers.SearchResult{Title: "Brandon Sanderson - Mistborn [AZW3]", SizeBytes: 1_300_000})
+	booksFake.AddRelease(indexers.SearchResult{Title: "Aldous Huxley - Brave New World [MOBI]", SizeBytes: 900_000})
+
+	booksMediaRoot := booksMediaRoot(cfg.MediaRoot)
+	booksSvc := bookssvc.New(bookssvc.Deps{
+		Repo:           postgres.NewBooksRepo(pg.DB()),
+		Indexers:       []indexers.Searcher{booksFake},
+		Client:         dlClient,
+		MediaRoot:      booksMediaRoot,
+		DefaultProfile: "Best",
+	})
+	srv.SetBooks(&api.BooksDeps{Svc: booksSvc})
+	logger.Info("books pipeline ready",
+		"media_root", booksMediaRoot,
+		"indexers", "fake",
+		"client", func() string {
+			if dlClient != nil {
+				return "mock"
+			}
+			return "none"
+		}())
+
 	logger.Info("server starting", "addr", cfg.HTTPAddr)
 	return srv.Serve(ctx,
 		cfg.HTTPAddr,
@@ -313,4 +343,15 @@ func musicMediaRoot(mediaRoot string) string {
 		return "music"
 	}
 	return mediaRoot + "/music"
+}
+
+// booksMediaRoot returns the on-disk root for imported book files. It defaults
+// to a "books" subdirectory under the shared media root so the books library
+// lives in a separate tree from the movie, TV, and music libraries. If the
+// shared media root is empty, it falls back to a plain "books" directory.
+func booksMediaRoot(mediaRoot string) string {
+	if mediaRoot == "" {
+		return "books"
+	}
+	return mediaRoot + "/books"
 }
