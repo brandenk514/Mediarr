@@ -260,15 +260,30 @@ func run() error {
 	fake.AddRelease(indexers.SearchResult{Title: "Dune.Part.Two.2024.2160p.WEB-DL.x265", SizeBytes: 11_400_000_000})
 	fake.AddRelease(indexers.SearchResult{Title: "Interstellar.2014.1080p.WEB.x264", SizeBytes: 4_700_000_000})
 	fake.AddRelease(indexers.SearchResult{Title: "Tenet.2020.1080p.WEB.x264", SizeBytes: 4_900_000_000})
-	var mockClient *downloads.MockClient
-	var clientErr error
-	mockClient, clientErr = downloads.NewMockClient("mock", cfg.DownloadsDir)
-	if clientErr != nil {
-		logger.Warn("download client init failed; movie pipeline disabled", "error", clientErr)
-	}
+	// Download client (#36/#37): config-driven swap. "mock" (default) keeps
+	// the M1 behaviour (in-process, no external dependency); "qbittorrent" /
+	// "sabnzbd" build the real adapter. All four media pipelines share this
+	// one client. Init failure leaves dlClient nil (movie pipeline disabled,
+	// logged) — matching the previous mock-failure behaviour.
 	var dlClient downloads.Client
-	if mockClient != nil {
-		dlClient = mockClient
+	if c, clientErr := downloads.NewClient(downloads.ClientOptions{
+		Kind:    downloads.ClientKind(cfg.ClientType),
+		MockDir: cfg.DownloadsDir,
+		QB: downloads.QBittorrentConfig{
+			Base:     cfg.QBittorrent.Base,
+			APIKey:   cfg.QBittorrent.APIKey,
+			Username: cfg.QBittorrent.Username,
+			Password: cfg.QBittorrent.Password,
+		},
+		SAB: downloads.SABnzbdConfig{
+			Base:        cfg.SABnzbd.Base,
+			APIKey:      cfg.SABnzbd.APIKey,
+			CompleteDir: cfg.DownloadsDir,
+		},
+	}); clientErr == nil {
+		dlClient = c
+	} else {
+		logger.Warn("download client init failed; movie pipeline disabled", "error", clientErr)
 	}
 	movieSvc := moviesvc.New(moviesvc.Deps{
 		Repo:           postgres.NewMovieRepo(pg.DB()),
@@ -276,6 +291,8 @@ func run() error {
 		Client:         dlClient,
 		MediaRoot:      cfg.MediaRoot,
 		DefaultProfile: "HD-1080p",
+		DownloadsDir:   cfg.DownloadsDir,
+		Events:         events,
 	})
 	srv.SetMovies(&api.MoviesDeps{Svc: movieSvc})
 	logger.Info("movie pipeline ready",
@@ -284,7 +301,7 @@ func run() error {
 		"indexers", "fake",
 		"client", func() string {
 			if dlClient != nil {
-				return "mock"
+				return dlClient.Name()
 			}
 			return "none"
 		}())

@@ -8,6 +8,7 @@ package movies
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/movies"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/store"
 )
 
 // ErrNoMatch is returned when no indexer release satisfies the quality profile.
@@ -37,6 +39,14 @@ type Deps struct {
 	MediaRoot string
 	// DefaultProfile is used when a movie has no profile set.
 	DefaultProfile string
+	// DownloadsDir is where the download client writes completed files before
+	// import moves them under MediaRoot. It is threaded into each Release as
+	// PathDir so the client knows where to save (#36/#37).
+	DownloadsDir string
+	// Events, when non-nil, receives queue.state pub/sub events as the queue
+	// advances (PLAN §5/§6, #36 "state transitions feed ... pub/sub events").
+	// It is optional so the pipeline runs without a bus (e.g. tests).
+	Events store.Events
 }
 
 // Service implements the movie use-cases.
@@ -209,7 +219,11 @@ type bestMatch struct {
 }
 
 // sendToClient queues the release, sends it to the download client, and records
-// the queue entry. Returns the queue entry id.
+// the queue entry. Returns the queue entry id. The release's download URL and
+// target directory come from the indexer result's ReleaseInfo (the real
+// adapters populate it; the mock/fake leave it empty and the client falls back
+// to its own defaults) — this is the M5 wiring that lets a real client fetch
+// the release rather than only simulating it (#36/#37).
 func (s *Service) sendToClient(ctx context.Context, m *dom.Movie, bm bestMatch) (int64, error) {
 	qe := dom.QueueEntry{
 		MovieID:        m.ID,
@@ -224,36 +238,73 @@ func (s *Service) sendToClient(ctx context.Context, m *dom.Movie, bm bestMatch) 
 		return 0, err
 	}
 	qe.ID = id
+	s.emitQueue(ctx, qe)
+
 	qe.State = dom.QueueDownloading
 	_ = s.deps.Repo.UpdateQueue(ctx, qe)
+	s.emitQueue(ctx, qe)
 
 	if err := s.deps.Client.Add(ctx, downloads.Release{
 		Title:    bm.Result.Title,
 		FileName: fileNameFor(bm.Parsed),
+		URL:      bm.Result.Info.URL,
+		PathDir:  s.deps.DownloadsDir,
 	}); err != nil {
 		qe.State = dom.QueueFailed
+		qe.Progress = 0
 		_ = s.deps.Repo.UpdateQueue(ctx, qe)
+		s.emitQueue(ctx, qe)
 		return 0, err
 	}
 	return id, nil
 }
 
-// importRelease polls the client until the release is complete, plans the
-// import, moves the file under the media root, and marks the queue complete.
-func (s *Service) importRelease(ctx context.Context, m *dom.Movie, bm bestMatch, queueID int64) (string, error) {
-	file, err := s.waitComplete(ctx, bm.Result.Title)
+// emitQueue publishes a "queue.updated" pub/sub event for a queue entry. It is
+// a no-op when no bus is configured and never fails the pipeline: a dead Redis
+// must not stop a download, so publish errors are deliberately ignored here
+// (the queue table is the source of truth; the bus is a best-effort push).
+func (s *Service) emitQueue(ctx context.Context, qe dom.QueueEntry) {
+	if s.deps.Events == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"movie_id":      qe.MovieID,
+		"queue_id":      qe.ID,
+		"release_title": qe.ReleaseTitle,
+		"indexer":       qe.Indexer,
+		"client":        qe.DownloadClient,
+		"state":         qe.State,
+		"progress":      qe.Progress,
+	})
 	if err != nil {
+		return
+	}
+	_ = s.deps.Events.Publish(ctx, store.Event{Type: "queue.updated", Payload: payload})
+}
+
+// importRelease polls the client until the release is complete, plans the
+// import, moves the file under the media root, marks the queue complete, and —
+// for clients that implement Remover — drops the release from the client's
+// queue now that the file has been imported (PLAN §6 "removal after import",
+// #36/#37).
+func (s *Service) importRelease(ctx context.Context, m *dom.Movie, bm bestMatch, queueID int64) (string, error) {
+	file, err := s.waitComplete(ctx, m, bm.Result.Title, queueID)
+	if err != nil {
+		s.markFailed(ctx, m, queueID, "download-failed", err)
 		return "", err
 	}
 	if file == "" {
+		s.markFailed(ctx, m, queueID, "download-failed", fmt.Errorf("download did not produce a file"))
 		return "", fmt.Errorf("movies: download did not produce a file for %q", bm.Result.Title)
 	}
 
 	plan, err := dom.PlanImport(s.deps.MediaRoot, m.Title, m.Year, file)
 	if err != nil {
+		s.markFailed(ctx, m, queueID, "import-failed", err)
 		return "", err
 	}
 	if err := moveFile(plan.SourcePath, plan.DestPath); err != nil {
+		s.markFailed(ctx, m, queueID, "import-failed", err)
 		return "", err
 	}
 
@@ -261,13 +312,39 @@ func (s *Service) importRelease(ctx context.Context, m *dom.Movie, bm bestMatch,
 	if err := s.deps.Repo.UpdateQueue(ctx, qe); err != nil {
 		return "", err
 	}
+	s.emitQueue(ctx, qe)
+
+	// Removal after import: only when the client opted in (a mock or a
+	// keep-for-seeding client doesn't implement Remover, so this is skipped).
+	// A removal error is not fatal — the file is already imported safely; a
+	// leftover queue entry is far less bad than losing an import.
+	if rm, ok := s.deps.Client.(downloads.Remover); ok {
+		if rerr := rm.Remove(ctx, bm.Result.Title); rerr != nil {
+			s.record(ctx, m.ID, "remove-failed", "could not remove release from client: "+rerr.Error())
+		} else {
+			s.record(ctx, m.ID, "removed", "release removed from client after import")
+		}
+	}
 	return plan.DestPath, nil
 }
 
+// markFailed records a queue failure (state + event + history) without
+// overwriting the caller's returned error. event is the history event name
+// ("download-failed" / "import-failed").
+func (s *Service) markFailed(ctx context.Context, m *dom.Movie, queueID int64, event string, err error) {
+	qe := dom.QueueEntry{ID: queueID, State: dom.QueueFailed, Progress: 0}
+	_ = s.deps.Repo.UpdateQueue(ctx, qe)
+	s.emitQueue(ctx, qe)
+	s.record(ctx, m.ID, event, err.Error())
+}
+
 // waitComplete polls the download client until the release reports complete
-// (bounded by a deadline) and returns the file path.
-func (s *Service) waitComplete(ctx context.Context, title string) (string, error) {
+// (bounded by a deadline) and returns the file path. Each poll feeds the
+// client's progress into the queue row and a pub/sub event (#36 "state
+// transitions feed the queue table + pub/sub events").
+func (s *Service) waitComplete(ctx context.Context, m *dom.Movie, title string, queueID int64) (string, error) {
 	deadline := time.Now().Add(30 * time.Second)
+	lastProgress := -1
 	for {
 		st, err := s.deps.Client.Status(ctx, title)
 		if err != nil {
@@ -275,6 +352,13 @@ func (s *Service) waitComplete(ctx context.Context, title string) (string, error
 		}
 		if st.Complete && st.File != "" {
 			return st.File, nil
+		}
+		// Feed progress (only when it changes, to avoid chatty updates).
+		if st.Progress != lastProgress {
+			lastProgress = st.Progress
+			qe := dom.QueueEntry{ID: queueID, State: dom.QueueDownloading, Progress: st.Progress}
+			_ = s.deps.Repo.UpdateQueue(ctx, qe)
+			s.emitQueue(ctx, qe)
 		}
 		if time.Now().After(deadline) {
 			return "", fmt.Errorf("movies: timed out waiting for download of %q", title)

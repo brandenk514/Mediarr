@@ -56,9 +56,12 @@ jobs:
           # service, and supporting package. domains/ and services/ were
           # previously only covered by `make test`, not the CI gate — the
           # #22 smoke-test route regression would have slipped through.
+          # downloads/ (qBittorrent #36, SABnzbd #37) is pure: its adapter
+          # tests run against in-process httptest stubs, not real services.
           go test ./internal/api/... ./internal/auth/... ./internal/config/... \
             ./internal/health/... ./internal/domains/... ./internal/services/... \
-            ./internal/secrets/... ./internal/indexers/... -count=1 -cover -coverprofile=unit.coverage.out
+            ./internal/secrets/... ./internal/indexers/... ./internal/downloads/... \
+            -count=1 -cover -coverprofile=unit.coverage.out
           go tool cover -func unit.coverage.out | tail -1
 
           # Enforce the overall coverage floor (PLAN §10: >= 60% overall).
