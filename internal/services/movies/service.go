@@ -155,28 +155,14 @@ func (s *Service) RunPipeline(ctx context.Context, movieID int64) (string, error
 	return imported, nil
 }
 
-// searchAll fans out to every indexer and merges the results, deduping by
-// release title (first indexer wins).
+// searchAll fans out to every indexer concurrently (via the shared M5 Fanout),
+// merging and deduping by release title (first indexer wins). The domain pickers
+// re-score and re-order the candidates, so the merged order does not affect which
+// release is chosen.
 func (s *Service) searchAll(ctx context.Context, title string, year int) ([]indexers.SearchResult, error) {
 	q := indexers.SearchQuery{Term: title, Year: year}
-	seen := make(map[string]bool)
-	var out []indexers.SearchResult
-	for _, ix := range s.deps.Indexers {
-		res, err := ix.Search(ctx, q)
-		if err != nil {
-			// A single indexer failing does not fail the whole search; log and
-			// continue with the rest.
-			continue
-		}
-		for _, r := range res {
-			if seen[r.Title] {
-				continue
-			}
-			seen[r.Title] = true
-			out = append(out, r)
-		}
-	}
-	return out, nil
+	f := indexers.NewFanout(s.deps.Indexers...)
+	return f.Search(ctx, q)
 }
 
 // selectBest parses every candidate release, matches it against the movie's
