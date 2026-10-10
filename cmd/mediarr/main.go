@@ -166,7 +166,22 @@ func run() error {
 		return fmt.Errorf("build indexer vault: %w", err)
 	}
 	indexerRepo := postgres.NewIndexersRepo(pg.DB(), vault)
+
+	// The shared health tracker is the single source of truth for per-indexer
+	// stats (#34/#35): the live search adapters, the periodic worker, and the
+	// on-demand Test probe all record into it, so the stats endpoint reflects
+	// real traffic. It is handed to the registry (for every built adapter) and
+	// to the health worker (for its sweep + on-demand probes).
+	healthTracker := indexers.NewHealthTracker()
 	registry := indexers.NewDefaultRegistry()
+	registry.Deps = indexers.AdapterDeps{Health: healthTracker}
+
+	// The health worker (#34) periodically probes every enabled indexer and
+	// supports on-demand probes. A non-positive interval runs a single
+	// initial sweep and stops (on-demand tests still work); otherwise it runs
+	// until the process context is cancelled.
+	healthWorker := indexers.NewHealthWorker(indexerRepo, registry, registry.Deps, cfg.IndexerHealthInterval, logger)
+	go func() { _ = healthWorker.Run(ctx) }()
 
 	const resultTTL = 10 * time.Minute
 
@@ -214,6 +229,13 @@ func run() error {
 	checker := health.NewChecker(pg, cache)
 	srv := api.NewServer(checker)
 	srv.SetAuth(&api.AuthDeps{Repo: auth.NewRepo(pg.DB())})
+	// Indexer health endpoints (#35): list, on-demand test, per-indexer stats.
+	// They share the same repo, worker, and tracker as the live search path.
+	srv.SetIndexers(&api.IndexersDeps{
+		Repo:    indexerRepo,
+		Worker:  healthWorker,
+		Tracker: healthTracker,
+	})
 
 	// --- Movies pipeline -----------------------------------------------
 	// M1: wire the movie pipeline end-to-end. The running service uses a fake

@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // validKey returns a deterministic 32-byte hex key for tests.
@@ -116,5 +117,39 @@ func TestLoad_ExplicitOverrides(t *testing.T) {
 	}
 	if cfg.AuthPinning {
 		t.Error("AuthPinning should be false")
+	}
+}
+
+func TestLoad_IndexerHealthInterval(t *testing.T) {
+	// Unset: defaults to 0 (worker runs a single initial sweep, on-demand
+	// tests still work).
+	cfg, err := Load(baseEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IndexerHealthInterval != 0 {
+		t.Errorf("default IndexerHealthInterval = %v, want 0", cfg.IndexerHealthInterval)
+	}
+
+	// A valid duration is honoured.
+	env := baseEnv()
+	env["MEDIARR_INDEXER_HEALTH_INTERVAL"] = "2m30s"
+	cfg, err = Load(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 150 * time.Second; cfg.IndexerHealthInterval != want {
+		t.Errorf("IndexerHealthInterval = %v, want %v", cfg.IndexerHealthInterval, want)
+	}
+
+	// A malformed value degrades to 0 rather than failing boot.
+	env = baseEnv()
+	env["MEDIARR_INDEXER_HEALTH_INTERVAL"] = "not-a-duration"
+	cfg, err = Load(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IndexerHealthInterval != 0 {
+		t.Errorf("malformed duration should degrade to 0, got %v", cfg.IndexerHealthInterval)
 	}
 }
