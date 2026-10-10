@@ -46,6 +46,31 @@ type Config struct {
 	// indexer (#34). Zero disables the periodic loop (on-demand tests still
 	// work). Negative values are normalised to zero in the worker.
 	IndexerHealthInterval time.Duration
+
+	// Download
+	// ClientType selects the download client: "mock" (default, no external
+	// dependency), "qbittorrent" (#36), or "sabnzbd" (#37).
+	ClientType string
+	// QBittorrent is the config for the qBittorrent client (used when
+	// ClientType == "qbittorrent").
+	QBittorrent DownloadQB
+	// SABnzbd is the config for the SABnzbd client (used when ClientType ==
+	// "sabnzbd").
+	SABnzbd DownloadSAB
+}
+
+// DownloadQB configures the qBittorrent Web API client (#36).
+type DownloadQB struct {
+	Base     string // Web API base URL, e.g. "http://localhost:8080"
+	APIKey   string // preferred auth (X-Api-Key)
+	Username string // cookie-login fallback
+	Password string // cookie-login fallback
+}
+
+// DownloadSAB configures the SABnzbd JSON API client (#37).
+type DownloadSAB struct {
+	Base   string // Web UI base URL, e.g. "http://localhost:8080"
+	APIKey string // SABnzbd API key (required)
 }
 
 // DSN is a validated PostgreSQL connection string.
@@ -123,6 +148,30 @@ func Load(env map[string]string) (*Config, error) {
 		} else {
 			cfg.IndexerHealthInterval = 0
 		}
+	}
+
+	// Download client selection (#36/#37) — default "mock" (no external
+	// dependency). Unknown values fail fast: a typo here must not silently
+	// fall back to the mock in production.
+	switch ct := get("MEDIARR_DOWNLOAD_CLIENT", "mock"); ct {
+	case "mock":
+		cfg.ClientType = "mock"
+	case "qbittorrent":
+		cfg.ClientType = "qbittorrent"
+		cfg.QBittorrent = DownloadQB{
+			Base:     env["MEDIARR_QB_BASE"],
+			APIKey:   env["MEDIARR_QB_API_KEY"],
+			Username: env["MEDIARR_QB_USERNAME"],
+			Password: env["MEDIARR_QB_PASSWORD"],
+		}
+	case "sabnzbd":
+		cfg.ClientType = "sabnzbd"
+		cfg.SABnzbd = DownloadSAB{
+			Base:   env["MEDIARR_SAB_BASE"],
+			APIKey: env["MEDIARR_SAB_API_KEY"],
+		}
+	default:
+		return nil, fmt.Errorf("MEDIARR_DOWNLOAD_CLIENT must be mock, qbittorrent, or sabnzbd, got %q", ct)
 	}
 
 	return cfg, nil

@@ -36,7 +36,7 @@ test: ## Unit + integration tests (integration needs Docker)
 
 .PHONY: test-unit
 test-unit: ## Unit tests only (no Docker)
-	$(GO) test ./internal/api/... ./internal/auth/... ./internal/config/... ./internal/health/... -count=1 -cover
+	$(GO) test ./internal/api/... ./internal/auth/... ./internal/config/... ./internal/health/... ./internal/domains/... ./internal/services/... ./internal/secrets/... ./internal/indexers/... ./internal/downloads/... -count=1 -cover
 
 .PHONY: cover
 cover: ## Test with coverage report
