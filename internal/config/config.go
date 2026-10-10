@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config is the validated runtime configuration for the mediarr service.
@@ -39,6 +40,12 @@ type Config struct {
 	// AuthPinning: when true, the first user created is the only one that can
 	// change credentials (single-user v1 mode).
 	AuthPinning bool
+
+	// Indexer
+	// IndexerHealthInterval is how often the health worker probes every enabled
+	// indexer (#34). Zero disables the periodic loop (on-demand tests still
+	// work). Negative values are normalised to zero in the worker.
+	IndexerHealthInterval time.Duration
 }
 
 // DSN is a validated PostgreSQL connection string.
@@ -103,6 +110,20 @@ func Load(env map[string]string) (*Config, error) {
 
 	// Auth pinning (single-user v1 mode) — default on.
 	cfg.AuthPinning = getBool(env, "MEDIARR_AUTH_PINNING", true)
+
+	// Indexer health-check cadence (#34) — default 5m; 0 disables the periodic
+	// loop. A non-duration string degrades to 0 (disabled) rather than
+	// failing boot: health monitoring is an enhancement, not a precondition.
+	if raw := env["MEDIARR_INDEXER_HEALTH_INTERVAL"]; raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			if d < 0 {
+				d = 0
+			}
+			cfg.IndexerHealthInterval = d
+		} else {
+			cfg.IndexerHealthInterval = 0
+		}
+	}
 
 	return cfg, nil
 }
