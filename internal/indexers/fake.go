@@ -42,6 +42,16 @@ func (f *FakeIndexer) AddRelease(r SearchResult) {
 // Name implements Searcher.
 func (f *FakeIndexer) Name() string { return f.Name_ }
 
+// Kind implements Provider. The fake's protocol kind is "fake"; it is the
+// reference Provider in the registry (see NewDefaultRegistry) and the kind the
+// `fake` definition maps to in the definition store.
+func (f *FakeIndexer) Kind() string { return "fake" }
+
+// Test implements Provider. The fake indexer is always healthy: it performs no
+// network I/O, so a health probe trivially succeeds. Real adapters implement
+// this as a live request.
+func (f *FakeIndexer) Test(ctx context.Context) error { return nil }
+
 // Search implements Searcher.
 func (f *FakeIndexer) Search(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
 	if f.SearchFn != nil {

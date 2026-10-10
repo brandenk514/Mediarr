@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -29,6 +30,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/indexers"
 	"github.com/brandenk514/mediarr/internal/postgres"
 	"github.com/brandenk514/mediarr/internal/redis"
+	"github.com/brandenk514/mediarr/internal/secrets"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
@@ -144,6 +146,70 @@ func run() error {
 	}
 	logger.Info("redis ready")
 
+	// --- Indexer layer (M5, #30) --------------------------------------
+	// The Prowlarr-role framework composes here, once, and is shared by all four
+	// media pipelines:
+	//
+	//   vault        AES-256-GCM at-rest encryption for indexer API keys (PLAN §7).
+	//   indexerRepo  the Postgres definition store (migration 0007) — the only
+	//                layer that encrypts/decrypts keys.
+	//   registry     maps a protocol kind -> Provider constructor. The fake is the
+	//                reference Provider; real adapters (#31-33) register here.
+	//   result cache every materialized indexer is wrapped in a CacheSearcher so
+	//                its search results live in Redis (PLAN §5, TTL 10min).
+	//
+	// When the store is empty (a fresh install) there are no *configured*
+	// indexers; the per-domain demo fakes below remain the dev path (the same
+	// mock download client / fake indexer model as M1-M4).
+	vault, err := secrets.NewVault(cfg.EncryptionKey)
+	if err != nil {
+		return fmt.Errorf("build indexer vault: %w", err)
+	}
+	indexerRepo := postgres.NewIndexersRepo(pg.DB(), vault)
+	registry := indexers.NewDefaultRegistry()
+
+	const resultTTL = 10 * time.Minute
+
+	// buildConfigured materializes every enabled definition into a cached
+	// Searcher. A definition that references an unregistered kind is skipped
+	// (and logged) rather than failing boot: a persisted indexer the running
+	// build can't construct should degrade, not crash.
+	buildConfigured := func(ctx context.Context) []indexers.Searcher {
+		defs, err := indexerRepo.ListEnabled(ctx)
+		if err != nil {
+			logger.Warn("load indexer definitions", "error", err)
+			return nil
+		}
+		var out []indexers.Searcher
+		for _, def := range defs {
+			p, err := registry.Build(def)
+			if err != nil {
+				logger.Warn("skip indexer definition", "name", def.Name, "kind", def.Kind, "error", err)
+				continue
+			}
+			out = append(out, indexers.NewCacheSearcher(p, cache, resultTTL))
+		}
+		return out
+	}
+	configured := buildConfigured(ctx)
+	if len(configured) > 0 {
+		logger.Info("indexers ready",
+			"configured", len(configured),
+			"kinds", registry.Kinds(),
+			"cache", "redis", "ttl", resultTTL.String())
+	}
+
+	// indexersFor composes the shared configured set with a per-domain dev fake,
+	// wrapped in the same Redis result cache so the cache path is exercised on
+	// the reference/dev composition too. It always returns a fresh slice so the
+	// shared `configured` backing array is never aliased.
+	indexersFor := func(dev indexers.Searcher) []indexers.Searcher {
+		out := make([]indexers.Searcher, 0, len(configured)+1)
+		out = append(out, configured...)
+		out = append(out, indexers.NewCacheSearcher(dev, cache, resultTTL))
+		return out
+	}
+
 	// --- Health + API ---------------------------------------------------
 	checker := health.NewChecker(pg, cache)
 	srv := api.NewServer(checker)
@@ -184,7 +250,7 @@ func run() error {
 	}
 	movieSvc := moviesvc.New(moviesvc.Deps{
 		Repo:           postgres.NewMovieRepo(pg.DB()),
-		Indexers:       []indexers.Searcher{fake},
+		Indexers:       indexersFor(fake),
 		Client:         dlClient,
 		MediaRoot:      cfg.MediaRoot,
 		DefaultProfile: "HD-1080p",
@@ -219,7 +285,7 @@ func run() error {
 	tvMediaRoot := tvMediaRoot(cfg.MediaRoot)
 	tvSvc := tvs.New(tvs.Deps{
 		Repo:           postgres.NewTVRepo(pg.DB()),
-		Indexers:       []indexers.Searcher{tvFake},
+		Indexers:       indexersFor(tvFake),
 		Client:         dlClient,
 		MediaRoot:      tvMediaRoot,
 		DefaultProfile: "HD-1080p",
@@ -254,7 +320,7 @@ func run() error {
 	musicMediaRoot := musicMediaRoot(cfg.MediaRoot)
 	musicSvc := musicsvc.New(musicsvc.Deps{
 		Repo:           postgres.NewMusicRepo(pg.DB()),
-		Indexers:       []indexers.Searcher{musicFake},
+		Indexers:       indexersFor(musicFake),
 		Client:         dlClient,
 		MediaRoot:      musicMediaRoot,
 		DefaultProfile: "Lossless",
@@ -283,7 +349,7 @@ func run() error {
 	booksMediaRoot := booksMediaRoot(cfg.MediaRoot)
 	booksSvc := bookssvc.New(bookssvc.Deps{
 		Repo:           postgres.NewBooksRepo(pg.DB()),
-		Indexers:       []indexers.Searcher{booksFake},
+		Indexers:       indexersFor(booksFake),
 		Client:         dlClient,
 		MediaRoot:      booksMediaRoot,
 		DefaultProfile: "Best",
