@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // validKey returns a deterministic 32-byte hex key for tests.
@@ -116,5 +117,99 @@ func TestLoad_ExplicitOverrides(t *testing.T) {
 	}
 	if cfg.AuthPinning {
 		t.Error("AuthPinning should be false")
+	}
+}
+
+func TestLoad_IndexerHealthInterval(t *testing.T) {
+	// Unset: defaults to 0 (worker runs a single initial sweep, on-demand
+	// tests still work).
+	cfg, err := Load(baseEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IndexerHealthInterval != 0 {
+		t.Errorf("default IndexerHealthInterval = %v, want 0", cfg.IndexerHealthInterval)
+	}
+
+	// A valid duration is honoured.
+	env := baseEnv()
+	env["MEDIARR_INDEXER_HEALTH_INTERVAL"] = "2m30s"
+	cfg, err = Load(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 150 * time.Second; cfg.IndexerHealthInterval != want {
+		t.Errorf("IndexerHealthInterval = %v, want %v", cfg.IndexerHealthInterval, want)
+	}
+
+	// A malformed value degrades to 0 rather than failing boot.
+	env = baseEnv()
+	env["MEDIARR_INDEXER_HEALTH_INTERVAL"] = "not-a-duration"
+	cfg, err = Load(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IndexerHealthInterval != 0 {
+		t.Errorf("malformed duration should degrade to 0, got %v", cfg.IndexerHealthInterval)
+	}
+}
+
+func TestLoad_DownloadClientDefaultMock(t *testing.T) {
+	// Unset: defaults to the mock (no external dependency; M1 behaviour).
+	cfg, err := Load(baseEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ClientType != "mock" {
+		t.Errorf("default ClientType = %q, want mock", cfg.ClientType)
+	}
+}
+
+func TestLoad_DownloadClientQBittorrent(t *testing.T) {
+	env := baseEnv()
+	env["MEDIARR_DOWNLOAD_CLIENT"] = "qbittorrent"
+	env["MEDIARR_QB_BASE"] = "http://q:8080"
+	env["MEDIARR_QB_API_KEY"] = "k3y"
+	env["MEDIARR_QB_USERNAME"] = "user"
+	env["MEDIARR_QB_PASSWORD"] = "pw"
+	cfg, err := Load(env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ClientType != "qbittorrent" {
+		t.Errorf("ClientType = %q, want qbittorrent", cfg.ClientType)
+	}
+	if cfg.QBittorrent.Base != "http://q:8080" || cfg.QBittorrent.APIKey != "k3y" {
+		t.Errorf("QBittorrent = %+v, want base http://q:8080 key k3y", cfg.QBittorrent)
+	}
+	if cfg.QBittorrent.Username != "user" || cfg.QBittorrent.Password != "pw" {
+		t.Errorf("QBittorrent user/pass not forwarded: %+v", cfg.QBittorrent)
+	}
+}
+
+func TestLoad_DownloadClientSABnzbd(t *testing.T) {
+	env := baseEnv()
+	env["MEDIARR_DOWNLOAD_CLIENT"] = "sabnzbd"
+	env["MEDIARR_SAB_BASE"] = "http://s:8080"
+	env["MEDIARR_SAB_API_KEY"] = "sabk"
+	cfg, err := Load(env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ClientType != "sabnzbd" {
+		t.Errorf("ClientType = %q, want sabnzbd", cfg.ClientType)
+	}
+	if cfg.SABnzbd.Base != "http://s:8080" || cfg.SABnzbd.APIKey != "sabk" {
+		t.Errorf("SABnzbd = %+v, want base http://s:8080 key sabk", cfg.SABnzbd)
+	}
+}
+
+func TestLoad_DownloadClientUnknownFailsFast(t *testing.T) {
+	// A misconfigured MEDIARR_DOWNLOAD_CLIENT must fail boot, never silently
+	// fall back to a mock (which would "download" into the wrong place).
+	env := baseEnv()
+	env["MEDIARR_DOWNLOAD_CLIENT"] = "deluge"
+	if _, err := Load(env); err == nil {
+		t.Fatal("expected error for unknown download client, got nil")
 	}
 }

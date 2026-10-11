@@ -56,9 +56,12 @@ jobs:
           # service, and supporting package. domains/ and services/ were
           # previously only covered by `make test`, not the CI gate — the
           # #22 smoke-test route regression would have slipped through.
+          # downloads/ (qBittorrent #36, SABnzbd #37) is pure: its adapter
+          # tests run against in-process httptest stubs, not real services.
           go test ./internal/api/... ./internal/auth/... ./internal/config/... \
             ./internal/health/... ./internal/domains/... ./internal/services/... \
-            ./internal/secrets/... ./internal/indexers/... -count=1 -cover -coverprofile=unit.coverage.out
+            ./internal/secrets/... ./internal/indexers/... ./internal/downloads/... \
+            -count=1 -cover -coverprofile=unit.coverage.out
           go tool cover -func unit.coverage.out | tail -1
 
           # Enforce the overall coverage floor (PLAN §10: >= 60% overall).
@@ -98,6 +101,18 @@ jobs:
 
       - name: Integration tests (Postgres + Redis)
         run: go test ./internal/postgres/... ./internal/auth/... -count=1 -timeout 300s
+
+      # End-to-end pipeline tests (issue #38): the full movie flow — search →
+      # parse → quality/profile match → send to a *real* download client
+      # (qBittorrent / SABnzbd adapters, built through the config-driven
+      # downloads.NewClient factory) → import — against real Postgres
+      # persistence and a real Redis pub/sub queue bus. The remote torrent /
+      # NZB servers are stubbed in-process over HTTP. Like the integration
+      # tests above, these use testcontainers (Docker is already
+      # authenticated for the image pulls), so they run here, not in the pure
+      # unit-test step.
+      - name: E2E pipeline tests (real qBittorrent + SABnzbd clients)
+        run: go test ./test/e2e/... -count=1 -timeout 300s
 
   # ------------------------------------------------------------------- build
   docker:
