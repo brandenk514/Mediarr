@@ -17,6 +17,40 @@ env:
 
 jobs:
   # ------------------------------------------------------------------ verify
+  ui:
+    name: UI — build, lint, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Separate job from the Go pipeline (PLAN §12: `ui/` "separate build";
+    # issue #39). The SPA is a standalone Vite/React/TypeScript app; its
+    # artifact is built and (later, M7) served by the service.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        working-directory: ui
+        run: npm ci
+
+      - name: Type-check + build
+        working-directory: ui
+        run: npm run build
+
+      - name: Lint
+        working-directory: ui
+        run: npm run lint
+
+      - name: Test
+        working-directory: ui
+        run: npm run test
+
   lint-and-test:
     name: Lint, vet, test
     runs-on: ubuntu-latest
