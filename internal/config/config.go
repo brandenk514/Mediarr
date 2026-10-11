@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config is the validated runtime configuration for the mediarr service.
@@ -39,6 +40,37 @@ type Config struct {
 	// AuthPinning: when true, the first user created is the only one that can
 	// change credentials (single-user v1 mode).
 	AuthPinning bool
+
+	// Indexer
+	// IndexerHealthInterval is how often the health worker probes every enabled
+	// indexer (#34). Zero disables the periodic loop (on-demand tests still
+	// work). Negative values are normalised to zero in the worker.
+	IndexerHealthInterval time.Duration
+
+	// Download
+	// ClientType selects the download client: "mock" (default, no external
+	// dependency), "qbittorrent" (#36), or "sabnzbd" (#37).
+	ClientType string
+	// QBittorrent is the config for the qBittorrent client (used when
+	// ClientType == "qbittorrent").
+	QBittorrent DownloadQB
+	// SABnzbd is the config for the SABnzbd client (used when ClientType ==
+	// "sabnzbd").
+	SABnzbd DownloadSAB
+}
+
+// DownloadQB configures the qBittorrent Web API client (#36).
+type DownloadQB struct {
+	Base     string // Web API base URL, e.g. "http://localhost:8080"
+	APIKey   string // preferred auth (X-Api-Key)
+	Username string // cookie-login fallback
+	Password string // cookie-login fallback
+}
+
+// DownloadSAB configures the SABnzbd JSON API client (#37).
+type DownloadSAB struct {
+	Base   string // Web UI base URL, e.g. "http://localhost:8080"
+	APIKey string // SABnzbd API key (required)
 }
 
 // DSN is a validated PostgreSQL connection string.
@@ -103,6 +135,44 @@ func Load(env map[string]string) (*Config, error) {
 
 	// Auth pinning (single-user v1 mode) — default on.
 	cfg.AuthPinning = getBool(env, "MEDIARR_AUTH_PINNING", true)
+
+	// Indexer health-check cadence (#34) — default 5m; 0 disables the periodic
+	// loop. A non-duration string degrades to 0 (disabled) rather than
+	// failing boot: health monitoring is an enhancement, not a precondition.
+	if raw := env["MEDIARR_INDEXER_HEALTH_INTERVAL"]; raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil {
+			if d < 0 {
+				d = 0
+			}
+			cfg.IndexerHealthInterval = d
+		} else {
+			cfg.IndexerHealthInterval = 0
+		}
+	}
+
+	// Download client selection (#36/#37) — default "mock" (no external
+	// dependency). Unknown values fail fast: a typo here must not silently
+	// fall back to the mock in production.
+	switch ct := get("MEDIARR_DOWNLOAD_CLIENT", "mock"); ct {
+	case "mock":
+		cfg.ClientType = "mock"
+	case "qbittorrent":
+		cfg.ClientType = "qbittorrent"
+		cfg.QBittorrent = DownloadQB{
+			Base:     env["MEDIARR_QB_BASE"],
+			APIKey:   env["MEDIARR_QB_API_KEY"],
+			Username: env["MEDIARR_QB_USERNAME"],
+			Password: env["MEDIARR_QB_PASSWORD"],
+		}
+	case "sabnzbd":
+		cfg.ClientType = "sabnzbd"
+		cfg.SABnzbd = DownloadSAB{
+			Base:   env["MEDIARR_SAB_BASE"],
+			APIKey: env["MEDIARR_SAB_API_KEY"],
+		}
+	default:
+		return nil, fmt.Errorf("MEDIARR_DOWNLOAD_CLIENT must be mock, qbittorrent, or sabnzbd, got %q", ct)
+	}
 
 	return cfg, nil
 }

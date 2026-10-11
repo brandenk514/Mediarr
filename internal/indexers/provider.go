@@ -69,6 +69,14 @@ type Definition struct {
 // production.
 type Registry struct {
 	constructors map[string]func(def Definition) (Provider, error)
+	// Deps are the shared AdapterDeps (HTTP client + health tracker) handed to
+	// every real adapter at Build time. A single shared HealthTracker is what
+	// makes the per-indexer stats endpoint (#35) reflect the health of the
+	// *live* search path, not just the on-demand Test probe: both funnel into
+	// the same tracker. A zero Deps uses the AdapterDeps defaults (a fresh
+	// 15s client and a private tracker per adapter), which is correct for the
+	// reference/dev registry and for unit tests that build adapters directly.
+	Deps AdapterDeps
 }
 
 // NewRegistry returns an empty registry.
@@ -77,13 +85,13 @@ func NewRegistry() *Registry {
 }
 
 // NewDefaultRegistry returns a registry pre-registered with the adapters this
-// build knows how to construct. Today that is only the "fake" kind: the
-// FakeIndexer is the reference Provider (PLAN §7, #30 — "the fake adapter
-// becomes the reference implementation"), so a definition of kind "fake"
-// materializes into a working adapter with no network I/O. Real protocol
-// adapters (Torznab #31, TorrentRSS #32, usenet NZB #33) add themselves to
-// this default set as they land, so the running build can materialize any
-// configured kind without a schema change.
+// build knows how to construct. The "fake" kind is the reference Provider
+// (PLAN §7, #30 — "the fake adapter becomes the reference implementation"), so
+// a definition of kind "fake" materializes into a working adapter with no
+// network I/O. The real protocol adapters registered here are Torznab (#31),
+// TorrentRSS (#32), and usenet NZB (#33); adding a new adapter means
+// registering it here so the running build can materialize any configured kind
+// without a schema change.
 //
 // Note: NewDefaultRegistry is the dev/reference composition. A production
 // deployment that does not want to risk a "fake" definition silently producing
@@ -94,6 +102,9 @@ func NewDefaultRegistry() *Registry {
 	r.Register("fake", func(def Definition) (Provider, error) {
 		return NewFakeIndexer(def.Name), nil
 	})
+	RegisterTorznab(r)
+	RegisterTorrentRSS(r)
+	RegisterNZB(r)
 	return r
 }
 
