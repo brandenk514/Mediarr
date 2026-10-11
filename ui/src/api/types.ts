@@ -230,6 +230,72 @@ export interface TitleWanted {
   SatisfiedAt: string | null
 }
 
+// ---- dashboard (M6 #40) ----
+
+export type MediaKind = 'movie' | 'tv' | 'music' | 'book'
+
+export interface DashboardLibrary {
+  kind: MediaKind
+  label: string
+  count: number
+  wants: number
+  queue: number
+}
+
+export interface DashboardTotals {
+  libraries: number
+  wants: number
+  queue: number
+}
+
+export interface HistoryItem {
+  kind: MediaKind
+  name: string
+  event: string
+  detail: string
+  at: string
+}
+
+export interface QueueItem {
+  kind: MediaKind
+  release_title: string
+  indexer: string
+  state: string
+  progress: number
+  updated_at: string
+}
+
+export type IndexerHealthStatus = 'ok' | 'error' | 'idle'
+
+export interface IndexerHealth {
+  name: string
+  status: IndexerHealthStatus
+  successes: number
+  failures: number
+  last_error: string
+  last_success: string | null
+  avg_latency_ns: number
+}
+
+export interface Dashboard {
+  libraries: DashboardLibrary[]
+  totals: DashboardTotals
+  recent_history: HistoryItem[]
+  recent_queue: QueueItem[]
+  indexers: IndexerHealth[]
+  generated_at: string
+}
+
+// ---- live events (/api/v1/events WebSocket, M6 #40) ----
+
+// One on-the-wire frame. The first frame is the "hello" handshake (payload
+// omitted). queue.updated / history.appended frames carry the bus payload.
+export interface EventFrame {
+  type: string
+  payload?: Record<string, unknown>
+  at: string
+}
+
 // ---- indexers ----
 
 export interface Indexer {

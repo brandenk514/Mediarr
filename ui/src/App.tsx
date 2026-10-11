@@ -2,6 +2,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
 import { Layout } from './pages/Layout'
 import { LoginPage } from './pages/Login'
+import { DashboardPage } from './pages/Dashboard'
 
 // App is the route table. /login is public; everything else requires a valid
 // in-memory token (see AuthProvider). The authenticated routes share the Layout
@@ -25,7 +26,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<AuthGate />}>
-        <Route path="/" element={<PageStub kind="Dashboard" />} />
+        <Route path="/" element={<DashboardPage />} />
         <Route path="/movies" element={<PageStub kind="Movies" />} />
         <Route path="/tv" element={<PageStub kind="TV" />} />
         <Route path="/music" element={<PageStub kind="Music" />} />
