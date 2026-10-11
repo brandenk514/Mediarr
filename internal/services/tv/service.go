@@ -9,6 +9,7 @@ package tv
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/store"
 )
 
 // ErrNoMatch is returned when no indexer release satisfies a wanted episode's
@@ -51,6 +53,10 @@ type Deps struct {
 	MediaRoot string
 	// DefaultProfile is used when a series has no profile set.
 	DefaultProfile string
+	// Events, when non-nil, receives queue.state and history pub/sub events as
+	// the pipeline advances (#40 live dashboard). It is optional so the
+	// pipeline runs without a bus (e.g. tests).
+	Events store.Events
 }
 
 // Service implements the TV use-cases.
@@ -88,9 +94,7 @@ func (s *Service) AddSeries(ctx context.Context, title, year, qualityProfile str
 	if err != nil {
 		return 0, err
 	}
-	_ = s.deps.Repo.AddHistory(ctx, dom.HistoryEntry{
-		SeriesID: id, Event: "added", Detail: "series added to library",
-	})
+	s.record(ctx, id, "added", "series added to library")
 	return id, nil
 }
 
@@ -440,15 +444,19 @@ func (s *Service) sendToClient(ctx context.Context, series *dom.Series, rel dom.
 		return 0, err
 	}
 	qe.ID = id
+	s.emitQueue(ctx, qe)
 	qe.State = dom.QueueDownloading
 	_ = s.deps.Repo.UpdateQueue(ctx, qe)
+	s.emitQueue(ctx, qe)
 
 	if err := s.deps.Client.Add(ctx, downloads.Release{
 		Title:    rel.Title,
 		FileName: fileNameFor(rel.Parsed, series),
 	}); err != nil {
 		qe.State = dom.QueueFailed
+		qe.Progress = 0
 		_ = s.deps.Repo.UpdateQueue(ctx, qe)
+		s.emitQueue(ctx, qe)
 		return 0, err
 	}
 	return id, nil
@@ -496,6 +504,7 @@ func (s *Service) importCovered(ctx context.Context, series *dom.Series, rel dom
 	if err := s.deps.Repo.UpdateQueue(ctx, qe); err != nil {
 		return imported, err
 	}
+	s.emitQueue(ctx, qe)
 	return imported, nil
 }
 
@@ -540,11 +549,48 @@ func (s *Service) waitComplete(ctx context.Context, title string) (string, error
 	}
 }
 
-// record appends a history entry, ignoring errors (history is best-effort).
+// emitQueue publishes a "queue.updated" pub/sub event for a queue entry. It is
+// a no-op when no bus is configured and never fails the pipeline: a dead Redis
+// must not stop a download, so publish errors are deliberately ignored here
+// (the queue table is the source of truth; the bus is a best-effort push).
+func (s *Service) emitQueue(ctx context.Context, qe dom.QueueEntry) {
+	if s.deps.Events == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"series_id":      qe.SeriesID,
+		"queue_id":       qe.ID,
+		"release_title":  qe.ReleaseTitle,
+		"indexer":        qe.Indexer,
+		"client":         qe.DownloadClient,
+		"state":          qe.State,
+		"progress":       qe.Progress,
+	})
+	if err != nil {
+		return
+	}
+	_ = s.deps.Events.Publish(ctx, store.Event{Type: "queue.updated", Payload: payload})
+}
+
+// record appends a history entry, ignoring errors (history is best-effort),
+// and emits a "history.appended" pub/sub event so the live dashboard's history
+// feed refreshes (the queue is the source of truth; the bus is best-effort).
 func (s *Service) record(ctx context.Context, seriesID int64, event, detail string) {
 	_ = s.deps.Repo.AddHistory(ctx, dom.HistoryEntry{
 		SeriesID: seriesID, Event: event, Detail: detail,
 	})
+	if s.deps.Events == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"series_id": seriesID,
+		"event":     event,
+		"detail":    detail,
+	})
+	if err != nil {
+		return
+	}
+	_ = s.deps.Events.Publish(ctx, store.Event{Type: "history.appended", Payload: payload})
 }
 
 // fileNameFor derives a safe download-client file name from a parsed release

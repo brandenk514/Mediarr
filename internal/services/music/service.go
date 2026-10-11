@@ -10,6 +10,7 @@ package music
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/store"
 )
 
 // ErrNoMatch is returned when no indexer release satisfies a wanted album's
@@ -53,6 +55,10 @@ type Deps struct {
 	MediaRoot string
 	// DefaultProfile is used when an album has no profile set.
 	DefaultProfile string
+	// Events, when non-nil, receives queue.state and history pub/sub events as
+	// the pipeline advances (#40 live dashboard). It is optional so the
+	// pipeline runs without a bus (e.g. tests).
+	Events store.Events
 }
 
 // Service implements the music use-cases.
@@ -385,15 +391,19 @@ func (s *Service) sendToClient(ctx context.Context, artist *dom.Artist, album do
 		return 0, err
 	}
 	qe.ID = id
+	s.emitQueue(ctx, qe)
 	qe.State = dom.QueueDownloading
 	_ = s.deps.Repo.UpdateQueue(ctx, qe)
+	s.emitQueue(ctx, qe)
 
 	if err := s.deps.Client.Add(ctx, downloads.Release{
 		Title:    rel.Title,
 		FileName: fileNameFor(album, rel),
 	}); err != nil {
 		qe.State = dom.QueueFailed
+		qe.Progress = 0
 		_ = s.deps.Repo.UpdateQueue(ctx, qe)
+		s.emitQueue(ctx, qe)
 		return 0, err
 	}
 	return id, nil
@@ -439,6 +449,7 @@ func (s *Service) importAlbum(ctx context.Context, artist *dom.Artist, album dom
 			_ = os.Remove(plan.DestPath) // don't keep a file we can't trust
 			qe := dom.QueueEntry{ID: queueID, State: dom.QueueFailed}
 			_ = s.deps.Repo.UpdateQueue(ctx, qe)
+			s.emitQueue(ctx, qe)
 			return fmt.Errorf("music: import: %w", err)
 		}
 	}
@@ -450,6 +461,7 @@ func (s *Service) importAlbum(ctx context.Context, artist *dom.Artist, album dom
 	if err := s.deps.Repo.UpdateQueue(ctx, qe); err != nil {
 		return err
 	}
+	s.emitQueue(ctx, qe)
 	return nil
 }
 
@@ -476,11 +488,49 @@ func (s *Service) waitComplete(ctx context.Context, title string) (string, error
 	}
 }
 
-// record appends a history entry, ignoring errors (history is best-effort).
+// emitQueue publishes a "queue.updated" pub/sub event for a queue entry. It is
+// a no-op when no bus is configured and never fails the pipeline: a dead Redis
+// must not stop a download, so publish errors are deliberately ignored here
+// (the queue table is the source of truth; the bus is a best-effort push).
+func (s *Service) emitQueue(ctx context.Context, qe dom.QueueEntry) {
+	if s.deps.Events == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"artist_id":     qe.ArtistID,
+		"album_id":      qe.AlbumID,
+		"queue_id":      qe.ID,
+		"release_title": qe.ReleaseTitle,
+		"indexer":       qe.Indexer,
+		"client":        qe.DownloadClient,
+		"state":         qe.State,
+		"progress":      qe.Progress,
+	})
+	if err != nil {
+		return
+	}
+	_ = s.deps.Events.Publish(ctx, store.Event{Type: "queue.updated", Payload: payload})
+}
+
+// record appends a history entry, ignoring errors (history is best-effort),
+// and emits a "history.appended" pub/sub event so the live dashboard's history
+// feed refreshes (the queue is the source of truth; the bus is best-effort).
 func (s *Service) record(ctx context.Context, artistID int64, event, detail string) {
 	_ = s.deps.Repo.AddHistory(ctx, dom.HistoryEntry{
 		ArtistID: artistID, Event: event, Detail: detail,
 	})
+	if s.deps.Events == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"artist_id": artistID,
+		"event":     event,
+		"detail":    detail,
+	})
+	if err != nil {
+		return
+	}
+	_ = s.deps.Events.Publish(ctx, store.Event{Type: "history.appended", Payload: payload})
 }
 
 // fileNameFor derives a safe download-client file name from an album and a

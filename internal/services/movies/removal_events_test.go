@@ -237,15 +237,24 @@ func TestPipeline_EmitsQueueEvents(t *testing.T) {
 	if len(types) == 0 {
 		t.Fatal("expected queue.updated events, got none")
 	}
+	var queueEvents, historyEvents int
 	for _, ty := range types {
-		if ty != "queue.updated" {
-			t.Errorf("unexpected event type %q (only queue.updated expected)", ty)
+		switch ty {
+		case "queue.updated":
+			queueEvents++
+		case "history.appended":
+			historyEvents++
+		default:
+			t.Errorf("unexpected event type %q (only queue.updated / history.appended expected)", ty)
 		}
 	}
-	// We should see at least the initial queued and the final complete states.
-	// (States ride in the payload; the count is a coarse but sufficient signal
-	// that the bus was driven through the state machine.)
-	if len(types) < 2 {
-		t.Errorf("expected >=2 queue.updated events (queued + complete), got %d", len(types))
+	// The queue must have been driven through the state machine (queued +
+	// complete at minimum).
+	if queueEvents < 2 {
+		t.Errorf("expected >=2 queue.updated events (queued + complete), got %d", queueEvents)
+	}
+	// The pipeline also emits history (added / searched / matched / imported).
+	if historyEvents == 0 {
+		t.Errorf("expected history.appended events, got none")
 	}
 }

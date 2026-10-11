@@ -87,6 +87,7 @@ func (s *Service) AddMovie(ctx context.Context, title, year string, qualityProfi
 	_ = s.deps.Repo.AddHistory(ctx, dom.HistoryEntry{
 		MovieID: id, Event: "added", Detail: "movie added to library",
 	})
+	s.emitHistory(ctx, id, "added", "movie added to library")
 	return id, nil
 }
 
@@ -371,11 +372,32 @@ func (s *Service) waitComplete(ctx context.Context, m *dom.Movie, title string, 
 	}
 }
 
-// record appends a history entry, ignoring errors (history is best-effort).
+// record appends a history entry, ignoring errors (history is best-effort),
+// and emits a "history.appended" pub/sub event so the live dashboard's history
+// feed refreshes (the queue is the source of truth; the bus is best-effort).
 func (s *Service) record(ctx context.Context, movieID int64, event, detail string) {
 	_ = s.deps.Repo.AddHistory(ctx, dom.HistoryEntry{
 		MovieID: movieID, Event: event, Detail: detail,
 	})
+	s.emitHistory(ctx, movieID, event, detail)
+}
+
+// emitHistory publishes a "history.appended" pub/sub event. It is a no-op when
+// no bus is configured and never fails the pipeline (best-effort, like the
+// other emissions).
+func (s *Service) emitHistory(ctx context.Context, movieID int64, event, detail string) {
+	if s.deps.Events == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"movie_id": movieID,
+		"event":    event,
+		"detail":   detail,
+	})
+	if err != nil {
+		return
+	}
+	_ = s.deps.Events.Publish(ctx, store.Event{Type: "history.appended", Payload: payload})
 }
 
 // fileNameFor derives a safe download-client file name from a parsed release:
