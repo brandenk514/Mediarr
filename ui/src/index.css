@@ -360,3 +360,228 @@ button.ghost:hover {
   margin: 0 0 0.4rem;
   font-size: 1.4rem;
 }
+
+/* ---- list views (#41) ---- */
+
+.list-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.list-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.list-controls .list-search {
+  width: auto;
+  min-width: 180px;
+  margin: 0;
+}
+
+.list-count {
+  white-space: nowrap;
+}
+
+.list-controls .ghost {
+  margin: 0;
+}
+
+/* Three-way segmented filter (All / Monitored / Unmonitored). */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented .seg {
+  background: transparent;
+  color: var(--dim);
+  border: none;
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.segmented .seg + .seg {
+  border-left: 1px solid var(--border);
+}
+
+.segmented .seg.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Flat table (movies). */
+.list-table,
+.list-list {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.lt-head,
+.lt-row {
+  display: grid;
+  grid-template-columns: 1.6fr 0.6fr 0.9fr 0.9fr;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.lt-head {
+  color: var(--dim);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--panel-2);
+}
+
+.lt-row:last-child {
+  border-bottom: none;
+}
+
+/* Expandable list (tv / music / books). */
+.list-item {
+  border-bottom: 1px solid var(--border);
+}
+
+.list-item:last-of-type {
+  border-bottom: none;
+}
+
+.item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.row-head {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  margin: 0;
+  padding: 0.7rem 1rem;
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-head:hover {
+  background: var(--panel-2);
+}
+
+.row-head.small {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.88rem;
+}
+
+.row-head .lt-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  width: 1rem;
+  display: inline-block;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+
+.chevron-open {
+  color: var(--accent);
+}
+
+.lt-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-dim {
+  color: var(--dim);
+}
+
+/* Optimistic monitored toggle pill. */
+.mon-toggle {
+  border: none;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.mon-toggle.on {
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  color: var(--ok);
+}
+
+.mon-toggle.off {
+  background: var(--panel-2);
+  color: var(--dim);
+}
+
+.mon-toggle.busy {
+  opacity: 0.6;
+}
+
+/* Lazy child collections. */
+.child-list {
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.child-list.nested {
+  border-left: 2px solid var(--accent);
+}
+
+.child-row,
+.child-item > .item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.child-row:last-child {
+  border-bottom: none;
+}
+
+.child-label {
+  width: 44px;
+  flex-shrink: 0;
+  color: var(--dim);
+  font-size: 0.8rem;
+}
+
+.child-row .lt-name {
+  flex: 1;
+}
+
+/* Page controls. */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  margin: 1rem 0 0;
+}
+
+.pagination .ghost {
+  margin: 0;
+}

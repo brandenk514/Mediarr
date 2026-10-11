@@ -27,11 +27,13 @@ import type {
   Indexer,
   IndexerStats,
   IndexerTestResult,
+  ListQuery,
   LoginRequest,
   LoginResponse,
   Me,
   MonitoredResult,
   Movie,
+  Page,
   Series,
   SeriesWanted,
   Title,
@@ -79,6 +81,19 @@ function tryParseError(text: string): string {
   }
 }
 
+// buildListQuery serializes a ListQuery into a URL query string, omitting
+// unset fields so the server applies its defaults (page 1, size 25).
+function buildListQuery(q?: ListQuery): string {
+  if (!q) return ''
+  const params = new URLSearchParams()
+  if (q.q) params.set('q', q.q)
+  if (typeof q.monitored === 'boolean') params.set('monitored', String(q.monitored))
+  if (q.page) params.set('page', String(q.page))
+  if (q.page_size) params.set('page_size', String(q.page_size))
+  const s = params.toString()
+  return s ? `?${s}` : ''
+}
+
 export const client = {
   // ---- auth ----
   login: (req: LoginRequest) =>
@@ -90,13 +105,15 @@ export const client = {
   logout: () => clearToken(),
 
   // ---- movies ----
-  listMovies: () => request<Movie[]>('GET', '/movies'),
+  listMovies: (q?: ListQuery) => request<Page<Movie>>('GET', `/movies${buildListQuery(q)}`),
   getMovie: (id: number) => request<Movie>('GET', `/movies/${id}`),
   addMovie: (req: AddMovieRequest) => request<AddedId>('POST', '/movies', req),
+  setMovieMonitored: (id: number, monitored: boolean) =>
+    request<MonitoredResult>('PUT', `/movies/${id}`, { monitored }),
   runMoviePipeline: (id: number) => request<{ imported: string }>('POST', `/movies/${id}/pipeline`),
 
   // ---- tv ----
-  listSeries: () => request<Series[]>('GET', '/tv'),
+  listSeries: (q?: ListQuery) => request<Page<Series>>('GET', `/tv${buildListQuery(q)}`),
   getSeries: (id: number) => request<Series>('GET', `/tv/${id}`),
   addSeries: (req: AddSeriesRequest) => request<AddedId>('POST', '/tv', req),
   setSeriesMonitored: (id: number, monitored: boolean) =>
@@ -112,7 +129,7 @@ export const client = {
   listSeriesWanted: (id: number) => request<SeriesWanted[]>('GET', `/tv/${id}/wanted`),
 
   // ---- music ----
-  listArtists: () => request<Artist[]>('GET', '/music/artists'),
+  listArtists: (q?: ListQuery) => request<Page<Artist>>('GET', `/music/artists${buildListQuery(q)}`),
   getArtist: (id: number) => request<Artist>('GET', `/music/artists/${id}`),
   addArtist: (req: AddArtistRequest) => request<AddedId>('POST', '/music/artists', req),
   setArtistMonitored: (id: number, monitored: boolean) =>
@@ -135,7 +152,7 @@ export const client = {
   listAlbumWanted: (albumId: number) => request<AlbumWanted[]>('GET', `/music/albums/${albumId}/wanted`),
 
   // ---- books ----
-  listAuthors: () => request<Author[]>('GET', '/books/authors'),
+  listAuthors: (q?: ListQuery) => request<Page<Author>>('GET', `/books/authors${buildListQuery(q)}`),
   getAuthor: (id: number) => request<Author>('GET', `/books/authors/${id}`),
   addAuthor: (req: AddAuthorRequest) => request<AddedId>('POST', '/books/authors', req),
   setAuthorMonitored: (id: number, monitored: boolean) =>

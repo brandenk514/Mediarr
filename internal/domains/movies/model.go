@@ -83,6 +83,7 @@ type Repo interface {
 	CreateMovie(ctx context.Context, m Movie) (int64, error)
 	GetMovie(ctx context.Context, id int64) (*Movie, error)
 	ListMovies(ctx context.Context) ([]Movie, error)
+	SetMovieMonitored(ctx context.Context, id int64, monitored bool) error
 
 	EnsureWanted(ctx context.Context, movieID int64) error
 	GetWanted(ctx context.Context, movieID int64) (*Wanted, error)

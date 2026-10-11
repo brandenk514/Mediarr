@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/brandenk514/mediarr/internal/paging"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 )
 
@@ -73,14 +74,16 @@ func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
-// ListArtists handles GET /api/v1/music/artists.
+// ListArtists handles GET /api/v1/music/artists. It returns a server-side
+// filtered, paginated envelope (M6 #41): ?q=<search>&monitored=<bool>&page=&page_size=.
 func (s *Server) ListArtists(w http.ResponseWriter, r *http.Request) {
-	artists, err := s.musicDeps.Svc.ListArtists(r.Context())
+	q := paging.QueryFromURLValues(r.URL.Query())
+	page, err := s.musicDeps.Svc.ListArtistsQuery(r.Context(), q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, artists)
+	writeJSON(w, http.StatusOK, page)
 }
 
 // GetArtist handles GET /api/v1/music/artists/{id}.

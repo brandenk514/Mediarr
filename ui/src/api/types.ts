@@ -27,6 +27,31 @@ export interface Me {
   role: string
 }
 
+// ---- list pagination (#41) ----
+//
+// Every top-level per-kind list (movies, tv series, music artists, book
+// authors) is filtered and paginated server-side and returns this envelope.
+// The envelope fields are camelCase snake (json-tagged in Go); the *item*
+// fields inside `items` keep their bare Go names (see the domain types above).
+
+export interface Page<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
+// ListQuery is the optional filter/pagination input for a list call. All
+// fields are optional; omit them to get the first page of 25.
+export interface ListQuery {
+  // Case-insensitive substring search on the item name.
+  q?: string
+  // When set (true or false), keep only items whose monitored flag matches.
+  monitored?: boolean
+  page?: number
+  page_size?: number
+}
+
 // ---- movies ----
 
 export interface Movie {

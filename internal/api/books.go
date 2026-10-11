@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	booksdom "github.com/brandenk514/mediarr/internal/domains/books"
+	"github.com/brandenk514/mediarr/internal/paging"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 )
 
@@ -72,14 +73,16 @@ func (s *Server) AddAuthor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
-// ListAuthors handles GET /api/v1/books/authors.
+// ListAuthors handles GET /api/v1/books/authors. It returns a server-side
+// filtered, paginated envelope (M6 #41): ?q=<search>&monitored=<bool>&page=&page_size=.
 func (s *Server) ListAuthors(w http.ResponseWriter, r *http.Request) {
-	authors, err := s.booksDeps.Svc.ListAuthors(r.Context())
+	q := paging.QueryFromURLValues(r.URL.Query())
+	page, err := s.booksDeps.Svc.ListAuthorsQuery(r.Context(), q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, authors)
+	writeJSON(w, http.StatusOK, page)
 }
 
 // GetAuthor handles GET /api/v1/books/authors/{id}.
