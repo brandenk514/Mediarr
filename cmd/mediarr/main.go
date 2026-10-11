@@ -138,8 +138,9 @@ func run() error {
 	cache := redis.NewCache(rdb)
 	queue := redis.NewQueue(rdb)
 	events := redis.NewEvents(rdb)
-	_ = queue  // consumed by workers starting M1
-	_ = events // consumed by workers starting M1
+	_ = queue // consumed by workers starting M1
+	// events is the live pub/sub bus: fed by all four pipelines (queue.updated
+	// / history.appended) and read by the /api/v1/events WebSocket bridge.
 
 	if err := cache.Ping(ctx); err != nil {
 		return err
@@ -228,7 +229,6 @@ func run() error {
 	// --- Health + API ---------------------------------------------------
 	checker := health.NewChecker(pg, cache)
 	srv := api.NewServer(checker)
-	srv.SetAuth(&api.AuthDeps{Repo: auth.NewRepo(pg.DB())})
 	// Indexer health endpoints (#35): list, on-demand test, per-indexer stats.
 	// They share the same repo, worker, and tracker as the live search path.
 	srv.SetIndexers(&api.IndexersDeps{
@@ -236,6 +236,16 @@ func run() error {
 		Worker:  healthWorker,
 		Tracker: healthTracker,
 	})
+	// Dashboard (#40): cross-library snapshot + indexer health at a glance,
+	// and the WebSocket push channel for live queue/history updates.
+	dashboardRepo := postgres.NewDashboardRepo(pg.DB())
+	srv.SetDashboard(&api.DashboardDeps{
+		Repo:    dashboardRepo,
+		Tracker: healthTracker,
+	})
+	authRepo := auth.NewRepo(pg.DB())
+	srv.SetAuth(&api.AuthDeps{Repo: authRepo})
+	srv.SetEvents(&api.EventsDeps{Repo: authRepo, Events: events})
 
 	// --- Movies pipeline -----------------------------------------------
 	// M1: wire the movie pipeline end-to-end. The running service uses a fake
@@ -328,6 +338,7 @@ func run() error {
 		Client:         dlClient,
 		MediaRoot:      tvMediaRoot,
 		DefaultProfile: "HD-1080p",
+		Events:         events,
 	})
 	srv.SetTV(&api.TVDeps{Svc: tvSvc})
 	logger.Info("tv pipeline ready",
@@ -363,6 +374,7 @@ func run() error {
 		Client:         dlClient,
 		MediaRoot:      musicMediaRoot,
 		DefaultProfile: "Lossless",
+		Events:         events,
 	})
 	srv.SetMusic(&api.MusicDeps{Svc: musicSvc})
 	logger.Info("music pipeline ready",

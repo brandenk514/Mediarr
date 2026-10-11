@@ -4,9 +4,12 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,14 +19,16 @@ import (
 
 // Server is the HTTP server. It owns the mux and middleware chain.
 type Server struct {
-	mux          *http.ServeMux
-	health       *health.Checker
-	authDeps     *AuthDeps
-	indexersDeps *IndexersDeps
-	moviesDeps   *MoviesDeps
-	tvDeps       *TVDeps
-	musicDeps    *MusicDeps
-	booksDeps    *BooksDeps
+	mux           *http.ServeMux
+	health        *health.Checker
+	authDeps      *AuthDeps
+	indexersDeps  *IndexersDeps
+	dashboardDeps *DashboardDeps
+	eventsDeps    *EventsDeps
+	moviesDeps    *MoviesDeps
+	tvDeps        *TVDeps
+	musicDeps     *MusicDeps
+	booksDeps     *BooksDeps
 }
 
 // NewServer builds a Server with the given readiness checker.
@@ -143,6 +148,23 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+// Hijack and Flush are delegated to the wrapped writer so that
+// WebSocket upgrades (gorilla/websocket) and streaming responses work
+// through the request-logging middleware. Without them, the recorder's
+// embedding of the interface hides those methods and Upgrade fails with 500.
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, errors.New("statusRecorder: underlying ResponseWriter does not implement http.Hijacker")
+}
+
+func (r *statusRecorder) Flush() {
+	if fl, ok := r.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
 }
 
 // recoverPanic turns panics into 500s and prevents a request from killing the process.
