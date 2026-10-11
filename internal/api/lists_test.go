@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/brandenk514/mediarr/internal/auth"
-	"github.com/brandenk514/mediarr/internal/health"
 	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
+	"github.com/brandenk514/mediarr/internal/health"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 )
 
@@ -71,7 +71,7 @@ func (r *listMoviesRepo) SetMovieMonitored(ctx context.Context, id int64, monito
 	return nil
 }
 
-func (r *listMoviesRepo) EnsureWanted(ctx context.Context, movieID int64) error        { return nil }
+func (r *listMoviesRepo) EnsureWanted(ctx context.Context, movieID int64) error { return nil }
 func (r *listMoviesRepo) GetWanted(ctx context.Context, movieID int64) (*moviesdom.Wanted, error) {
 	return &moviesdom.Wanted{MovieID: movieID}, nil
 }
