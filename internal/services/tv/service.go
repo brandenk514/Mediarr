@@ -558,13 +558,13 @@ func (s *Service) emitQueue(ctx context.Context, qe dom.QueueEntry) {
 		return
 	}
 	payload, err := json.Marshal(map[string]any{
-		"series_id":      qe.SeriesID,
-		"queue_id":       qe.ID,
-		"release_title":  qe.ReleaseTitle,
-		"indexer":        qe.Indexer,
-		"client":         qe.DownloadClient,
-		"state":          qe.State,
-		"progress":       qe.Progress,
+		"series_id":     qe.SeriesID,
+		"queue_id":      qe.ID,
+		"release_title": qe.ReleaseTitle,
+		"indexer":       qe.Indexer,
+		"client":        qe.DownloadClient,
+		"state":         qe.State,
+		"progress":      qe.Progress,
 	})
 	if err != nil {
 		return
