@@ -177,12 +177,12 @@ func (r *DashboardRepo) queue(ctx context.Context, limit int) ([]dashboard.Queue
 	var out []dashboard.QueueItem
 	for rows.Next() {
 		var (
-			kind        string
-			release     string
-			indexer     string
-			state       string
-			progress    int
-			updatedAt   time.Time
+			kind      string
+			release   string
+			indexer   string
+			state     string
+			progress  int
+			updatedAt time.Time
 		)
 		if err := rows.Scan(&kind, &release, &indexer, &state, &progress, &updatedAt); err != nil {
 			return nil, fmt.Errorf("dashboard: scan queue: %w", err)

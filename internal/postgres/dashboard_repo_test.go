@@ -78,11 +78,11 @@ func TestDashboardRepo_Snapshot(t *testing.T) {
 	}
 
 	checks := []struct {
-		kind      dashboard.Kind
-		label     string
-		count     int64
-		wants     int64
-		inflight  int64
+		kind     dashboard.Kind
+		label    string
+		count    int64
+		wants    int64
+		inflight int64
 	}{
 		{dashboard.KindMovie, "Movies", 2, 1, 1},
 		{dashboard.KindTV, "TV", 1, 2, 1},
