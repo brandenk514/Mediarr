@@ -22,6 +22,7 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/books"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/paging"
 	"github.com/brandenk514/mediarr/internal/store"
 )
 
@@ -151,6 +152,19 @@ func (s *Service) AddEdition(ctx context.Context, titleID int64, format, isbn, p
 // ListAuthors returns all authors (used by GET /api/v1/books).
 func (s *Service) ListAuthors(ctx context.Context) ([]dom.Author, error) {
 	return s.deps.Repo.ListAuthors(ctx)
+}
+
+// ListAuthorsQuery returns a server-side filtered and paginated page of
+// authors (M6 #41). The books list view expands an author to its titles and
+// editions lazily; the page envelope applies to the author level.
+func (s *Service) ListAuthorsQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Author], error) {
+	all, err := s.deps.Repo.ListAuthors(ctx)
+	if err != nil {
+		return paging.Page[dom.Author]{}, err
+	}
+	return paging.Apply(all, q, func(a dom.Author) (string, bool) {
+		return a.Name, a.Monitored
+	}), nil
 }
 
 // GetAuthor loads an author (used by GET /api/v1/books/{id}).

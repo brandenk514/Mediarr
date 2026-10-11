@@ -20,6 +20,7 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/paging"
 	"github.com/brandenk514/mediarr/internal/store"
 )
 
@@ -124,6 +125,19 @@ func (s *Service) AddEpisode(ctx context.Context, seriesID int64, season, episod
 // ListSeries returns all series (used by GET /api/v1/tv).
 func (s *Service) ListSeries(ctx context.Context) ([]dom.Series, error) {
 	return s.deps.Repo.ListSeries(ctx)
+}
+
+// ListSeriesQuery returns a server-side filtered and paginated page of series
+// (M6 #41). The TV list view expands a series to its episodes lazily; the
+// page envelope applies to the series level.
+func (s *Service) ListSeriesQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Series], error) {
+	all, err := s.deps.Repo.ListSeries(ctx)
+	if err != nil {
+		return paging.Page[dom.Series]{}, err
+	}
+	return paging.Apply(all, q, func(se dom.Series) (string, bool) {
+		return se.Title, se.Monitored
+	}), nil
 }
 
 // GetSeries loads a series (used by GET /api/v1/tv/{id}).

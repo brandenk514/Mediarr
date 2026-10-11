@@ -19,11 +19,16 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/movies"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/paging"
 	"github.com/brandenk514/mediarr/internal/store"
 )
 
 // ErrNoMatch is returned when no indexer release satisfies the quality profile.
 var ErrNoMatch = fmt.Errorf("movies: no release matched the quality profile")
+
+// ErrMovieNotFound is re-exported from the pure domain so API/transport layers
+// can map it to 404 without importing the domain directly.
+var ErrMovieNotFound = dom.ErrMovieNotFound
 
 // Deps bundles the Service's collaborators. Everything is an interface (or the
 // pure domain), so the service is testable with a fake indexer, a mock download
@@ -94,6 +99,40 @@ func (s *Service) AddMovie(ctx context.Context, title, year string, qualityProfi
 // ListMovies returns all movies (used by GET /api/v1/movies).
 func (s *Service) ListMovies(ctx context.Context) ([]dom.Movie, error) {
 	return s.deps.Repo.ListMovies(ctx)
+}
+
+// ListMoviesQuery returns a server-side filtered and paginated page of
+// movies (M6 #41). It reads the full list and applies the query in memory;
+// the dataset is small (thousands, not millions) so a single read is cheaper
+// than a per-query parameterized SQL build.
+func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Movie], error) {
+	all, err := s.deps.Repo.ListMovies(ctx)
+	if err != nil {
+		return paging.Page[dom.Movie]{}, err
+	}
+	return paging.Apply(all, q, func(m dom.Movie) (string, bool) {
+		return m.Title, m.Monitored
+	}), nil
+}
+
+// SetMovieMonitored toggles a movie's monitoring (M6 #41). On toggle-on it
+// ensures a pending wanted row so a re-monitored movie is wanted again; the
+// toggle is recorded in history and emitted live so the dashboard refreshes.
+func (s *Service) SetMovieMonitored(ctx context.Context, id int64, monitored bool) error {
+	if err := s.deps.Repo.SetMovieMonitored(ctx, id, monitored); err != nil {
+		return err
+	}
+	if monitored {
+		if err := s.deps.Repo.EnsureWanted(ctx, id); err != nil {
+			return err
+		}
+	}
+	event := "monitored"
+	if !monitored {
+		event = "unmonitored"
+	}
+	s.record(ctx, id, event, "movie-level toggle")
+	return nil
 }
 
 // GetMovie loads a movie (used by GET /api/v1/movies/{id}).
