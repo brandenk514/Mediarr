@@ -20,8 +20,10 @@ import type {
   AlbumWanted,
   Artist,
   Author,
+  Dashboard,
   Edition,
   Episode,
+  EventFrame,
   Indexer,
   IndexerStats,
   IndexerTestResult,
@@ -158,6 +160,76 @@ export const client = {
   listIndexers: () => request<Indexer[]>('GET', '/indexers'),
   indexerStats: (id: number) => request<IndexerStats>('GET', `/indexers/${id}/stats`),
   testIndexer: (id: number) => request<IndexerTestResult>('POST', `/indexers/${id}/test`),
+
+  // ---- dashboard (#40) ----
+  // recent caps the recent-history / recent-queue feeds (server clamps 1..100).
+  getDashboard: (recent?: number) =>
+    request<Dashboard>('GET', `/dashboard${recent ? `?recent=${recent}` : ''}`),
 }
 
 export type Api = typeof client
+
+// connectEvents opens the /api/v1/events WebSocket (#40: "WebSocket
+// subscription for live queue/history updates"). Browsers cannot set the
+// Authorization header on a WebSocket handshake, so the bearer token goes as
+// ?token= (the server's documented browser path).
+//
+// The helper auto-reconnects with a capped backoff so a blip (server restart,
+// proxy restart) doesn't silently kill live updates. onStatus reports the
+// connection phase for UI state ("connecting" → "open" → "closed"); onEvent
+// receives every frame, including the "hello" greeting. Returns a close
+// function; call it on unmount to stop reconnecting.
+export function connectEvents(
+  onEvent: (frame: EventFrame) => void,
+  onStatus?: (status: 'connecting' | 'open' | 'closed') => void,
+): () => void {
+  let ws: WebSocket | null = null
+  let closedByCaller = false
+  let retry = 0
+
+  function report(status: 'connecting' | 'open' | 'closed') {
+    onStatus?.(status)
+  }
+
+  function connect() {
+    if (closedByCaller) return
+    report('connecting')
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const path = '/api/v1/events'
+    const token = getToken()
+    const url = token
+      ? `${proto}//${window.location.host}${path}?token=${encodeURIComponent(token)}`
+      : `${proto}//${window.location.host}${path}`
+    ws = new WebSocket(url)
+
+    ws.onopen = () => {
+      retry = 0
+      report('open')
+    }
+    ws.onmessage = (msg: MessageEvent) => {
+      try {
+        const frame = JSON.parse(String(msg.data)) as EventFrame
+        onEvent(frame)
+      } catch {
+        // A malformed frame (shouldn't happen; the server always writes JSON)
+        // must not kill the stream.
+      }
+    }
+    ws.onclose = () => {
+      if (closedByCaller) return
+      // Backoff: 0s, 1s, 2s, 4s, ... capped at 15s.
+      const delay = Math.min(15000, 1000 * 2 ** Math.min(retry, 4))
+      retry += 1
+      report('connecting')
+      setTimeout(connect, delay)
+    }
+  }
+
+  connect()
+
+  return () => {
+    closedByCaller = true
+    report('closed')
+    ws?.close()
+  }
+}
