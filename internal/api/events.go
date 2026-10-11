@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -56,12 +57,18 @@ var liveEventTypes = []string{"queue.updated", "history.appended"}
 
 // Events handles GET /api/v1/events: a live WebSocket push of queue and
 // history events. The handshake is authenticated with the same bearer token as
-// the REST API (no token / invalid token → 401 before upgrade). Once
-// connected, the server subscribes to the bus and streams every matching event
-// as a JSON frame. The connection is torn down when the client closes it or
-// the request context is cancelled.
+// the REST API (no token / invalid token → 401 before upgrade). Browsers
+// cannot set the Authorization header on a WebSocket handshake, so the token
+// may also be passed as ?token= (the single-user local app trade-off noted in
+// eventsUpgrader; the token is a server-minted secret, not a credential).
+// Once connected, the server subscribes to the bus and streams every matching
+// event as a JSON frame. The connection is torn down when the client closes it
+// or the request context is cancelled.
 func (s *Server) Events(w http.ResponseWriter, r *http.Request) {
 	raw := bearerToken(r)
+	if raw == "" {
+		raw = strings.TrimSpace(r.URL.Query().Get("token"))
+	}
 	if raw == "" {
 		writeError(w, http.StatusUnauthorized, "missing bearer token")
 		return

@@ -21,5 +21,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    // The host sets NODE_ENV=production globally; that makes React load its
+    // production build, which lacks React.act (testing-library needs it).
+    // Pin the test env regardless of the surrounding shell.
+    env: { NODE_ENV: 'test' },
   },
 })

@@ -112,22 +112,32 @@ func readFrame(t *testing.T, conn *websocket.Conn) wsEvent {
 
 // TestEvents_RequiresAuth is the #40 "auth required" contract for the live
 // channel: a handshake with no token or a bad token is rejected before the
-// socket is opened.
+// socket is opened. The token may arrive as a ?token= query param (browsers
+// can't set the Authorization header on a WebSocket handshake).
 func TestEvents_RequiresAuth(t *testing.T) {
-	s, _, _ := newEventsTestServer(t)
+	s, token, _ := newEventsTestServer(t)
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
-	for _, tc := range []struct{ name, token string }{
-		{"no token", ""},
-		{"bad token", "ma_invalid_token_value"},
+	for _, tc := range []struct {
+		name  string
+		token string // header bearer token; "" = no Authorization header
+		query string // ?token= value
+	}{
+		{"no token", "", ""},
+		{"bad token", "ma_invalid_token_value", ""},
+		{"bad query token", "", "ma_invalid_token_value"},
 	} {
 		dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
 		hdr := http.Header{}
 		if tc.token != "" {
 			hdr.Set("Authorization", "Bearer "+tc.token)
 		}
-		_, resp, err := dialer.Dial(toWS(srv.URL+"/api/v1/events"), hdr)
+		url := toWS(srv.URL + "/api/v1/events")
+		if tc.query != "" {
+			url += "?token=" + tc.query
+		}
+		_, resp, err := dialer.Dial(url, hdr)
 		if err == nil {
 			t.Fatalf("%s: expected handshake to fail, but it succeeded", tc.name)
 		}
@@ -138,6 +148,18 @@ func TestEvents_RequiresAuth(t *testing.T) {
 			}
 			t.Fatalf("%s: got status %d, want 401 (err %v)", tc.name, code, err)
 		}
+	}
+
+	// A valid token in the query string upgrades cleanly (browser path).
+	dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
+	conn, resp, err := dialer.Dial(toWS(srv.URL+"/api/v1/events?token="+token), http.Header{})
+	if err != nil {
+		t.Fatalf("query-token dial failed: %v (resp %v)", err, resp)
+	}
+	defer conn.Close()
+	hello := readFrame(t, conn)
+	if hello.Type != "hello" {
+		t.Fatalf("first frame = %q, want hello", hello.Type)
 	}
 }
 
