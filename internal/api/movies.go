@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/brandenk514/mediarr/internal/paging"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 )
 
@@ -19,6 +20,7 @@ func (s *Server) SetMovies(deps *MoviesDeps) {
 	s.mux.HandleFunc("POST /api/v1/movies", s.requireAuth(s.AddMovie))
 	s.mux.HandleFunc("GET /api/v1/movies", s.requireAuth(s.ListMovies))
 	s.mux.HandleFunc("GET /api/v1/movies/{id}", s.requireAuth(s.GetMovie))
+	s.mux.HandleFunc("PUT /api/v1/movies/{id}", s.requireAuth(s.SetMovieMonitored))
 	s.mux.HandleFunc("POST /api/v1/movies/{id}/pipeline", s.requireAuth(s.RunMoviePipeline))
 }
 
@@ -48,14 +50,46 @@ func (s *Server) AddMovie(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
-// ListMovies handles GET /api/v1/movies.
+// ListMovies handles GET /api/v1/movies. It returns a server-side filtered,
+// paginated envelope (M6 #41) so the UI's list view does pagination and
+// filtering server-side: ?q=<search>&monitored=<bool>&page=&page_size=.
 func (s *Server) ListMovies(w http.ResponseWriter, r *http.Request) {
-	movies, err := s.moviesDeps.Svc.ListMovies(r.Context())
+	q := paging.QueryFromURLValues(r.URL.Query())
+	page, err := s.moviesDeps.Svc.ListMoviesQuery(r.Context(), q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, movies)
+	writeJSON(w, http.StatusOK, page)
+}
+
+// setMovieMonitoredRequest is the body for PUT /api/v1/movies/{id}.
+type setMovieMonitoredRequest struct {
+	Monitored bool `json:"monitored"`
+}
+
+// SetMovieMonitored handles PUT /api/v1/movies/{id}. It toggles the movie's
+// monitoring; on toggle-on a pending wanted row is ensured so a re-monitored
+// movie is wanted again (mirrors the tv/music/books monitored toggles).
+func (s *Server) SetMovieMonitored(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req setMovieMonitoredRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.moviesDeps.Svc.SetMovieMonitored(r.Context(), id, req.Monitored); err != nil {
+		if err == moviesvc.ErrMovieNotFound {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "monitored": req.Monitored})
 }
 
 // GetMovie handles GET /api/v1/movies/{id}.

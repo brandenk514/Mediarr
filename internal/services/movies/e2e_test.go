@@ -65,6 +65,16 @@ func (r *memRepo) ListMovies(ctx context.Context) ([]dom.Movie, error) {
 	return out, nil
 }
 
+func (r *memRepo) SetMovieMonitored(ctx context.Context, id int64, monitored bool) error {
+	m, ok := r.movies[id]
+	if !ok {
+		return dom.ErrMovieNotFound
+	}
+	m.Monitored = monitored
+	r.movies[id] = m
+	return nil
+}
+
 func (r *memRepo) EnsureWanted(ctx context.Context, movieID int64) error {
 	if _, ok := r.wanted[movieID]; !ok {
 		r.wanted[movieID] = dom.Wanted{MovieID: movieID, Status: dom.WantedPending, CreatedAt: time.Now()}

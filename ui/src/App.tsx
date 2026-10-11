@@ -3,6 +3,10 @@ import { useAuth } from './auth/AuthContext'
 import { Layout } from './pages/Layout'
 import { LoginPage } from './pages/Login'
 import { DashboardPage } from './pages/Dashboard'
+import { MoviesPage } from './pages/lists/Movies'
+import { TvPage } from './pages/lists/Tv'
+import { MusicPage } from './pages/lists/Music'
+import { BooksPage } from './pages/lists/Books'
 
 // App is the route table. /login is public; everything else requires a valid
 // in-memory token (see AuthProvider). The authenticated routes share the Layout
@@ -27,10 +31,10 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<AuthGate />}>
         <Route path="/" element={<DashboardPage />} />
-        <Route path="/movies" element={<PageStub kind="Movies" />} />
-        <Route path="/tv" element={<PageStub kind="TV" />} />
-        <Route path="/music" element={<PageStub kind="Music" />} />
-        <Route path="/books" element={<PageStub kind="Books" />} />
+        <Route path="/movies" element={<MoviesPage />} />
+        <Route path="/tv" element={<TvPage />} />
+        <Route path="/music" element={<MusicPage />} />
+        <Route path="/books" element={<BooksPage />} />
         <Route path="/queue" element={<PageStub kind="Queue" />} />
         <Route path="/settings" element={<PageStub kind="Settings" />} />
       </Route>
@@ -39,7 +43,7 @@ export default function App() {
 }
 
 // PageStub is the placeholder for a route whose feature lands in a later M6
-// issue (#40–#44). Each one is named after its board issue.
+// issue. Each one is named after its board issue.
 function PageStub({ kind }: { kind: string }) {
   return (
     <div className="card">

@@ -69,6 +69,19 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 	return out, rows.Err()
 }
 
+// SetMovieMonitored toggles a movie's monitored flag.
+func (r *MovieRepo) SetMovieMonitored(ctx context.Context, id int64, monitored bool) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE movies SET monitored = $2 WHERE id = $1`, id, monitored)
+	if err != nil {
+		return fmt.Errorf("movies: set monitored: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return movies.ErrMovieNotFound
+	}
+	return nil
+}
+
 // EnsureWanted inserts a pending wanted row if one does not already exist.
 // Idempotent: re-adding a monitored movie does not create a second row.
 func (r *MovieRepo) EnsureWanted(ctx context.Context, movieID int64) error {

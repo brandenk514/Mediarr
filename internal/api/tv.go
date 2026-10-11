@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/brandenk514/mediarr/internal/paging"
 	tvsvc "github.com/brandenk514/mediarr/internal/services/tv"
 )
 
@@ -61,14 +62,16 @@ func (s *Server) AddSeries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 
-// ListSeries handles GET /api/v1/tv.
+// ListSeries handles GET /api/v1/tv. It returns a server-side filtered,
+// paginated envelope (M6 #41): ?q=<search>&monitored=<bool>&page=&page_size=.
 func (s *Server) ListSeries(w http.ResponseWriter, r *http.Request) {
-	series, err := s.tvDeps.Svc.ListSeries(r.Context())
+	q := paging.QueryFromURLValues(r.URL.Query())
+	page, err := s.tvDeps.Svc.ListSeriesQuery(r.Context(), q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, series)
+	writeJSON(w, http.StatusOK, page)
 }
 
 // GetSeries handles GET /api/v1/tv/{id}.
