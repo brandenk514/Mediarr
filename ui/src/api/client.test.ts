@@ -24,7 +24,7 @@ describe('client.request', () => {
     let auth: string | undefined
     mockFetch((_, init) => {
       auth = (init?.headers as Record<string, string>)?.Authorization
-      return new Response(JSON.stringify([]), { status: 200 })
+      return new Response(JSON.stringify({ items: [], total: 0, page: 1, page_size: 25 }), { status: 200 })
     })
     await client.listMovies()
     expect(auth).toBe('Bearer ma_secret')
@@ -34,7 +34,7 @@ describe('client.request', () => {
     mockFetch((_, init) => {
       const headers = (init?.headers ?? {}) as Record<string, string>
       expect(headers.Authorization).toBeUndefined()
-      return new Response(JSON.stringify([]), { status: 200 })
+      return new Response(JSON.stringify({ items: [], total: 0, page: 1, page_size: 25 }), { status: 200 })
     })
     await client.listMovies()
   })
@@ -52,14 +52,59 @@ describe('client.request', () => {
     await expect(client.me()).rejects.toThrow('authentication expired or invalid')
   })
 
-  it('returns typed JSON for list endpoints', async () => {
+  it('returns the paged envelope for list endpoints (#41)', async () => {
     mockFetch(() =>
-      new Response(JSON.stringify([{ ID: 1, Title: 'Dune', Year: 2021, QualityProfile: '1080p', Monitored: true, AddedAt: '2026-01-01T00:00:00Z' }]), {
-        status: 200,
-      }),
+      new Response(
+        JSON.stringify({
+          items: [{ ID: 1, Title: 'Dune', Year: 2021, QualityProfile: '1080p', Monitored: true, AddedAt: '2026-01-01T00:00:00Z' }],
+          total: 1,
+          page: 1,
+          page_size: 25,
+        }),
+        { status: 200 },
+      ),
     )
-    const movies = await client.listMovies()
-    expect(movies[0].Title).toBe('Dune')
+    const page = await client.listMovies()
+    expect(page.total).toBe(1)
+    expect(page.items[0].Title).toBe('Dune')
+  })
+
+  it('serializes ListQuery into the list URL (#41)', async () => {
+    let url = ''
+    mockFetch((u) => {
+      url = u
+      return new Response(JSON.stringify({ items: [], total: 0, page: 2, page_size: 25 }), { status: 200 })
+    })
+    await client.listSeries({ q: 'the', monitored: true, page: 2, page_size: 25 })
+    expect(url).toContain('/api/v1/tv?')
+    expect(url).toContain('q=the')
+    expect(url).toContain('monitored=true')
+    expect(url).toContain('page=2')
+    expect(url).toContain('page_size=25')
+  })
+
+  it('omits unset ListQuery fields', async () => {
+    let url = ''
+    mockFetch((u) => {
+      url = u
+      return new Response(JSON.stringify({ items: [], total: 0, page: 1, page_size: 25 }), { status: 200 })
+    })
+    await client.listMovies()
+    expect(url).toBe('/api/v1/movies')
+  })
+
+  it('setMovieMonitored PUTs {monitored} to /movies/{id} (#41)', async () => {
+    let method = ''
+    let body: unknown = null
+    mockFetch((_, init) => {
+      method = init?.method ?? ''
+      body = init?.body
+      return new Response(JSON.stringify({ id: 7, monitored: false }), { status: 200 })
+    })
+    const res = await client.setMovieMonitored(7, false)
+    expect(method).toBe('PUT')
+    expect(JSON.parse(String(body))).toEqual({ monitored: false })
+    expect(res.monitored).toBe(false)
   })
 })
 

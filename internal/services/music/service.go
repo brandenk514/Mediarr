@@ -21,6 +21,7 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/paging"
 	"github.com/brandenk514/mediarr/internal/store"
 )
 
@@ -152,6 +153,19 @@ func (s *Service) AddTrack(ctx context.Context, albumID int64, disc, number int,
 // ListArtists returns all artists (used by GET /api/v1/music).
 func (s *Service) ListArtists(ctx context.Context) ([]dom.Artist, error) {
 	return s.deps.Repo.ListArtists(ctx)
+}
+
+// ListArtistsQuery returns a server-side filtered and paginated page of
+// artists (M6 #41). The music list view expands an artist to its albums and
+// tracks lazily; the page envelope applies to the artist level.
+func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Artist], error) {
+	all, err := s.deps.Repo.ListArtists(ctx)
+	if err != nil {
+		return paging.Page[dom.Artist]{}, err
+	}
+	return paging.Apply(all, q, func(a dom.Artist) (string, bool) {
+		return a.Name, a.Monitored
+	}), nil
 }
 
 // GetArtist loads an artist (used by GET /api/v1/music/{id}).
