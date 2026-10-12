@@ -230,12 +230,16 @@ func run() error {
 	// --- Health + API ---------------------------------------------------
 	checker := health.NewChecker(pg, cache)
 	srv := api.NewServer(checker)
-	// Indexer health endpoints (#35): list, on-demand test, per-indexer stats.
-	// They share the same repo, worker, and tracker as the live search path.
+	// Indexer endpoints (#35 read/health, #44 write): list, on-demand test,
+	// per-indexer stats, plus the create/update/enable/delete surface the
+	// settings page uses. They share the same repo, worker, tracker, and
+	// registry as the live search path (the registry validates a definition's
+	// kind so a saved indexer can always be materialized).
 	srv.SetIndexers(&api.IndexersDeps{
 		Repo:    indexerRepo,
 		Worker:  healthWorker,
 		Tracker: healthTracker,
+		Admin:   registry,
 	})
 	// Dashboard (#40): cross-library snapshot + indexer health at a glance,
 	// and the WebSocket push channel for live queue/history updates.
@@ -248,6 +252,12 @@ func run() error {
 	// history, driven live by the same WebSocket push channel as the dashboard.
 	queueRepo := postgres.NewQueueRepo(pg.DB())
 	srv.SetQueue(&api.QueueDeps{Repo: queueRepo})
+	// Settings (#44): the persistent download-client config + per-library
+	// overrides over the settings table. The Postgres store is the layer that
+	// encrypts download-client credentials at rest with the same app vault the
+	// indexer repo uses (PLAN §7).
+	settingsRepo := postgres.NewSettingsRepo(pg.DB(), vault)
+	srv.SetSettings(&api.SettingsDeps{Store: settingsRepo})
 	authRepo := auth.NewRepo(pg.DB())
 	srv.SetAuth(&api.AuthDeps{Repo: authRepo})
 	srv.SetEvents(&api.EventsDeps{Repo: authRepo, Events: events})
