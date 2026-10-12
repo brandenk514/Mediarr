@@ -44,9 +44,10 @@ func (s *Server) SetMusic(deps *MusicDeps) {
 
 // addArtistRequest is the body for POST /api/v1/music. Monitored is a pointer
 // so "omitted" (defaults to monitored) is distinguishable from an explicit
-// false.
+// false. MBID is the MusicBrainz id of the selected result (M6 #42); "" = unset.
 type addArtistRequest struct {
 	Name      string `json:"name"`
+	MBID      string `json:"mbid"`
 	Monitored *bool  `json:"monitored"`
 }
 
@@ -66,7 +67,7 @@ func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 	if req.Monitored != nil {
 		monitored = *req.Monitored
 	}
-	id, err := s.musicDeps.Svc.AddArtist(r.Context(), req.Name, monitored)
+	id, err := s.musicDeps.Svc.AddArtist(r.Context(), req.Name, req.MBID, monitored)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return

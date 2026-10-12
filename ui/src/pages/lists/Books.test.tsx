@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
@@ -50,7 +51,11 @@ describe('BooksPage', () => {
     vi.mocked(client.listTitles).mockResolvedValue([title(21, 1, 'Brave New World')])
     vi.mocked(client.listEditions).mockResolvedValue([edition(311, 21, 'epub'), edition(312, 21, 'pdf')])
     const user = userEvent.setup()
-    render(<BooksPage />)
+    render(
+      <MemoryRouter>
+        <BooksPage />
+      </MemoryRouter>,
+    )
 
     await screen.findByTestId('author-1')
 
@@ -76,7 +81,11 @@ describe('BooksPage', () => {
     vi.mocked(client.listAuthors).mockResolvedValue(authorPage([author(2, 'New Author')]))
     vi.mocked(client.listTitles).mockResolvedValue([])
     const user = userEvent.setup()
-    render(<BooksPage />)
+    render(
+      <MemoryRouter>
+        <BooksPage />
+      </MemoryRouter>,
+    )
     await screen.findByTestId('author-2')
     await user.click(screen.getByTestId('author-toggle-2'))
     expect(await screen.findByText('No titles yet.')).toBeInTheDocument()
@@ -88,7 +97,11 @@ describe('BooksPage', () => {
     vi.mocked(client.listEditions).mockResolvedValue([edition(311, 21, 'epub')])
     vi.mocked(client.setEditionMonitored).mockResolvedValue({ id: 311, monitored: false })
     const user = userEvent.setup()
-    render(<BooksPage />)
+    render(
+      <MemoryRouter>
+        <BooksPage />
+      </MemoryRouter>,
+    )
     await screen.findByTestId('author-1')
     await user.click(screen.getByTestId('author-toggle-1'))
     await user.click(screen.getByTestId('title-toggle-21'))

@@ -270,7 +270,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Add series + a monitored episode (which ensures a pending wanted row).
-	seriesID, err := svc.AddSeries(ctx, "Breaking Bad", "2008", "HD-1080p", true)
+	seriesID, err := svc.AddSeries(ctx, "Breaking Bad", "2008", "HD-1080p", true, "", "")
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestPipeline_MultiEpisode(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "The Wire", "2002", "HD-1080p", true)
+	seriesID, _ := svc.AddSeries(ctx, "The Wire", "2002", "HD-1080p", true, "", "")
 	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "The Details", true); err != nil {
 		t.Fatalf("add e1: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestPipeline_SeasonMonitor_Acceptance(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Add the series unmonitored (no wanted rows yet).
-	seriesID, err := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", false)
+	seriesID, err := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", false, "", "")
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestPipeline_NoMatch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true)
+	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true, "", "")
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
 
 	_, err := svc.RunPipeline(ctx, seriesID)

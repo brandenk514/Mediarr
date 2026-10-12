@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
 import type { Album, Artist, ListQuery, Track } from '../../api/types'
+import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
   ListControls,
@@ -35,6 +36,7 @@ export function MusicPage() {
       <div className="dash-head">
         <h2 data-testid="music-title">Music</h2>
         <div className="dash-head-right">
+          <AddButton to="/music/add" label="Add artist" testId="music-add" />
           <ListControls
             text={text}
             onText={setText}

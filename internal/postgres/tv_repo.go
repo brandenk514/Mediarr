@@ -24,6 +24,14 @@ var _ tv.Repo = (*TVRepo)(nil)
 func (r *TVRepo) CreateSeries(ctx context.Context, s tv.Series) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
+		SELECT id FROM tv_series WHERE title = $1 AND year = $2`, s.Title, s.Year).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, fmt.Errorf("tv: create series: %w", err)
+	}
+	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO tv_series (tvdb_id, tmdb_id, title, year, quality_profile, monitored)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id`,
