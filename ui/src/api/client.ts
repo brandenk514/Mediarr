@@ -33,9 +33,13 @@ import type {
   Me,
   MonitoredResult,
   Movie,
+  MediaKind,
   Page,
   ProfileKind,
   ProfilesResponse,
+  QueueFilter,
+  QueueHistoryEvent,
+  QueueViewItem,
   SearchResult,
   Series,
   SeriesWanted,
@@ -93,6 +97,20 @@ function buildListQuery(q?: ListQuery): string {
   if (typeof q.monitored === 'boolean') params.set('monitored', String(q.monitored))
   if (q.page) params.set('page', String(q.page))
   if (q.page_size) params.set('page_size', String(q.page_size))
+  const s = params.toString()
+  return s ? `?${s}` : ''
+}
+
+// buildQueueQuery serializes a queue filter, omitting unset fields so the
+// server applies its defaults (page 1, size 25, all kinds/states).
+function buildQueueQuery(f?: QueueFilter): string {
+  if (!f) return ''
+  const params = new URLSearchParams()
+  if (f.q) params.set('q', f.q)
+  if (f.kind) params.set('kind', f.kind)
+  if (f.state) params.set('state', f.state)
+  if (f.page) params.set('page', String(f.page))
+  if (f.page_size) params.set('page_size', String(f.page_size))
   const s = params.toString()
   return s ? `?${s}` : ''
 }
@@ -185,6 +203,16 @@ export const client = {
   // recent caps the recent-history / recent-queue feeds (server clamps 1..100).
   getDashboard: (recent?: number) =>
     request<Dashboard>('GET', `/dashboard${recent ? `?recent=${recent}` : ''}`),
+
+  // ---- queue view (#43) ----
+  // The full, filterable + paginated queue (the dedicated view's data source).
+  listQueue: (f?: QueueFilter) => request<Page<QueueViewItem>>('GET', `/queue${buildQueueQuery(f)}`),
+  // One parent's lifecycle history (the queue row's drill-down).
+  queueHistory: (kind: MediaKind, parentId: number, limit?: number) =>
+    request<QueueHistoryEvent[]>(
+      'GET',
+      `/queue/${kind}/${parentId}/history${limit ? `?limit=${limit}` : ''}`,
+    ),
 
   // ---- add flows (#42) ----
   // Provider search: debounced by the UI; each call is one provider round

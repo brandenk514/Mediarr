@@ -11,6 +11,7 @@ import { MovieAddPage } from './pages/add/MovieAdd'
 import { TvAddPage } from './pages/add/TvAdd'
 import { ArtistAddPage } from './pages/add/ArtistAdd'
 import { BookAddPage } from './pages/add/BookAdd'
+import { QueuePage } from './pages/queue/Queue'
 
 // App is the route table. /login is public; everything else requires a valid
 // in-memory token (see AuthProvider). The authenticated routes share the Layout
@@ -43,7 +44,7 @@ export default function App() {
         <Route path="/tv/add" element={<TvAddPage />} />
         <Route path="/music/add" element={<ArtistAddPage />} />
         <Route path="/books/add" element={<BookAddPage />} />
-        <Route path="/queue" element={<PageStub kind="Queue" />} />
+        <Route path="/queue" element={<QueuePage />} />
         <Route path="/settings" element={<PageStub kind="Settings" />} />
       </Route>
     </Routes>
