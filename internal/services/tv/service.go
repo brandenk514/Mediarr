@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,11 +75,12 @@ func New(deps Deps) *Service {
 }
 
 // AddSeries creates a series (if new) and records the add in history. The
-// monitored flag sets the series-level monitor toggle (PLAN §4): a monitored
-// series is wanted by default; an unmonitored series is added quietly and is
-// wanted only when a season or episode is explicitly monitored. Returns the
-// series id.
-func (s *Service) AddSeries(ctx context.Context, title, year, qualityProfile string, monitored bool) (int64, error) {
+// provider ids (tvdbID/tmdbID, "" = unset) are the provider-confirmed
+// identity of the selected result (M6 #42). The monitored flag sets the
+// series-level monitor toggle (PLAN §4): a monitored series is wanted by
+// default; an unmonitored series is added quietly and is wanted only when a
+// season or episode is explicitly monitored. Returns the series id.
+func (s *Service) AddSeries(ctx context.Context, title, year, qualityProfile string, monitored bool, tvdbID, tmdbID string) (int64, error) {
 	if strings.TrimSpace(title) == "" {
 		return 0, fmt.Errorf("tv: title is required")
 	}
@@ -86,6 +88,8 @@ func (s *Service) AddSeries(ctx context.Context, title, year, qualityProfile str
 		qualityProfile = s.deps.DefaultProfile
 	}
 	series := dom.Series{
+		TVDBID:         parseProviderID(tvdbID),
+		TMDBID:         parseProviderID(tmdbID),
 		Title:          strings.TrimSpace(title),
 		Year:           parseYear(year),
 		QualityProfile: qualityProfile,
@@ -97,6 +101,16 @@ func (s *Service) AddSeries(ctx context.Context, title, year, qualityProfile str
 	}
 	s.record(ctx, id, "added", "series added to library")
 	return id, nil
+}
+
+// parseProviderID converts a provider id string to an int, returning 0 for
+// unset/invalid values (the domain's "no provider id" sentinel).
+func parseProviderID(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 // AddEpisode creates a known episode within a series (if new) and, when the

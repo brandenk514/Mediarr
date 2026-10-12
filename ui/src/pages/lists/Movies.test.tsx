@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
@@ -37,7 +38,11 @@ describe('MoviesPage', () => {
     vi.mocked(client.listMovies).mockResolvedValue(page([movie(1, 'Dune'), movie(2, 'Arrival', false)]))
     vi.mocked(client.setMovieMonitored).mockResolvedValue({ id: 1, monitored: false })
     const user = userEvent.setup()
-    render(<MoviesPage />)
+    render(
+      <MemoryRouter>
+        <MoviesPage />
+      </MemoryRouter>,
+    )
 
     // loading state, then rows from the envelope
     expect(await screen.findByTestId('movie-1')).toHaveTextContent('Dune')
@@ -55,14 +60,22 @@ describe('MoviesPage', () => {
 
   it('shows the empty state when the envelope has no items', async () => {
     vi.mocked(client.listMovies).mockResolvedValue(page([]))
-    render(<MoviesPage />)
+    render(
+      <MemoryRouter>
+        <MoviesPage />
+      </MemoryRouter>,
+    )
     expect(await screen.findByTestId('movies-empty')).toBeInTheDocument()
   })
 
   it('surfaces a load error with retry', async () => {
     vi.mocked(client.listMovies).mockRejectedValue(new Error('boom'))
     const user = userEvent.setup()
-    render(<MoviesPage />)
+    render(
+      <MemoryRouter>
+        <MoviesPage />
+      </MemoryRouter>,
+    )
     await waitFor(() => expect(screen.getByTestId('movies-error')).toBeInTheDocument())
     expect(screen.getByTestId('movies-error-message')).toHaveTextContent('boom')
 
@@ -75,7 +88,11 @@ describe('MoviesPage', () => {
   it('debounces the search box and re-queries with the trimmed term', async () => {
     vi.mocked(client.listMovies).mockResolvedValue(page([]))
     const user = userEvent.setup()
-    render(<MoviesPage />)
+    render(
+      <MemoryRouter>
+        <MoviesPage />
+      </MemoryRouter>,
+    )
 
     // initial load
     await waitFor(() => expect(client.listMovies).toHaveBeenCalledTimes(1))
@@ -93,7 +110,11 @@ describe('MoviesPage', () => {
   it('filters by monitored using the segmented control', async () => {
     vi.mocked(client.listMovies).mockResolvedValue(page([]))
     const user = userEvent.setup()
-    render(<MoviesPage />)
+    render(
+      <MemoryRouter>
+        <MoviesPage />
+      </MemoryRouter>,
+    )
     await waitFor(() => expect(client.listMovies).toHaveBeenCalledTimes(1))
 
     // The monitored filter change re-queries immediately (only the free-text

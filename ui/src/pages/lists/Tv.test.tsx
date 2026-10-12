@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
@@ -42,7 +43,11 @@ describe('TvPage', () => {
     vi.mocked(client.listSeries).mockResolvedValue(seriesPage([series(1, 'Breaking Bad'), series(2, 'The Wire')]))
     vi.mocked(client.listEpisodes).mockResolvedValue([ep(11, 1, 1, 1)])
     const user = userEvent.setup()
-    render(<TvPage />)
+    render(
+      <MemoryRouter>
+        <TvPage />
+      </MemoryRouter>,
+    )
 
     await screen.findByTestId('series-1')
     expect(screen.getByTestId('series-2')).toHaveTextContent('The Wire')
@@ -65,7 +70,11 @@ describe('TvPage', () => {
     vi.mocked(client.listSeries).mockResolvedValue(seriesPage([series(1, 'Severance')]))
     vi.mocked(client.setSeriesMonitored).mockResolvedValue({ id: 1, monitored: false })
     const user = userEvent.setup()
-    render(<TvPage />)
+    render(
+      <MemoryRouter>
+        <TvPage />
+      </MemoryRouter>,
+    )
     await screen.findByTestId('series-mon-1')
 
     await user.click(screen.getByTestId('series-mon-1'))

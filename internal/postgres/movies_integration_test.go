@@ -87,9 +87,13 @@ func TestMovieRepo_MovieLifecycle(t *testing.T) {
 		t.Errorf("get missing: err = %v, want ErrMovieNotFound", err)
 	}
 
-	// Duplicate (title,year) must be rejected by the UNIQUE constraint.
-	if _, err := r.CreateMovie(ctx, movies.Movie{Title: "Dune Part Two", Year: 2024}); err == nil {
-		t.Error("duplicate (title,year) should fail")
+	// Re-creating the same (title,year) is idempotent (M6 #42 find-or-create):
+	// it returns the existing id instead of a UNIQUE-constraint error.
+	dupID, err := r.CreateMovie(ctx, movies.Movie{Title: "Dune Part Two", Year: 2024})
+	if err != nil {
+		t.Errorf("idempotent create: %v", err)
+	} else if dupID != id {
+		t.Errorf("idempotent create id = %d, want existing %d", dupID, id)
 	}
 
 	all, err := r.ListMovies(ctx)

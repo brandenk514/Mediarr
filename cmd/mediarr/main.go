@@ -29,6 +29,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/health"
 	"github.com/brandenk514/mediarr/internal/indexers"
 	"github.com/brandenk514/mediarr/internal/postgres"
+	"github.com/brandenk514/mediarr/internal/providers"
 	"github.com/brandenk514/mediarr/internal/redis"
 	"github.com/brandenk514/mediarr/internal/secrets"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
@@ -415,6 +416,22 @@ func run() error {
 			}
 			return "none"
 		}())
+
+	// Add-flow provider search (M6 #42). Every adapter is optional: a
+	// missing key leaves the adapter nil and the endpoint answers 503,
+	// which the UI surfaces inline. MusicBrainz and Open Library are
+	// keyless, so they are always available.
+	srv.SetSearch(&api.SearchDeps{
+		TMDB:        providers.NewTMDB(cfg.Providers.TMDBAPIKey),
+		TVDB:        providers.NewTVDB(cfg.Providers.TVDBAPIKey),
+		MusicBrainz: providers.NewMusicBrainz(),
+		OpenLibrary: providers.NewOpenLibrary(),
+	})
+	if cfg.Providers.TMDBAPIKey == "" || cfg.Providers.TVDBAPIKey == "" {
+		logger.Warn("metadata providers partially configured",
+			"tmdb_key_set", cfg.Providers.TMDBAPIKey != "",
+			"tvdb_key_set", cfg.Providers.TVDBAPIKey != "")
+	}
 
 	logger.Info("server starting", "addr", cfg.HTTPAddr)
 	return srv.Serve(ctx,

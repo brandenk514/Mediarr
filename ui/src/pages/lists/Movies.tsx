@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { client } from '../../api/client'
 import type { ListQuery, Movie } from '../../api/types'
+import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
   ListControls,
@@ -21,6 +22,7 @@ export function MoviesPage() {
       <div className="dash-head">
         <h2 data-testid="movies-title">Movies</h2>
         <div className="dash-head-right">
+          <AddButton to="/movies/add" label="Add movie" testId="movies-add" />
           <ListControls
             text={text}
             onText={setText}

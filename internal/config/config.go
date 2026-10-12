@@ -57,6 +57,9 @@ type Config struct {
 	// SABnzbd is the config for the SABnzbd client (used when ClientType ==
 	// "sabnzbd").
 	SABnzbd DownloadSAB
+
+	// Providers configures the metadata-provider API keys (#42).
+	Providers Providers
 }
 
 // DownloadQB configures the qBittorrent Web API client (#36).
@@ -71,6 +74,16 @@ type DownloadQB struct {
 type DownloadSAB struct {
 	Base   string // Web UI base URL, e.g. "http://localhost:8080"
 	APIKey string // SABnzbd API key (required)
+}
+
+// Providers configures the metadata-provider keys used by the add-flow
+// search endpoints (#42). Every field is optional: an unset key makes the
+// corresponding search endpoint answer 503 "provider not configured", which
+// the UI surfaces inline. MusicBrainz and Open Library are keyless and need
+// no config.
+type Providers struct {
+	TMDBAPIKey string // TMDB v3 API key (movies + tv search)
+	TVDBAPIKey string // TVDB v4 API key (series search)
 }
 
 // DSN is a validated PostgreSQL connection string.
@@ -172,6 +185,13 @@ func Load(env map[string]string) (*Config, error) {
 		}
 	default:
 		return nil, fmt.Errorf("MEDIARR_DOWNLOAD_CLIENT must be mock, qbittorrent, or sabnzbd, got %q", ct)
+	}
+
+	// Metadata providers (#42) — optional; an unset key disables that
+	// provider's search endpoint (503 at request time, not boot time).
+	cfg.Providers = Providers{
+		TMDBAPIKey: env["MEDIARR_TMDB_API_KEY"],
+		TVDBAPIKey: env["MEDIARR_TVDB_API_KEY"],
 	}
 
 	return cfg, nil
