@@ -21,12 +21,18 @@ import type {
   Artist,
   Author,
   Dashboard,
+  DownloadClientRequest,
+  DownloadClientView,
   Edition,
   Episode,
   EventFrame,
   Indexer,
+  IndexerCreate,
   IndexerStats,
   IndexerTestResult,
+  IndexerUpdate,
+  LibraryOverride,
+  LibraryOverrides,
   ListQuery,
   LoginRequest,
   LoginResponse,
@@ -198,6 +204,13 @@ export const client = {
   listIndexers: () => request<Indexer[]>('GET', '/indexers'),
   indexerStats: (id: number) => request<IndexerStats>('GET', `/indexers/${id}/stats`),
   testIndexer: (id: number) => request<IndexerTestResult>('POST', `/indexers/${id}/test`),
+  // Indexer write surface (#44): create / update / enable-toggle / delete.
+  // api_key is plaintext in the body but is never echoed back.
+  createIndexer: (req: IndexerCreate) => request<Indexer>('POST', '/indexers', req),
+  updateIndexer: (id: number, req: IndexerUpdate) => request<Indexer>('PUT', `/indexers/${id}`, req),
+  setIndexerEnabled: (id: number, enabled: boolean) =>
+    request<Indexer>('PATCH', `/indexers/${id}/enabled`, { enabled }),
+  deleteIndexer: (id: number) => request<void>('DELETE', `/indexers/${id}`),
 
   // ---- dashboard (#40) ----
   // recent caps the recent-history / recent-queue feeds (server clamps 1..100).
@@ -213,6 +226,17 @@ export const client = {
       'GET',
       `/queue/${kind}/${parentId}/history${limit ? `?limit=${limit}` : ''}`,
     ),
+
+  // ---- settings (#44) ----
+  // Download-client config: the read is a *masked* view (secrets are presence
+  // booleans, never values); the write's empty secret means "keep existing".
+  getDownloadClient: () => request<DownloadClientView>('GET', '/settings/download-client'),
+  putDownloadClient: (req: DownloadClientRequest) =>
+    request<DownloadClientView>('PUT', '/settings/download-client', req),
+  // Per-library overrides: one document for all four libraries.
+  getLibraryOverrides: () => request<LibraryOverrides>('GET', '/settings/library'),
+  putLibraryOverride: (kind: MediaKind, o: LibraryOverride) =>
+    request<LibraryOverride>('PUT', `/settings/library/${kind}`, o),
 
   // ---- add flows (#42) ----
   // Provider search: debounced by the UI; each call is one provider round
