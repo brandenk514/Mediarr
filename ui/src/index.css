@@ -513,6 +513,45 @@ button.ghost:hover {
   color: var(--dim);
 }
 
+/* Queue view (#43): the dedicated table has five columns (release, media,
+   indexer, state, updated) rather than the four the per-kind lists use. */
+.queue-table .lt-head,
+.queue-table .lt-row {
+  grid-template-columns: 2fr 1.2fr 0.9fr 0.8fr 0.7fr;
+}
+
+/* The release cell is a button that expands a row's history. */
+.lt-expand {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lt-expand:hover {
+  color: var(--accent);
+}
+
+/* The history drill-down panel under an expanded queue row. */
+.queue-history {
+  padding: 0.4rem 1rem 0.7rem 2.2rem;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.queue-history .feed {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
 /* Optimistic monitored toggle pill. */
 .mon-toggle {
   border: none;

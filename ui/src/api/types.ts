@@ -318,6 +318,43 @@ export interface Dashboard {
   generated_at: string
 }
 
+// ---- queue view (M6 #43) ----
+//
+// The dedicated queue view shows the *full* download/import queue (not the
+// dashboard's recent tail): every job across all four kinds, filtered and
+// paginated server-side, with a per-parent history drill-down. These types
+// mirror the internal/queue Go wire types (json-tagged snake_case).
+
+export interface QueueViewItem {
+  kind: MediaKind
+  parent_id: number
+  parent_name: string
+  release_title: string
+  indexer: string
+  state: QueueState
+  progress: number
+  updated_at: string
+}
+
+export interface QueueHistoryEvent {
+  event: string
+  detail: string
+  at: string
+}
+
+// QueueFilter is the optional filter/pagination input for a queue list call.
+// All fields are optional; omit them for the first page of 25, unfiltered.
+export interface QueueFilter {
+  // Case-insensitive substring search on the release title or parent name.
+  q?: string
+  // Restrict to one kind ('movie' | 'tv' | 'music' | 'book'); 'all' omitted.
+  kind?: MediaKind
+  // Restrict to one job state ('queued' | 'downloading' | 'complete' | 'failed').
+  state?: QueueState
+  page?: number
+  page_size?: number
+}
+
 // ---- live events (/api/v1/events WebSocket, M6 #40) ----
 
 // One on-the-wire frame. The first frame is the "hello" handshake (payload

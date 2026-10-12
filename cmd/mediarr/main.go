@@ -244,6 +244,10 @@ func run() error {
 		Repo:    dashboardRepo,
 		Tracker: healthTracker,
 	})
+	// Queue view (#43): the full filterable/paginated queue + per-parent
+	// history, driven live by the same WebSocket push channel as the dashboard.
+	queueRepo := postgres.NewQueueRepo(pg.DB())
+	srv.SetQueue(&api.QueueDeps{Repo: queueRepo})
 	authRepo := auth.NewRepo(pg.DB())
 	srv.SetAuth(&api.AuthDeps{Repo: authRepo})
 	srv.SetEvents(&api.EventsDeps{Repo: authRepo, Events: events})
