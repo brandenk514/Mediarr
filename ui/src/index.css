@@ -585,3 +585,89 @@ button.ghost:hover {
 .pagination .ghost {
   margin: 0;
 }
+
+/* ---- add flows (#42) ---- */
+
+.add-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  max-width: 720px;
+}
+
+.add-page .dash-head {
+  margin-bottom: 0;
+}
+
+.add-page .segmented {
+  align-self: flex-start;
+}
+
+.search-block {
+  margin-top: 0.4rem;
+}
+
+.search-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.search-block .list-search {
+  width: 100%;
+  min-width: 0;
+}
+
+.search-block p {
+  margin: 0.35rem 0 0;
+}
+
+.result-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.result-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  width: 100%;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.8rem;
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.result-card:hover {
+  border-color: var(--accent);
+  filter: none;
+}
+
+.result-title {
+  font-weight: 600;
+}
+
+.add-form label.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.add-form label.check input {
+  width: auto;
+  margin: 0;
+}
+
+.add-form .error {
+  margin: 0.5rem 0 0;
+}

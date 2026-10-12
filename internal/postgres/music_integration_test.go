@@ -96,9 +96,13 @@ func TestMusicRepo_ArtistAlbumLifecycle(t *testing.T) {
 		t.Errorf("get missing artist: err = %v, want ErrArtistNotFound", err)
 	}
 
-	// Duplicate artist name must be rejected by the UNIQUE constraint.
-	if _, err := r.CreateArtist(ctx, music.Artist{Name: "Bob Marley"}); err == nil {
-		t.Error("duplicate artist name should fail")
+	// Re-creating the same artist name is idempotent (M6 #42 find-or-create):
+	// it returns the existing id instead of a UNIQUE-constraint error.
+	dupID, err := r.CreateArtist(ctx, music.Artist{Name: "Bob Marley"})
+	if err != nil {
+		t.Errorf("idempotent create artist: %v", err)
+	} else if dupID != artistID {
+		t.Errorf("idempotent create id = %d, want existing %d", dupID, artistID)
 	}
 
 	all, err := r.ListArtists(ctx)
@@ -353,7 +357,7 @@ func TestMusicPipeline_EndToEnd_Postgres(t *testing.T) {
 	})
 
 	// 1. Add the artist (monitored) and a monitored album (whole-album wanted).
-	artistID, err := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, err := svc.AddArtist(ctx, "Bob Marley", "", true)
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}

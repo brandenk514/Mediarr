@@ -31,11 +31,15 @@ func (s *Server) SetTV(deps *TVDeps) {
 
 // addSeriesRequest is the body for POST /api/v1/tv. Monitored is a pointer so
 // "omitted" (defaults to monitored) is distinguishable from an explicit false.
+// TvbID/TMDBID carry the provider ids of the selected result (M6 #42); both
+// are optional (0/" " = unset).
 type addSeriesRequest struct {
 	Title          string `json:"title"`
 	Year           string `json:"year"`
 	QualityProfile string `json:"quality_profile"`
 	Monitored      *bool  `json:"monitored"`
+	TvdbID         string `json:"tvdb_id"`
+	TMDBID         string `json:"tmdb_id"`
 }
 
 // AddSeries handles POST /api/v1/tv. A series is monitored by default; an
@@ -54,7 +58,7 @@ func (s *Server) AddSeries(w http.ResponseWriter, r *http.Request) {
 	if req.Monitored != nil {
 		monitored = *req.Monitored
 	}
-	id, err := s.tvDeps.Svc.AddSeries(r.Context(), req.Title, req.Year, req.QualityProfile, monitored)
+	id, err := s.tvDeps.Svc.AddSeries(r.Context(), req.Title, req.Year, req.QualityProfile, monitored, req.TvdbID, req.TMDBID)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return

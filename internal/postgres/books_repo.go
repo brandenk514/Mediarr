@@ -24,6 +24,14 @@ var _ books.Repo = (*BooksRepo)(nil)
 func (r *BooksRepo) CreateAuthor(ctx context.Context, a books.Author) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
+		SELECT id FROM book_authors WHERE name = $1`, a.Name).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, fmt.Errorf("books: create author: %w", err)
+	}
+	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO book_authors (name, monitored)
 		VALUES ($1, $2)
 		RETURNING id`,
@@ -90,6 +98,14 @@ func (r *BooksRepo) SetAuthorMonitored(ctx context.Context, id int64, monitored 
 func (r *BooksRepo) CreateTitle(ctx context.Context, t books.Title) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
+		SELECT id FROM book_titles WHERE author_id = $1 AND name = $2`, t.AuthorID, t.Name).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, fmt.Errorf("books: create title: %w", err)
+	}
+	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO book_titles (author_id, name, monitored)
 		VALUES ($1, $2, $3)
 		RETURNING id`,

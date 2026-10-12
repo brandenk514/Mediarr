@@ -75,15 +75,17 @@ func New(deps Deps) *Service {
 	return &Service{deps: deps}
 }
 
-// AddArtist creates an artist (if new) and records the add in history. The
-// monitored flag sets the artist-level monitor toggle (PLAN §4): a monitored
-// artist is wanted by default; an unmonitored artist is added quietly.
-// Returns the artist id.
-func (s *Service) AddArtist(ctx context.Context, name string, monitored bool) (int64, error) {
+// AddArtist creates an artist (if new) and records the add in history. mbid
+// is the MusicBrainz artist id of the selected result ("" = unset, M6 #42).
+// The monitored flag sets the artist-level monitor toggle (PLAN §4): a
+// monitored artist is wanted by default; an unmonitored artist is added
+// quietly. Returns the artist id.
+func (s *Service) AddArtist(ctx context.Context, name, mbid string, monitored bool) (int64, error) {
 	if strings.TrimSpace(name) == "" {
 		return 0, fmt.Errorf("music: artist name is required")
 	}
 	a := dom.Artist{
+		MBID:      mbid,
 		Name:      strings.TrimSpace(name),
 		Monitored: monitored,
 	}

@@ -72,7 +72,7 @@ func TestPipeline_EmitsEvents(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, err := svc.AddSeries(ctx, "Breaking Bad", "2008", "HD-1080p", true)
+	seriesID, err := svc.AddSeries(ctx, "Breaking Bad", "2008", "HD-1080p", true, "", "")
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}

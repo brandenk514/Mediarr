@@ -87,9 +87,13 @@ func TestTVRepo_SeriesLifecycle(t *testing.T) {
 		t.Errorf("get missing: err = %v, want ErrSeriesNotFound", err)
 	}
 
-	// Duplicate (title,year) must be rejected by the UNIQUE constraint.
-	if _, err := r.CreateSeries(ctx, tv.Series{Title: "Breaking Bad", Year: 2008}); err == nil {
-		t.Error("duplicate (title,year) should fail")
+	// Re-creating the same (title,year) is idempotent (M6 #42 find-or-create):
+	// it returns the existing id instead of a UNIQUE-constraint error.
+	dupID, err := r.CreateSeries(ctx, tv.Series{Title: "Breaking Bad", Year: 2008})
+	if err != nil {
+		t.Errorf("idempotent create: %v", err)
+	} else if dupID != id {
+		t.Errorf("idempotent create id = %d, want existing %d", dupID, id)
 	}
 
 	all, err := r.ListSeries(ctx)

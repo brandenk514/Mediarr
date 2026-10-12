@@ -72,7 +72,7 @@ func TestPipeline_EmitsEvents(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	artistID, err := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, err := svc.AddArtist(ctx, "Bob Marley", "", true)
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
