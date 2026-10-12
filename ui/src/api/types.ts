@@ -418,3 +418,77 @@ export interface IndexerTestResult {
   ok: boolean
   error?: string
 }
+
+// ---------------------------------------------------------------------------
+// Settings (#44)
+// ---------------------------------------------------------------------------
+
+// IndexerKind is one of the indexer protocols the build can materialize. The
+// server validates a definition's kind against its registry (a saved indexer
+// can always be searched), so the UI offers these as the known set.
+export type IndexerKind = 'fake' | 'torznab' | 'torrent-rss' | 'nzb'
+
+// IndexerCreate is the body for POST /api/v1/indexers. api_key is plaintext in
+// the request but is never echoed back (the response only reports has_api_key).
+// An empty api_key is legal (keyless indexers).
+export interface IndexerCreate {
+  name: string
+  kind: string
+  base_url?: string
+  api_key?: string
+  settings_json?: string
+  enabled?: boolean
+}
+
+// IndexerUpdate is the body for PUT /api/v1/indexers/{id}. An empty api_key
+// means "keep the existing key" (the masked-edit round-trip).
+export interface IndexerUpdate {
+  name: string
+  kind: string
+  base_url?: string
+  api_key?: string
+  settings_json?: string
+}
+
+// ClientKind is one of the download-client implementations.
+export type ClientKind = 'mock' | 'qbittorrent' | 'sabnzbd'
+
+// DownloadClientView is the *masked* read shape of the download-client config.
+// The secrets are never returned — only presence booleans — so the UI can show
+// "key stored" without ever seeing the key.
+export interface DownloadClientView {
+  kind: string
+  qb_base: string
+  qb_username: string
+  qb_api_key_set: boolean
+  qb_password_set: boolean
+  sab_base: string
+  sab_api_key_set: boolean
+  sab_complete_dir: string
+}
+
+// DownloadClientRequest is the write shape for the download-client config. An
+// empty secret means "keep the existing value" (masked-edit: edit the non-secret
+// fields without clobbering a stored credential).
+export interface DownloadClientRequest {
+  kind: string
+  qb_base?: string
+  qb_username?: string
+  qb_api_key?: string
+  qb_password?: string
+  sab_base?: string
+  sab_api_key?: string
+  sab_complete_dir?: string
+}
+
+// LibraryOverride is a per-library override. checksum_verify is a tristate:
+// null/undefined = use the default, false = opt out, true = opt in.
+export interface LibraryOverride {
+  path: string
+  quality_profile: string
+  checksum_verify?: boolean | null
+}
+
+// LibraryOverrides is the GET /api/v1/settings/library document: all four
+// libraries keyed by kind.
+export type LibraryOverrides = Record<MediaKind, LibraryOverride>

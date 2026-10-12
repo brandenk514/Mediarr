@@ -12,6 +12,7 @@ import { TvAddPage } from './pages/add/TvAdd'
 import { ArtistAddPage } from './pages/add/ArtistAdd'
 import { BookAddPage } from './pages/add/BookAdd'
 import { QueuePage } from './pages/queue/Queue'
+import { SettingsPage } from './pages/settings/Settings'
 
 // App is the route table. /login is public; everything else requires a valid
 // in-memory token (see AuthProvider). The authenticated routes share the Layout
@@ -45,22 +46,8 @@ export default function App() {
         <Route path="/music/add" element={<ArtistAddPage />} />
         <Route path="/books/add" element={<BookAddPage />} />
         <Route path="/queue" element={<QueuePage />} />
-        <Route path="/settings" element={<PageStub kind="Settings" />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>
-  )
-}
-
-// PageStub is the placeholder for a route whose feature lands in a later M6
-// issue. Each one is named after its board issue.
-function PageStub({ kind }: { kind: string }) {
-  return (
-    <div className="card">
-      <h2>{kind}</h2>
-      <p className="dim">
-        This view lands in a later M6 issue. The REST API it drives already exists —
-        the typed client in <code>ui/src/api/client.ts</code> is the reference.
-      </p>
-    </div>
   )
 }

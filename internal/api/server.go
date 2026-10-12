@@ -25,6 +25,7 @@ type Server struct {
 	indexersDeps  *IndexersDeps
 	dashboardDeps *DashboardDeps
 	queueDeps     *QueueDeps
+	settingsDeps  *SettingsDeps
 	eventsDeps    *EventsDeps
 	moviesDeps    *MoviesDeps
 	tvDeps        *TVDeps
