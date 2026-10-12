@@ -710,3 +710,122 @@ button.ghost:hover {
 .add-form .error {
   margin: 0.5rem 0 0;
 }
+
+/* ---- settings page (#44) ---- */
+
+.settings .subform {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.settings .subform h4 {
+  margin: 0 0 0.25rem;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.settings .lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.settings .lib-col {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.settings .lib-col h4 {
+  margin: 0 0 0.25rem;
+  color: var(--text);
+  text-transform: capitalize;
+}
+
+.settings .idx-table {
+  margin-top: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.settings .idx-table .idx-head-row,
+.settings .idx-table .lt-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 1.6fr 0.7fr 0.8fr 1.4fr 1.6fr;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings .idx-table .idx-head-row {
+  color: var(--dim);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--panel-2);
+}
+
+.settings .idx-table .lt-row:last-child {
+  border-bottom: none;
+}
+
+.settings .idx-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.settings .idx-form {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.settings .idx-form h4 {
+  margin: 0 0 0.25rem;
+}
+
+.settings .idx-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.settings label.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.settings label.check input {
+  width: auto;
+  margin: 0;
+}
+
+.settings .small {
+  font-size: 0.8rem;
+}
+
+.settings .ghost.small {
+  padding: 0.15rem 0.5rem;
+}
+
+button.danger {
+  color: var(--danger, #e5484d);
+}
+
+button.danger:hover {
+  border-color: var(--danger, #e5484d);
+}
