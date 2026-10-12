@@ -18,10 +18,21 @@ func NewMovieRepo(db *sql.DB) *MovieRepo { return &MovieRepo{db: db} }
 
 var _ movies.Repo = (*MovieRepo)(nil)
 
-// CreateMovie inserts a movie and returns its id.
+// CreateMovie inserts a movie and returns its id. It is idempotent (M6 #42):
+// a movie with the same title + year already in the library is returned
+// unchanged, so the add flow re-selecting a provider result never creates a
+// duplicate.
 func (r *MovieRepo) CreateMovie(ctx context.Context, m movies.Movie) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
+		SELECT id FROM movies WHERE title = $1 AND year = $2`, m.Title, m.Year).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, fmt.Errorf("movies: create: %w", err)
+	}
+	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO movies (title, year, quality_profile, monitored)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id`,

@@ -72,12 +72,12 @@ func TestAddSeries(t *testing.T) {
 	ctx := context.Background()
 
 	// Blank title is rejected.
-	if _, err := svc.AddSeries(ctx, "   ", "2008", "", true); err == nil {
+	if _, err := svc.AddSeries(ctx, "   ", "2008", "", true, "", ""); err == nil {
 		t.Error("expected error for blank title, got nil")
 	}
 
 	// Valid add: year parsed, default profile applied, history recorded.
-	id, err := svc.AddSeries(ctx, "  Severance  ", "2022", "", true)
+	id, err := svc.AddSeries(ctx, "  Severance  ", "2022", "", true, "", "")
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestAddSeries(t *testing.T) {
 	}
 
 	// Invalid year string maps to 0.
-	if _, err := svc.AddSeries(ctx, "No Year", "soon", "", true); err != nil {
+	if _, err := svc.AddSeries(ctx, "No Year", "soon", "", true, "", ""); err != nil {
 		t.Fatalf("add series (bad year): %v", err)
 	}
 }
@@ -112,7 +112,7 @@ func TestAddEpisode(t *testing.T) {
 	svc, repo := setupService(t)
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true, "", "")
 
 	// Monitored episode creates a pending wanted row.
 	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "Goodbye", true); err != nil {
@@ -141,8 +141,8 @@ func TestListAndGetSeries(t *testing.T) {
 	svc, _ := setupService(t)
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
-	if _, err := svc.AddSeries(ctx, "Halt", "2020", "HD-1080p", true); err != nil {
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true, "", "")
+	if _, err := svc.AddSeries(ctx, "Halt", "2020", "HD-1080p", true, "", ""); err != nil {
 		t.Fatalf("add second series: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestListEpisodesAndWanted(t *testing.T) {
 	svc, _ := setupService(t)
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true, "", "")
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Goodbye", true)
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 2, "Looping", true)
 
@@ -197,7 +197,7 @@ func TestSetEpisodeMonitored(t *testing.T) {
 	svc, repo := setupService(t)
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true, "", "")
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Goodbye", true)
 	// The monitored add already created a pending wanted row; mark it satisfied
 	// so that re-monitoring must create/refresh a pending row.
@@ -247,7 +247,7 @@ func TestRunPipeline_NoClient(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true)
+	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true, "", "")
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
 
 	if _, err := svc.RunPipeline(ctx, seriesID); err == nil {
@@ -282,7 +282,7 @@ func TestRunPipeline_IndexerFailureDoesNotFailSearch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true)
+	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true, "", "")
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
 
 	// The failing indexer is skipped; the good one still yields a match, so the
@@ -311,7 +311,7 @@ func TestRunPipeline_ClientAddFails(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true)
+	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true, "", "")
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
 
 	// Client.Add fails -> download-failed recorded, nothing imported, no match.
@@ -500,7 +500,7 @@ func TestSetSeasonMonitored(t *testing.T) {
 	ctx := context.Background()
 
 	// Two seasons of known episodes, all added unmonitored.
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true)
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", true, "", "")
 	for ep := 1; ep <= 2; ep++ {
 		if _, err := svc.AddEpisode(ctx, seriesID, 1, ep, fmt.Sprintf("s1e%d", ep), false); err != nil {
 			t.Fatalf("add s1e%d: %v", ep, err)
@@ -553,7 +553,7 @@ func TestSetSeriesMonitored(t *testing.T) {
 	svc, repo := setupService(t)
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", false)
+	seriesID, _ := svc.AddSeries(ctx, "Severance", "2022", "HD-1080p", false, "", "")
 	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "a", false); err != nil {
 		t.Fatalf("add e1: %v", err)
 	}

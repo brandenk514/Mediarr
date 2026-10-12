@@ -91,9 +91,13 @@ func TestBooksRepo_AuthorTitleLifecycle(t *testing.T) {
 		t.Errorf("get missing author: err = %v, want ErrAuthorNotFound", err)
 	}
 
-	// Duplicate author name must be rejected by the UNIQUE constraint.
-	if _, err := r.CreateAuthor(ctx, books.Author{Name: "Ursula K. Le Guin"}); err == nil {
-		t.Error("duplicate author name should fail")
+	// Re-creating the same author name is idempotent (M6 #42 find-or-create):
+	// it returns the existing id instead of a UNIQUE-constraint error.
+	dupAuthorID, err := r.CreateAuthor(ctx, books.Author{Name: "Ursula K. Le Guin"})
+	if err != nil {
+		t.Errorf("idempotent create author: %v", err)
+	} else if dupAuthorID != authorID {
+		t.Errorf("idempotent create author id = %d, want existing %d", dupAuthorID, authorID)
 	}
 
 	all, err := r.ListAuthors(ctx)
@@ -119,9 +123,12 @@ func TestBooksRepo_AuthorTitleLifecycle(t *testing.T) {
 		t.Errorf("title = %+v, want The Dispossessed", *ti)
 	}
 
-	// Duplicate (author, name) must be rejected.
-	if _, err := r.CreateTitle(ctx, books.Title{AuthorID: authorID, Name: "The Dispossessed"}); err == nil {
-		t.Error("duplicate (author,name) title should fail")
+	// Re-creating the same (author, name) title is idempotent (M6 #42).
+	dupTitleID, err := r.CreateTitle(ctx, books.Title{AuthorID: authorID, Name: "The Dispossessed"})
+	if err != nil {
+		t.Errorf("idempotent create title: %v", err)
+	} else if dupTitleID != titleID {
+		t.Errorf("idempotent create title id = %d, want existing %d", dupTitleID, titleID)
 	}
 
 	// A different title by the same author is fine.

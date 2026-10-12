@@ -34,6 +34,9 @@ import type {
   MonitoredResult,
   Movie,
   Page,
+  ProfileKind,
+  ProfilesResponse,
+  SearchResult,
   Series,
   SeriesWanted,
   Title,
@@ -182,6 +185,27 @@ export const client = {
   // recent caps the recent-history / recent-queue feeds (server clamps 1..100).
   getDashboard: (recent?: number) =>
     request<Dashboard>('GET', `/dashboard${recent ? `?recent=${recent}` : ''}`),
+
+  // ---- add flows (#42) ----
+  // Provider search: debounced by the UI; each call is one provider round
+  // trip. The endpoints answer 503 when the provider isn't configured — the
+  // add-flow UI greys the search box with that reason.
+  searchMovies: (q: string) => request<SearchResult[]>('GET', `/search/movies?query=${encodeURIComponent(q)}`),
+  searchTv: (q: string) => request<SearchResult[]>('GET', `/search/tv?query=${encodeURIComponent(q)}`),
+  searchTvTmdb: (q: string) => request<SearchResult[]>('GET', `/search/tv-tmdb?query=${encodeURIComponent(q)}`),
+  searchArtists: (q: string) =>
+    request<SearchResult[]>('GET', `/search/artists?query=${encodeURIComponent(q)}`),
+  searchBookAuthors: (q: string) =>
+    request<SearchResult[]>('GET', `/search/books/authors?query=${encodeURIComponent(q)}`),
+  searchBookWorks: (q: string, author: string) => {
+    const params = new URLSearchParams()
+    params.set('query', q)
+    if (author) params.set('author', author)
+    return request<SearchResult[]>('GET', `/search/books/works?${params.toString()}`)
+  },
+  // Quality profiles for the picker: built-in names + the kind's default.
+  getProfiles: (kind: ProfileKind) =>
+    request<ProfilesResponse>('GET', `/profiles?kind=${kind}`),
 }
 
 export type Api = typeof client

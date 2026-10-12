@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
@@ -50,7 +51,11 @@ describe('MusicPage', () => {
     vi.mocked(client.listAlbums).mockResolvedValue([album(11, 1, 'In Rainbows')])
     vi.mocked(client.listTracks).mockResolvedValue([track(111, 11, 1), track(112, 11, 2)])
     const user = userEvent.setup()
-    render(<MusicPage />)
+    render(
+      <MemoryRouter>
+        <MusicPage />
+      </MemoryRouter>,
+    )
 
     await screen.findByTestId('artist-1')
 
@@ -76,7 +81,11 @@ describe('MusicPage', () => {
     vi.mocked(client.listArtists).mockResolvedValue(artistPage([artist(2, 'New Artist')]))
     vi.mocked(client.listAlbums).mockResolvedValue([])
     const user = userEvent.setup()
-    render(<MusicPage />)
+    render(
+      <MemoryRouter>
+        <MusicPage />
+      </MemoryRouter>,
+    )
     await screen.findByTestId('artist-2')
     await user.click(screen.getByTestId('artist-toggle-2'))
     expect(await screen.findByText('No albums yet.')).toBeInTheDocument()
@@ -87,7 +96,11 @@ describe('MusicPage', () => {
     vi.mocked(client.listAlbums).mockResolvedValue([album(11, 1, 'In Rainbows')])
     vi.mocked(client.setAlbumMonitored).mockResolvedValue({ id: 11, monitored: false })
     const user = userEvent.setup()
-    render(<MusicPage />)
+    render(
+      <MemoryRouter>
+        <MusicPage />
+      </MemoryRouter>,
+    )
     await screen.findByTestId('artist-1')
     await user.click(screen.getByTestId('artist-toggle-1'))
     await screen.findByTestId('album-mon-11')

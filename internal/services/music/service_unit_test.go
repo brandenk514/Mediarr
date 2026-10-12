@@ -121,12 +121,12 @@ func TestAddArtist(t *testing.T) {
 	ctx := context.Background()
 
 	// Blank name is rejected.
-	if _, err := svc.AddArtist(ctx, "   ", true); err == nil {
+	if _, err := svc.AddArtist(ctx, "   ", "", true); err == nil {
 		t.Error("expected error for blank artist name, got nil")
 	}
 
 	// Valid add: name trimmed, monitored flag stored, history recorded.
-	id, err := svc.AddArtist(ctx, "  Bob Marley  ", true)
+	id, err := svc.AddArtist(ctx, "  Bob Marley  ", "", true)
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestAddArtist(t *testing.T) {
 func TestAddAlbum(t *testing.T) {
 	svc, repo := setupService(t)
 	ctx := context.Background()
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 
 	// Blank name is rejected.
 	if _, err := svc.AddAlbum(ctx, artistID, "  ", 1977, "Lossless", true); err == nil {
@@ -182,7 +182,7 @@ func TestSetArtistMonitored(t *testing.T) {
 	ctx := context.Background()
 
 	// Artist added unmonitored; two known unmonitored albums.
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", false)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", false)
 	if _, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", false); err != nil {
 		t.Fatalf("add album 1: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestSetAlbumMonitored(t *testing.T) {
 	svc, repo := setupService(t)
 	ctx := context.Background()
 
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", true)
 	// The monitored add already created a pending wanted row; satisfy it so that
 	// re-monitoring must preserve (not clobber) the existing status.
@@ -291,7 +291,7 @@ func TestSetTrackMonitored(t *testing.T) {
 	svc, repo := setupService(t)
 	ctx := context.Background()
 
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	// The album is added unmonitored so no whole-album wanted row exists yet; the
 	// track toggle below must be the only source of a wanted row.
 	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", false)
@@ -337,7 +337,7 @@ func TestSetTrackMonitored(t *testing.T) {
 func TestRunPipeline_NoWanted(t *testing.T) {
 	svc, _ := setupService(t)
 	ctx := context.Background()
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	// No albums, so no pending wanted.
 	if _, err := svc.RunPipeline(ctx, artistID); !errors.Is(err, ErrNoWanted) {
 		t.Errorf("RunPipeline = %v, want ErrNoWanted", err)
@@ -366,7 +366,7 @@ func TestRunPipeline_NoClient(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	if _, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", true); err != nil {
 		t.Fatalf("add album: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestRunPipeline_IndexerFailureDoesNotFailSearch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	_, _ = svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", true)
 
 	// The failing indexer is skipped; the good one still yields a match, so the
@@ -430,7 +430,7 @@ func TestRunPipeline_ClientAddFails(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", true)
 
 	// Client.Add fails -> import-failed recorded, nothing imported, no match.

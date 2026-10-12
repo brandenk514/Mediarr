@@ -24,6 +24,14 @@ var _ music.Repo = (*MusicRepo)(nil)
 func (r *MusicRepo) CreateArtist(ctx context.Context, a music.Artist) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
+		SELECT id FROM music_artists WHERE name = $1`, a.Name).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != sql.ErrNoRows {
+		return 0, fmt.Errorf("music: create artist: %w", err)
+	}
+	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO music_artists (mbid, name, monitored)
 		VALUES ($1, $2, $3)
 		RETURNING id`,

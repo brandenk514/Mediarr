@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
 import type { Episode, ListQuery, Series } from '../../api/types'
+import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
   ListControls,
@@ -35,6 +36,7 @@ export function TvPage() {
       <div className="dash-head">
         <h2 data-testid="tv-title">TV</h2>
         <div className="dash-head-right">
+          <AddButton to="/tv/add" label="Add series" testId="tv-add" />
           <ListControls
             text={text}
             onText={setText}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
 import type { Author, Edition, ListQuery, Title } from '../../api/types'
+import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
   ListControls,
@@ -35,6 +36,7 @@ export function BooksPage() {
       <div className="dash-head">
         <h2 data-testid="books-title">Books</h2>
         <div className="dash-head-right">
+          <AddButton to="/books/add" label="Add book" testId="books-add" />
           <ListControls
             text={text}
             onText={setText}

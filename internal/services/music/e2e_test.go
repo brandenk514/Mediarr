@@ -320,7 +320,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Add a monitored artist + a monitored album (whole-album wanted row).
-	artistID, err := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, err := svc.AddArtist(ctx, "Bob Marley", "", true)
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
@@ -396,7 +396,7 @@ func TestPipeline_TrackWanted_SatisfiedByAlbum(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", false)
 	// Add a known track and monitor it (track-level wanted, not album-level).
 	trackID, err := svc.AddTrack(ctx, albumID, 1, 1, "No Woman, No Man", true)
@@ -452,7 +452,7 @@ func TestPipeline_AlbumMonitor_Acceptance(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	legendID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", true)
 	uprisingID, _ := svc.AddAlbum(ctx, artistID, "Uprising", 1980, "Lossless", false)
 	_ = uprisingID
@@ -507,7 +507,7 @@ func TestPipeline_ChecksumMismatch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", true)
 	// Set an (intentionally wrong) expected checksum on the album.
 	album, _ := repo.GetAlbum(ctx, albumID)
@@ -556,7 +556,7 @@ func TestPipeline_NoMatch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	artistID, _ := svc.AddArtist(ctx, "Bob Marley", true)
+	artistID, _ := svc.AddArtist(ctx, "Bob Marley", "", true)
 	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", true)
 
 	_, err := svc.RunPipeline(ctx, artistID)

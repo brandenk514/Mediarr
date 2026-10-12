@@ -102,6 +102,10 @@ export interface AddSeriesRequest {
   year?: string
   quality_profile?: string
   monitored?: boolean
+  // Provider ids of the selected search result (#42). Set whichever matches
+  // the search source; the server stores 0 for the unknown one.
+  tvdb_id?: string
+  tmdb_id?: string
 }
 
 export interface Episode {
@@ -143,6 +147,9 @@ export interface Artist {
 
 export interface AddArtistRequest {
   name: string
+  // MBID is the MusicBrainz artist id of the selected search result (#42);
+  // omit it for a manual add (server stores "").
+  mbid?: string
   monitored?: boolean
 }
 
@@ -319,6 +326,31 @@ export interface EventFrame {
   type: string
   payload?: Record<string, unknown>
   at: string
+}
+
+// ---- add flows (#42) ----
+//
+// The provider search endpoints return a flat array of hits in the provider
+// adapters' wire shape (internal/providers): lowercase json-tagged fields,
+// unlike the library item types above (bare Go names). `extra` carries
+// display-only detail per kind: movies/tv → overview+rating, artists →
+// country, book works → author.
+export interface SearchResult {
+  id: string
+  title: string
+  year: number
+  extra: Record<string, string>
+}
+
+// ProfileKind is the `kind` accepted by GET /api/v1/profiles. Note it is the
+// plural "movies" (not the dashboard's singular MediaKind "movie").
+export type ProfileKind = 'movies' | 'tv' | 'music' | 'books'
+
+// ProfilesResponse is the built-in quality profiles of one kind plus the
+// kind's default, so the add-flow picker can preselect it.
+export interface ProfilesResponse {
+  profiles: string[]
+  default: string
 }
 
 // ---- indexers ----
