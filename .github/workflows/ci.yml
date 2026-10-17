@@ -28,7 +28,6 @@ concurrency:
 # falls back to the interactive device flow and times out.
 permissions:
   contents: read
-  metadata: read
   packages: write
   id-token: write
 
