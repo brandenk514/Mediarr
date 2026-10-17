@@ -117,7 +117,7 @@ func (s *stubQB) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.logins++
-		http.SetCookie(w, &http.Cookie{Name: "SID", Value: "test-sid-123", Path: "/"})
+		http.SetCookie(w, &http.Cookie{Name: "SID", Value: "test-sid-123", Path: "/", HttpOnly: true, Secure: true})
 		_, _ = w.Write([]byte(`{"status":"Ok."}`))
 
 	case "/api/v2/torrents/add":
