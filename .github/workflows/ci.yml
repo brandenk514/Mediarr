@@ -351,7 +351,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cosign sign \
-            --registry ghcr.io \
             --registry-username "${GITHUB_ACTOR}" \
             --registry-password "${GITHUB_TOKEN}" \
             --tlog-upload=true \
@@ -363,7 +362,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cosign verify \
-            --registry ghcr.io \
             --registry-username "${GITHUB_ACTOR}" \
             --registry-password "${GITHUB_TOKEN}" \
             --certificate-identity-regexp "github-workflow-identity:brandenk514/Mediarr.*" \
