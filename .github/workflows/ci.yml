@@ -333,35 +333,42 @@ jobs:
       # Keyless Sigstore/cosign signing (Fulcio) with GITHUB_TOKEN, per
       # #48: a published image is signed, not just scanned. Verify follows
       # immediately so a broken identity never publishes silently.
-      # (cosign-action bundles the cosign binary; `go install
-      # sigstore/cosign/...` is unusable on the Go proxy — "missing dot in
-      # first path element".)
+      # The archived sigstore/cosign-action repo is gone from GitHub, so we
+      # use the official cosign binary (pinned) — on GHA runners cosign
+      # auto-detects GITHUB_ACTIONS + GITHUB_TOKEN for the Fulcio/OIDC flow.
+      - name: Install cosign
+        if: steps.ver.outputs.publish == 'yes'
+        run: |
+          COSIGN_VERSION="v3.1.3"
+          curl -fsSL -o "$RUNNER_TEMP/cosign" \
+            "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
+          chmod +x "$RUNNER_TEMP/cosign"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
       - name: Sign image (keyless)
         if: steps.ver.outputs.publish == 'yes'
-        uses: sigstore/cosign-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          image: ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
-          sign: true
-          registry: ghcr.io
-          keyless: true
-          ref: ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
-          scope: repository
+        run: |
+          cosign sign \
+            --registry ghcr.io \
+            --registry-username "${GITHUB_ACTOR}" \
+            --registry-password "${GITHUB_TOKEN}" \
+            --tlog-upload=true \
+            "ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}"
 
       - name: Verify signature
         if: steps.ver.outputs.publish == 'yes'
-        uses: sigstore/cosign-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          image: ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
-          verify: true
-          registry: ghcr.io
-          ref: ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
-          scope: repository
-          certificate_identity_regex: "github-workflow-identity:brandenk514/Mediarr.*"
-          certificate_issuer_regex: "https://token.actions.githubusercontent.com"
+        run: |
+          cosign verify \
+            --registry ghcr.io \
+            --registry-username "${GITHUB_ACTOR}" \
+            --registry-password "${GITHUB_TOKEN}" \
+            --certificate-identity-regexp "github-workflow-identity:brandenk514/Mediarr.*" \
+            --certificate-oidc-issuer-regexp "https://token.actions.githubusercontent.com" \
+            "ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}"
 
       # Promote the tagged image to :latest (manifest-list update only —
       # no rebuild, per PLAN §11 "on tag: promote to :latest").
