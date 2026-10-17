@@ -22,7 +22,9 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/books"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/paging"
+	"github.com/brandenk514/mediarr/internal/queue"
 	"github.com/brandenk514/mediarr/internal/store"
 )
 
@@ -61,6 +63,9 @@ type Deps struct {
 	// the pipeline advances (#40 live dashboard). It is optional so the
 	// pipeline runs without a bus (e.g. tests).
 	Events store.Events
+	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
+	// Nil-safe: the pipeline runs identically without it.
+	Metrics *metrics.Metrics
 }
 
 // Service implements the books use-cases.
@@ -259,7 +264,16 @@ func (s *Service) SetEditionMonitored(ctx context.Context, titleID, editionID in
 // format). The pipeline is idempotent: wanted entries already satisfied are
 // skipped, and an author with no pending wanted entries returns ErrNoWanted
 // without searching.
-func (s *Service) RunPipeline(ctx context.Context, authorID int64) (int, error) {
+func (s *Service) RunPipeline(ctx context.Context, authorID int64) (imported int, err error) {
+	start := time.Now()
+	defer func() {
+		result := metrics.ResultOK
+		if err != nil {
+			result = metrics.ResultError
+		}
+		s.deps.Metrics.RecordPipeline(string(queue.KindBook), result, time.Since(start), imported)
+	}()
+
 	author, err := s.deps.Repo.GetAuthor(ctx, authorID)
 	if err != nil {
 		return 0, err
@@ -308,7 +322,6 @@ func (s *Service) RunPipeline(ctx context.Context, authorID int64) (int, error) 
 	s.record(ctx, authorID, "searched", fmt.Sprintf("%d candidate release(s)", len(results)))
 
 	// 2. Service each title that has pending wanted entries.
-	imported := 0
 	for _, w := range work {
 		profile := s.deps.DefaultProfile
 		cands := s.buildCandidates(author, w.title, profile, results)
