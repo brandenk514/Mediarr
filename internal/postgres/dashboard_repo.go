@@ -228,6 +228,19 @@ func (r *DashboardRepo) Snapshot(ctx context.Context, maxRecent int) (*dashboard
 		totals.Queue += l.Queue
 	}
 
+	// A nil slice marshals as null, and the UI's feeds crash on null (a
+	// render error unmounts the entire app, leaving a black page). Every
+	// array field of the snapshot must be [] on the wire, never null.
+	if libraries == nil {
+		libraries = []dashboard.Library{}
+	}
+	if history == nil {
+		history = []dashboard.HistoryItem{}
+	}
+	if queue == nil {
+		queue = []dashboard.QueueItem{}
+	}
+
 	return &dashboard.Snapshot{
 		Libraries:     libraries,
 		Totals:        totals,

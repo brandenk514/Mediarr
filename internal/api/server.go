@@ -15,12 +15,15 @@ import (
 	"time"
 
 	"github.com/brandenk514/mediarr/internal/health"
+	"github.com/brandenk514/mediarr/internal/metrics"
 )
 
 // Server is the HTTP server. It owns the mux and middleware chain.
 type Server struct {
 	mux           *http.ServeMux
 	health        *health.Checker
+	metrics       *metrics.Metrics
+	metricsDeps   *MetricsDeps
 	authDeps      *AuthDeps
 	indexersDeps  *IndexersDeps
 	dashboardDeps *DashboardDeps
@@ -39,9 +42,9 @@ func NewServer(checker *health.Checker) *Server {
 	s := &Server{mux: http.NewServeMux(), health: checker}
 	h := health.NewHandlers(checker)
 
-	s.mux.HandleFunc("GET /healthz", h.Liveness)
-	s.mux.HandleFunc("GET /readyz", h.Readiness)
-	s.mux.HandleFunc("GET /version", s.version)
+	s.register("GET /healthz", h.Liveness)
+	s.register("GET /readyz", h.Readiness)
+	s.register("GET /version", s.version)
 	return s
 }
 
@@ -50,13 +53,33 @@ func NewServer(checker *health.Checker) *Server {
 // boot scenarios and tests).
 func (s *Server) SetAuth(deps *AuthDeps) {
 	s.authDeps = deps
-	s.mux.HandleFunc("POST /api/v1/auth/login", s.Login)
-	s.mux.HandleFunc("GET /api/v1/auth/me", s.requireAuth(s.Me))
+	s.register("POST /api/v1/auth/login", s.Login)
+	s.register("GET /api/v1/auth/me", s.requireAuth(s.Me))
 }
 
 // Handler returns the fully wired http.Handler (middleware applied).
 func (s *Server) Handler() http.Handler {
 	return withMiddleware(s.mux)
+}
+
+// register wires a handler onto the mux AND, when metrics are enabled,
+// observes request count and latency under the route's own pattern (e.g.
+// "GET /api/v1/movies/{id}") as the route label — never a raw path, so the
+// label stays low-cardinality. Handlers that are long-lived connections
+// (the /api/v1/events WebSocket) use mux.HandleFunc directly and are not
+// counted: a multi-hour socket would poison the latency histogram.
+func (s *Server) register(pattern string, h http.HandlerFunc) {
+	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		m := s.metrics
+		if m == nil {
+			h(w, r)
+			return
+		}
+		start := time.Now()
+		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		h(rw, r)
+		m.ObserveHTTPRequest(r.Method, pattern, rw.status, time.Since(start))
+	})
 }
 
 // Serve runs the HTTP server until the context is cancelled.

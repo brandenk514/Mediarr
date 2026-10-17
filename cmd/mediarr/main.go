@@ -28,6 +28,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/health"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/postgres"
 	"github.com/brandenk514/mediarr/internal/providers"
 	"github.com/brandenk514/mediarr/internal/redis"
@@ -148,6 +149,18 @@ func run() error {
 	}
 	logger.Info("redis ready")
 
+	// --- Metrics (M7 #46) --------------------------------------------
+	// The scrape-time collector reads queue depth / library sizes straight
+	// from Postgres and re-pings dependencies during the scrape, so it needs
+	// the pool and the liveness checker. /metrics itself is auth-gated by
+	// the API layer; this layer only owns the registry and recording.
+	checker := health.NewChecker(pg, cache)
+	m := metrics.New(metrics.Options{
+		DB:      pg.DB(),
+		Checker: checker,
+		Build:   metrics.BuildInfo{Version: version, Commit: commit, BuildTime: buildTime},
+	})
+
 	// --- Indexer layer (M5, #30) --------------------------------------
 	// The Prowlarr-role framework composes here, once, and is shared by all four
 	// media pipelines:
@@ -175,6 +188,9 @@ func run() error {
 	// real traffic. It is handed to the registry (for every built adapter) and
 	// to the health worker (for its sweep + on-demand probes).
 	healthTracker := indexers.NewHealthTracker()
+	// Mirror every indexer call into Prometheus (M7 #46) while the inner
+	// tracker keeps the stats rollup the status API reads.
+	healthTracker = metrics.NewIndexerRecorder(healthTracker, m)
 	registry := indexers.NewDefaultRegistry()
 	registry.Deps = indexers.AdapterDeps{Health: healthTracker}
 
@@ -228,8 +244,10 @@ func run() error {
 	}
 
 	// --- Health + API ---------------------------------------------------
-	checker := health.NewChecker(pg, cache)
 	srv := api.NewServer(checker)
+	// Prometheus scrape endpoint (M7 #46), auth-gated like the rest of the
+	// API (single-user v1).
+	srv.SetMetrics(&api.MetricsDeps{M: m})
 	// Indexer endpoints (#35 read/health, #44 write): list, on-demand test,
 	// per-indexer stats, plus the create/update/enable/delete surface the
 	// settings page uses. They share the same repo, worker, tracker, and
@@ -318,6 +336,7 @@ func run() error {
 		DefaultProfile: "HD-1080p",
 		DownloadsDir:   cfg.DownloadsDir,
 		Events:         events,
+		Metrics:        m,
 	})
 	srv.SetMovies(&api.MoviesDeps{Svc: movieSvc})
 	logger.Info("movie pipeline ready",
@@ -354,6 +373,7 @@ func run() error {
 		MediaRoot:      tvMediaRoot,
 		DefaultProfile: "HD-1080p",
 		Events:         events,
+		Metrics:        m,
 	})
 	srv.SetTV(&api.TVDeps{Svc: tvSvc})
 	logger.Info("tv pipeline ready",
@@ -390,6 +410,7 @@ func run() error {
 		MediaRoot:      musicMediaRoot,
 		DefaultProfile: "Lossless",
 		Events:         events,
+		Metrics:        m,
 	})
 	srv.SetMusic(&api.MusicDeps{Svc: musicSvc})
 	logger.Info("music pipeline ready",
@@ -419,6 +440,7 @@ func run() error {
 		Client:         dlClient,
 		MediaRoot:      booksMediaRoot,
 		DefaultProfile: "Best",
+		Metrics:        m,
 	})
 	srv.SetBooks(&api.BooksDeps{Svc: booksSvc})
 	logger.Info("books pipeline ready",

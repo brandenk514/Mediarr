@@ -33,14 +33,14 @@ type IndexersDeps struct {
 // working (and the write surface is deliberately gated behind a registry).
 func (s *Server) SetIndexers(deps *IndexersDeps) {
 	s.indexersDeps = deps
-	s.mux.HandleFunc("GET /api/v1/indexers", s.requireAuth(s.ListIndexers))
-	s.mux.HandleFunc("POST /api/v1/indexers/{id}/test", s.requireAuth(s.TestIndexer))
-	s.mux.HandleFunc("GET /api/v1/indexers/{id}/stats", s.requireAuth(s.IndexerStats))
+	s.register("GET /api/v1/indexers", s.requireAuth(s.ListIndexers))
+	s.register("POST /api/v1/indexers/{id}/test", s.requireAuth(s.TestIndexer))
+	s.register("GET /api/v1/indexers/{id}/stats", s.requireAuth(s.IndexerStats))
 	if deps.Admin != nil {
-		s.mux.HandleFunc("POST /api/v1/indexers", s.requireAuth(s.CreateIndexer))
-		s.mux.HandleFunc("PUT /api/v1/indexers/{id}", s.requireAuth(s.UpdateIndexer))
-		s.mux.HandleFunc("PATCH /api/v1/indexers/{id}/enabled", s.requireAuth(s.SetIndexerEnabled))
-		s.mux.HandleFunc("DELETE /api/v1/indexers/{id}", s.requireAuth(s.DeleteIndexer))
+		s.register("POST /api/v1/indexers", s.requireAuth(s.CreateIndexer))
+		s.register("PUT /api/v1/indexers/{id}", s.requireAuth(s.UpdateIndexer))
+		s.register("PATCH /api/v1/indexers/{id}/enabled", s.requireAuth(s.SetIndexerEnabled))
+		s.register("DELETE /api/v1/indexers/{id}", s.requireAuth(s.DeleteIndexer))
 	}
 }
 
