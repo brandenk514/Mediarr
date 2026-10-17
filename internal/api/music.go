@@ -27,19 +27,19 @@ type MusicDeps struct {
 // TestMusicRoutesRegister).
 func (s *Server) SetMusic(deps *MusicDeps) {
 	s.musicDeps = deps
-	s.mux.HandleFunc("POST /api/v1/music/artists", s.requireAuth(s.AddArtist))
-	s.mux.HandleFunc("GET /api/v1/music/artists", s.requireAuth(s.ListArtists))
-	s.mux.HandleFunc("GET /api/v1/music/artists/{id}", s.requireAuth(s.GetArtist))
-	s.mux.HandleFunc("PUT /api/v1/music/artists/{id}", s.requireAuth(s.SetArtistMonitored))
-	s.mux.HandleFunc("POST /api/v1/music/artists/{id}/albums", s.requireAuth(s.AddAlbum))
-	s.mux.HandleFunc("GET /api/v1/music/artists/{id}/albums", s.requireAuth(s.ListAlbums))
-	s.mux.HandleFunc("GET /api/v1/music/albums/{id}", s.requireAuth(s.GetAlbum))
-	s.mux.HandleFunc("PUT /api/v1/music/albums/{id}", s.requireAuth(s.SetAlbumMonitored))
-	s.mux.HandleFunc("POST /api/v1/music/albums/{id}/tracks", s.requireAuth(s.AddTrack))
-	s.mux.HandleFunc("GET /api/v1/music/albums/{id}/tracks", s.requireAuth(s.ListTracks))
-	s.mux.HandleFunc("PUT /api/v1/music/albums/{id}/tracks/{disc}/{number}", s.requireAuth(s.SetTrackMonitored))
-	s.mux.HandleFunc("GET /api/v1/music/albums/{id}/wanted", s.requireAuth(s.ListAlbumWanted))
-	s.mux.HandleFunc("POST /api/v1/music/artists/{id}/pipeline", s.requireAuth(s.RunMusicPipeline))
+	s.register("POST /api/v1/music/artists", s.requireAuth(s.AddArtist))
+	s.register("GET /api/v1/music/artists", s.requireAuth(s.ListArtists))
+	s.register("GET /api/v1/music/artists/{id}", s.requireAuth(s.GetArtist))
+	s.register("PUT /api/v1/music/artists/{id}", s.requireAuth(s.SetArtistMonitored))
+	s.register("POST /api/v1/music/artists/{id}/albums", s.requireAuth(s.AddAlbum))
+	s.register("GET /api/v1/music/artists/{id}/albums", s.requireAuth(s.ListAlbums))
+	s.register("GET /api/v1/music/albums/{id}", s.requireAuth(s.GetAlbum))
+	s.register("PUT /api/v1/music/albums/{id}", s.requireAuth(s.SetAlbumMonitored))
+	s.register("POST /api/v1/music/albums/{id}/tracks", s.requireAuth(s.AddTrack))
+	s.register("GET /api/v1/music/albums/{id}/tracks", s.requireAuth(s.ListTracks))
+	s.register("PUT /api/v1/music/albums/{id}/tracks/{disc}/{number}", s.requireAuth(s.SetTrackMonitored))
+	s.register("GET /api/v1/music/albums/{id}/wanted", s.requireAuth(s.ListAlbumWanted))
+	s.register("POST /api/v1/music/artists/{id}/pipeline", s.requireAuth(s.RunMusicPipeline))
 }
 
 // addArtistRequest is the body for POST /api/v1/music. Monitored is a pointer

@@ -1,0 +1,72 @@
+# Alerting rules for Mediarr (M7 #46).
+#
+# Label vocabulary:
+#   mediarr_queue_depth{kind, state}     state ∈ {queued, downloading, imported, failed}
+#   mediarr_pipeline_runs_total{kind, result}   result ∈ {ok, error, skip}
+#   mediarr_indexer_healthy{name}       1 = last call ok, 0 = last call failed
+#   mediarr_dependency_up{name}         name ∈ {postgres, redis}
+groups:
+  - name: mediarr.queue
+    rules:
+      # Jobs sitting in the queue for a long time: either the download client
+      # is wedged or a pipeline keeps failing and re-queueing.
+      - alert: MediarrQueueStuck
+        expr: sum(mediarr_queue_depth{state=~"queued|downloading"}) > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue has not drained for 30 minutes"
+          description: "{{ $value }} item(s) have been queued or downloading for over 30 minutes. Check the download client and the queue view."
+
+      # A burst of failed queue entries (import/download failures).
+      - alert: MediarrQueueFailing
+        expr: increase(mediarr_queue_depth{state="failed"}[30m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue failures spiking"
+          description: "More than 3 queue entries failed in the last 30 minutes. Check pipeline error rates and indexer health."
+
+  - name: mediarr.pipeline
+    rules:
+      # Over half of all pipeline runs failing. NaN-safe: with no runs in
+      # the window the division is NaN and no alert fires.
+      - alert: MediarrPipelineFailing
+        expr: |
+          (
+            sum(rate(mediarr_pipeline_runs_total{result="error"}[15m]))
+            /
+            sum(rate(mediarr_pipeline_runs_total[15m]))
+          ) > 0.5
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pipeline success rate below 50%"
+          description: "Over half of all pipeline runs have failed in the last 15 minutes ({{ $value | humanizePercentage }}). Check indexer results, the download client, and the media root."
+
+  - name: mediarr.indexers
+    rules:
+      # An indexer that has been called (series exists) and whose last call
+      # failed. Never-called indexers have no series and do not alert.
+      - alert: MediarrIndexerDown
+        expr: mediarr_indexer_healthy == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Indexer {{ $labels.name }} is failing"
+          description: "The most recent call to indexer {{ $labels.name }} has failed for 15 minutes. Check credentials and reachability."
+
+  - name: mediarr.dependencies
+    rules:
+      - alert: MediarrDependencyDown
+        expr: mediarr_dependency_up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dependency {{ $labels.name }} is down"
+          description: "Mediarr reports {{ $labels.name }} as unreachable (re-checked at scrape time)."

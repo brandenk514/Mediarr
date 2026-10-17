@@ -17,16 +17,16 @@ type TVDeps struct {
 // SetMovies, so NewServer stays usable for health-only boot and tests.
 func (s *Server) SetTV(deps *TVDeps) {
 	s.tvDeps = deps
-	s.mux.HandleFunc("POST /api/v1/tv", s.requireAuth(s.AddSeries))
-	s.mux.HandleFunc("GET /api/v1/tv", s.requireAuth(s.ListSeries))
-	s.mux.HandleFunc("GET /api/v1/tv/{id}", s.requireAuth(s.GetSeries))
-	s.mux.HandleFunc("PUT /api/v1/tv/{id}", s.requireAuth(s.SetSeriesMonitored))
-	s.mux.HandleFunc("PUT /api/v1/tv/{id}/seasons/{season}", s.requireAuth(s.SetSeasonMonitored))
-	s.mux.HandleFunc("PUT /api/v1/tv/{id}/episodes/{season}/{episode}", s.requireAuth(s.SetEpisodeMonitored))
-	s.mux.HandleFunc("POST /api/v1/tv/{id}/episodes", s.requireAuth(s.AddEpisode))
-	s.mux.HandleFunc("GET /api/v1/tv/{id}/episodes", s.requireAuth(s.ListEpisodes))
-	s.mux.HandleFunc("GET /api/v1/tv/{id}/wanted", s.requireAuth(s.ListWanted))
-	s.mux.HandleFunc("POST /api/v1/tv/{id}/pipeline", s.requireAuth(s.RunTVPipeline))
+	s.register("POST /api/v1/tv", s.requireAuth(s.AddSeries))
+	s.register("GET /api/v1/tv", s.requireAuth(s.ListSeries))
+	s.register("GET /api/v1/tv/{id}", s.requireAuth(s.GetSeries))
+	s.register("PUT /api/v1/tv/{id}", s.requireAuth(s.SetSeriesMonitored))
+	s.register("PUT /api/v1/tv/{id}/seasons/{season}", s.requireAuth(s.SetSeasonMonitored))
+	s.register("PUT /api/v1/tv/{id}/episodes/{season}/{episode}", s.requireAuth(s.SetEpisodeMonitored))
+	s.register("POST /api/v1/tv/{id}/episodes", s.requireAuth(s.AddEpisode))
+	s.register("GET /api/v1/tv/{id}/episodes", s.requireAuth(s.ListEpisodes))
+	s.register("GET /api/v1/tv/{id}/wanted", s.requireAuth(s.ListWanted))
+	s.register("POST /api/v1/tv/{id}/pipeline", s.requireAuth(s.RunTVPipeline))
 }
 
 // addSeriesRequest is the body for POST /api/v1/tv. Monitored is a pointer so

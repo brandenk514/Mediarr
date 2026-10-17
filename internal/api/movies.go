@@ -17,11 +17,11 @@ type MoviesDeps struct {
 // SetAuth, so NewServer stays usable for health-only boot and tests.
 func (s *Server) SetMovies(deps *MoviesDeps) {
 	s.moviesDeps = deps
-	s.mux.HandleFunc("POST /api/v1/movies", s.requireAuth(s.AddMovie))
-	s.mux.HandleFunc("GET /api/v1/movies", s.requireAuth(s.ListMovies))
-	s.mux.HandleFunc("GET /api/v1/movies/{id}", s.requireAuth(s.GetMovie))
-	s.mux.HandleFunc("PUT /api/v1/movies/{id}", s.requireAuth(s.SetMovieMonitored))
-	s.mux.HandleFunc("POST /api/v1/movies/{id}/pipeline", s.requireAuth(s.RunMoviePipeline))
+	s.register("POST /api/v1/movies", s.requireAuth(s.AddMovie))
+	s.register("GET /api/v1/movies", s.requireAuth(s.ListMovies))
+	s.register("GET /api/v1/movies/{id}", s.requireAuth(s.GetMovie))
+	s.register("PUT /api/v1/movies/{id}", s.requireAuth(s.SetMovieMonitored))
+	s.register("POST /api/v1/movies/{id}/pipeline", s.requireAuth(s.RunMoviePipeline))
 }
 
 // addMovieRequest is the body for POST /api/v1/movies.

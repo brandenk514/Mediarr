@@ -21,7 +21,9 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/paging"
+	"github.com/brandenk514/mediarr/internal/queue"
 	"github.com/brandenk514/mediarr/internal/store"
 )
 
@@ -59,6 +61,9 @@ type Deps struct {
 	// the pipeline advances (#40 live dashboard). It is optional so the
 	// pipeline runs without a bus (e.g. tests).
 	Events store.Events
+	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
+	// Nil-safe: the pipeline runs identically without it.
+	Metrics *metrics.Metrics
 }
 
 // Service implements the TV use-cases.
@@ -248,7 +253,16 @@ func (s *Service) SetSeasonMonitored(ctx context.Context, seriesID int64, season
 //
 // It is idempotent: episodes already satisfied are skipped, and a series with
 // no pending wanted episodes returns ErrNoWanted without searching.
-func (s *Service) RunPipeline(ctx context.Context, seriesID int64) (int, error) {
+func (s *Service) RunPipeline(ctx context.Context, seriesID int64) (imported int, err error) {
+	start := time.Now()
+	defer func() {
+		result := metrics.ResultOK
+		if err != nil {
+			result = metrics.ResultError
+		}
+		s.deps.Metrics.RecordPipeline(string(queue.KindTV), result, time.Since(start), imported)
+	}()
+
 	series, err := s.deps.Repo.GetSeries(ctx, seriesID)
 	if err != nil {
 		return 0, err
@@ -285,7 +299,7 @@ func (s *Service) RunPipeline(ctx context.Context, seriesID int64) (int, error) 
 	// 3. Group by the episodes each release covers, and for each wanted
 	//    episode pick the best covering release. A single multi-episode release
 	//    can therefore satisfy several wanted entries at once.
-	imported, err := s.serviceEpisodes(ctx, series, cands, pending)
+	imported, err = s.serviceEpisodes(ctx, series, cands, pending)
 	if err != nil {
 		return 0, err
 	}
