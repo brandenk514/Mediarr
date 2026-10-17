@@ -46,11 +46,11 @@ jobs:
     # issue #39). The SPA is a standalone Vite/React/TypeScript app; its
     # artifact is built and (later, M7) served by the service.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -84,11 +84,11 @@ jobs:
     # 100-pull/6h rate limit ("toomanyrequests"), failing the job before a
     # single test ran.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -138,22 +138,13 @@ jobs:
           done
           rm -f cov.out
 
-      # Authenticate to Docker Hub (if credentials are configured) so the
-      # testcontainers pull of postgres:16-alpine is authenticated and does not
-      # hit the anonymous rate limit that intermittently breaks GitHub-hosted
-      # runners. No-op if DOCKERHUB_TOKEN is not set.
+      # Docker Hub auth (if DOCKERHUB_TOKEN is set) so the testcontainers
+      # pull of postgres:16-alpine is not anonymous.
       - name: Log in to Docker Hub (if configured)
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          if [ -n "$DOCKERHUB_TOKEN" ] && [ -n "$DOCKERHUB_USERNAME" ]; then
-            echo "$DOCKERHUB_TOKEN" | docker login \
-              -u "$DOCKERHUB_USERNAME" --password-stdin registry-1.docker.io
-            echo "Docker Hub authenticated (pulls are no longer anonymous)."
-          else
-            echo "DOCKERHUB_TOKEN/USERNAME not set - pulling anonymously."
-          fi
+        uses: ./.github/actions/dockerhub-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Integration tests (Postgres + Redis)
         run: go test ./internal/postgres/... ./internal/auth/... -count=1 -timeout 300s
@@ -179,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
@@ -199,30 +190,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      # Authenticate to Docker Hub (if configured) so the testcontainers
-      # pulls of postgres/redis are authenticated (avoids the anonymous rate
-      # limit). No-op if DOCKERHUB_TOKEN is not set.
+      # Docker Hub auth (if DOCKERHUB_TOKEN is set) so the testcontainers
+      # pulls of postgres/redis are not anonymous.
       - name: Log in to Docker Hub (if configured)
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          if [ -n "$DOCKERHUB_TOKEN" ] && [ -n "$DOCKERHUB_USERNAME" ]; then
-            echo "$DOCKERHUB_TOKEN" | docker login \
-              -u "$DOCKERHUB_USERNAME" --password-stdin registry-1.docker.io
-            echo "Docker Hub authenticated (pulls are no longer anonymous)."
-          else
-            echo "DOCKERHUB_TOKEN/USERNAME not set - pulling anonymously."
-          fi
+        uses: ./.github/actions/dockerhub-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Load harness (seed 10k, latency, sustained import, RSS)
         run: go test ./test/loadtest/... -count=1 -timeout 600s -v
@@ -237,15 +220,15 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up QEMU (multi-arch)
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Version tag + publish decision.
       #   push to main          -> sha-<short>, publish (test image)
@@ -280,26 +263,18 @@ jobs:
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
 
-      # Authenticate to Docker Hub (if configured) so the golang base-image
-      # pull during the build is authenticated (avoids the anonymous rate
-      # limit). No-op if DOCKERHUB_TOKEN is not set.
+      # Docker Hub auth (if DOCKERHUB_TOKEN is set) so the golang
+      # base-image pull during the build is not anonymous.
       - name: Log in to Docker Hub (if configured)
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          if [ -n "$DOCKERHUB_TOKEN" ] && [ -n "$DOCKERHUB_USERNAME" ]; then
-            echo "$DOCKERHUB_TOKEN" | docker login \
-              -u "$DOCKERHUB_USERNAME" --password-stdin registry-1.docker.io
-            echo "Docker Hub authenticated (pulls are no longer anonymous)."
-          else
-            echo "DOCKERHUB_TOKEN/USERNAME not set - pulling anonymously."
-          fi
+        uses: ./.github/actions/dockerhub-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Always build locally (single-arch, loaded into the daemon) so the
       # Trivy scan and SBOM have an image to read. No registry push on PRs.
       - name: Build image (local)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/Dockerfile
@@ -313,7 +288,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: mediarr:${{ steps.ver.outputs.tag }}
           format: table
@@ -322,14 +297,14 @@ jobs:
           ignore-unfixed: true
 
       - name: SBOM (trivy SPDX)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: mediarr:${{ steps.ver.outputs.tag }}
           format: spdx-json
           output: mediarr-sbom.spdx.json
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mediarr-sbom
           path: mediarr-sbom.spdx.json
@@ -337,7 +312,7 @@ jobs:
       # Publish multi-arch to ghcr only on trusted events (main + release tags).
       - name: Log in to ghcr
         if: steps.ver.outputs.publish == 'yes'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -345,7 +320,7 @@ jobs:
 
       - name: Publish multi-arch image to ghcr
         if: steps.ver.outputs.publish == 'yes'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/Dockerfile
@@ -422,22 +397,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      # Authenticate to Docker Hub (if configured) so compose's pull of
-      # postgres/redis is authenticated (avoids the anonymous rate limit).
-      # No-op if DOCKERHUB_TOKEN is not set.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      # Docker Hub auth (if DOCKERHUB_TOKEN is set) so compose's pull of
+      # postgres/redis is not anonymous.
       - name: Log in to Docker Hub (if configured)
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          if [ -n "$DOCKERHUB_TOKEN" ] && [ -n "$DOCKERHUB_USERNAME" ]; then
-            echo "$DOCKERHUB_TOKEN" | docker login \
-              -u "$DOCKERHUB_USERNAME" --password-stdin registry-1.docker.io
-            echo "Docker Hub authenticated (pulls are no longer anonymous)."
-          else
-            echo "DOCKERHUB_TOKEN/USERNAME not set - pulling anonymously."
-          fi
+        uses: ./.github/actions/dockerhub-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Run the image against real Postgres + Redis
         run: |
           set -euo pipefail
@@ -469,7 +438,7 @@ jobs:
       contents: write
       issues: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # #48: release notes are generated from the milestone's closed issues —
