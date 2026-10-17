@@ -23,6 +23,14 @@ concurrency:
   group: ci-${{ github.event_name == 'workflow_dispatch' && format('run-{0}', github.run_id) || github.ref }}
   cancel-in-progress: true
 
+# Keyless cosign signing (docker job) needs GitHub's OIDC endpoint, which
+# only exists when the token has id-token: write; without it cosign v3
+# falls back to the interactive device flow and times out.
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
 env:
   GO_VERSION: '1.27.2'
 
