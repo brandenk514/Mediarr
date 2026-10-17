@@ -43,6 +43,10 @@ cover: ## Test with coverage report
 	$(GO) test ./... -count=1 -coverprofile=coverage.out
 	$(GO) tool cover -func=coverage.out | tail -1
 
+.PHONY: loadtest
+loadtest: ## Load test: 10k items, latency, sustained import (Docker required)
+	$(GO) test ./test/loadtest/... -count=1 -timeout 600s -v
+
 .PHONY: lint
 lint: ## go vet + gofmt check
 	$(GO) vet ./...
