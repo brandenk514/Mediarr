@@ -160,6 +160,25 @@ jobs:
       - name: E2E pipeline tests (real qBittorrent + SABnzbd clients)
         run: go test ./test/e2e/... -count=1 -timeout 300s
 
+  # ---------------------------------------------------------------- security
+  # Semgrep static analysis gate (M7 #49): Go + TypeScript rulesets from the
+  # public registry, pinned binary, hard-fail on any finding. govulncheck
+  # (above) covers Go dependency vulns; Trivy (docker job) covers the image.
+  semgrep:
+    name: Security — Semgrep
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Semgrep (pinned)
+        run: pip install --quiet "semgrep==1.181.0"
+
+      - name: Semgrep scan (Go + TypeScript)
+        run: semgrep scan --config p/golang --config p/typescript --error
+
   # ------------------------------------------------------------------- load
   # Load test (M7 #45): 10k items in the DB, p95 read latency at concurrency
   # 10, sustained import through the pipeline, and a memory ceiling. Runs as
