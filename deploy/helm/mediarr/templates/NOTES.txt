@@ -1,0 +1,15 @@
+Mediarr {{ .Chart.AppVersion }} deployed.
+
+1. Watch the stack come up:
+     kubectl -n {{ .Release.Namespace }} get pods
+   (postgres is the long pole on first start — it initializes its data dir)
+
+2. Access the app:
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "mediarr.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+   then open http://localhost:{{ .Values.service.port }}
+
+3. Create your first account in the UI (the chart does not bootstrap users).
+
+Bundled Postgres and Redis are for dev parity with deploy/compose.dev.yml.
+For real persistence of imported media, set up StorageClass-backed claims or
+switch the app's emptyDir mounts to PVCs (see templates/deployment.yaml).

@@ -1,0 +1,6 @@
+# Ignore patterns for helm packaging (same semantics as .gitignore).
+*.tgz
+Chart.lock
+values.local.yaml
+*.bak
+*.orig
