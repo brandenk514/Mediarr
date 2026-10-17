@@ -25,8 +25,8 @@ type QueueDeps struct {
 // for health-only boot and tests.
 func (s *Server) SetQueue(deps *QueueDeps) {
 	s.queueDeps = deps
-	s.mux.HandleFunc("GET /api/v1/queue", s.requireAuth(s.ListQueue))
-	s.mux.HandleFunc("GET /api/v1/queue/{kind}/{parent}/history", s.requireAuth(s.QueueHistory))
+	s.register("GET /api/v1/queue", s.requireAuth(s.ListQueue))
+	s.register("GET /api/v1/queue/{kind}/{parent}/history", s.requireAuth(s.QueueHistory))
 }
 
 // queueKinds is the accepted set for the {kind} path segment and the ?kind=
