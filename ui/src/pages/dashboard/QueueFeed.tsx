@@ -4,13 +4,16 @@ import type { QueueItem } from '../../api/types'
 // QueueFeed renders the recent queue jobs. Updated live via the
 // /api/v1/events WebSocket (the dashboard re-reads the snapshot on a
 // queue.updated frame).
-export function QueueFeed({ items }: { items: QueueItem[] }) {
-  if (items.length === 0) {
+export function QueueFeed({ items }: { items: QueueItem[] | null }) {
+  // The API can emit null for an empty feed; treat it as empty instead of
+  // throwing (a render error here unmounts the whole app).
+  const list = items ?? []
+  if (list.length === 0) {
     return <p className="dim small">No recent queue activity.</p>
   }
   return (
     <ul className="feed" data-testid="queue-feed">
-      {items.map((q, i) => {
+      {list.map((q, i) => {
         const pct = progressLabel(q.progress)
         return (
           <li key={`${q.release_title}-${i}`} className="feed-item" data-testid={`queue-${i}`}>

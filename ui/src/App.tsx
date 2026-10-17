@@ -1,4 +1,4 @@
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
 import { Layout } from './pages/Layout'
 import { LoginPage } from './pages/Login'
@@ -19,6 +19,7 @@ import { SettingsPage } from './pages/settings/Settings'
 // shell via a nested route element with an <Outlet/>.
 function AuthGate() {
   const { me, ready } = useAuth()
+  const location = useLocation()
 
   if (!ready) {
     return (
@@ -27,7 +28,9 @@ function AuthGate() {
       </div>
     )
   }
-  if (!me) return <Navigate to="/login" replace />
+  // Remember where the user was headed so LoginPage can send them back
+  // after a successful sign-in (instead of leaving them at /login).
+  if (!me) return <Navigate to="/login" replace state={{ from: location }} />
   return <Layout><Outlet /></Layout>
 }
 
