@@ -1,0 +1,29 @@
+name: Log in to Docker Hub
+description: >-
+  Authenticate to Docker Hub if DOCKERHUB_USERNAME / DOCKERHUB_TOKEN are
+  set, so testcontainers and base-image pulls are not anonymous (avoids the
+  100-pull/6h anonymous rate limit that intermittently breaks
+  GitHub-hosted runners). No-op if the secrets are not set.
+inputs:
+  username:
+    description: Docker Hub username (typically secrets.DOCKERHUB_USERNAME)
+    required: true
+  token:
+    description: Docker Hub access token (typically secrets.DOCKERHUB_TOKEN)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: docker login (if configured)
+      env:
+        DOCKERHUB_USERNAME: ${{ inputs.username }}
+        DOCKERHUB_TOKEN: ${{ inputs.token }}
+      shell: bash
+      run: |
+        if [ -n "$DOCKERHUB_TOKEN" ] && [ -n "$DOCKERHUB_USERNAME" ]; then
+          echo "$DOCKERHUB_TOKEN" | docker login \
+            -u "$DOCKERHUB_USERNAME" --password-stdin registry-1.docker.io
+          echo "Docker Hub authenticated (pulls are no longer anonymous)."
+        else
+          echo "DOCKERHUB_TOKEN/USERNAME not set - pulling anonymously."
+        fi
