@@ -126,4 +126,4 @@ milestone; patch for fixes between milestones.
 
 | Tag | Date | Dry run | Real run | Result |
 |---|---|---|---|---|
-| v0.1.0 | 2026-10-16 | [39001054696](https://github.com/brandenk514/Mediarr/actions/runs/39001054696) — success, 4m22s | _(in flight — key-based signing fix)_ | |
+| v0.1.0 | 2026-10-16 | [39001054696](https://github.com/brandenk514/Mediarr/actions/runs/39001054696) — success, 4m22s | [39009920760](https://github.com/brandenk514/Mediarr/actions/runs/39009920760) — success, 13m42s | success — multi-arch build, Trivy clean (0 CRITICAL), SBOM, cosign sign + verify (repo release key), `:latest` promoted, [GitHub release](https://github.com/brandenk514/Mediarr/releases/tag/v0.1.0) with generated notes. Signing switched from keyless (account has no Actions OIDC) to the repo release key (`docs/cosign.pub`). Two re-tags along the way: key-based signing fix, then notes/load-test hardening (partial `/issues` list call on CI + single-sample p95 flake). |
