@@ -35,7 +35,7 @@ func (f *fakeCache) Set(ctx context.Context, key, value string, ttl time.Duratio
 	return nil
 }
 func (f *fakeCache) Delete(ctx context.Context, key string) error { return nil }
-func (f *fakeCache) Ping(ctx context.Context) error              { return f.pingErr }
+func (f *fakeCache) Ping(ctx context.Context) error               { return f.pingErr }
 
 // gatherOne scrapes the metrics handler and returns the body.
 func gatherBody(t *testing.T, m *Metrics) string {

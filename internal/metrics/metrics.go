@@ -50,9 +50,9 @@ type Options struct {
 
 // Pipeline result label values.
 const (
-	ResultOK     = "ok"
-	ResultError  = "error"
-	ResultSkip   = "skip"
+	ResultOK      = "ok"
+	ResultError   = "error"
+	ResultSkip    = "skip"
 	ResultSuccess = "success"
 	ResultFailure = "failure"
 )
@@ -138,8 +138,8 @@ func New(opts Options) *Metrics {
 		}, []string{"name"}),
 		buildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: "mediarr",
-			Name: "build_info",
-			Help: "Build information (constant 1 per build).",
+			Name:      "build_info",
+			Help:      "Build information (constant 1 per build).",
 		}, []string{"version", "commit", "build_time"}),
 	}
 
