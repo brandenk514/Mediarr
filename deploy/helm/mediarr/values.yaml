@@ -1,0 +1,110 @@
+# Mediarr Helm chart values.
+#
+# Secret material:
+#   Set `secrets.*` inline (dev) OR point `existingSecret` at a pre-created
+#   Secret with the keys listed in templates/secret.yaml. With existingSecret
+#   set, the chart does NOT create or read any `secrets.*` values.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/brandenk514/mediarr
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# MEDIARR_HTTP_ADDR — bind address for the API/UI server.
+httpAddr: "0.0.0.0:8080"
+# MEDIARR_HTTP_BASE_URL — self-referential URL (used for links/webhooks).
+httpBaseUrl: "http://localhost:8080"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Writable paths (must match the image layout; distroless ro rootfs).
+mediaRoot: /media/movies
+downloadsDir: /downloads
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Extra MEDIARR_* environment variables (download clients, TMDB/TVDB keys,
+# timeouts...). Values here are plain env; sensitive ones belong in the Secret
+# (see existingSecret) or a secrets manager.
+extraEnv: []
+#  - name: MEDIARR_DOWNLOAD_CLIENT
+#    value: mock
+
+# ---------------------------------------------------------------------------
+# Secrets (used only when existingSecret is empty)
+# ---------------------------------------------------------------------------
+secrets:
+  # 64 hex chars (32 bytes). REQUIRED unless existingSecret is set.
+  encryptionKey: ""
+  # Postgres superuser password. REQUIRED unless existingSecret is set.
+  postgresPassword: ""
+  # Optional Redis password; when set, the chart configures the bundled Redis
+  # with requirepass and includes it in MEDIARR_REDIS_URL.
+  redisPassword: ""
+
+# Name of a pre-existing Secret in the release namespace containing the keys
+# MEDIARR_POSTGRES_DSN, MEDIARR_REDIS_URL, MEDIARR_ENCRYPTION_KEY.
+existingSecret: ""
+
+# ---------------------------------------------------------------------------
+# Bundled Postgres (dev parity with deploy/compose.dev.yml)
+# ---------------------------------------------------------------------------
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+  auth:
+    user: mediarr
+    database: mediarr
+  persistence:
+    enabled: true
+    size: 1Gi
+    # storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# Bundled Redis (dev parity with deploy/compose.dev.yml)
+# ---------------------------------------------------------------------------
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+  # MEDIARR_REDIS_DB
+  database: 0
+  # 0 = emptyDir (cache/queue loss on pod restart — dev parity).
+  persistence:
+    enabled: false
+    size: 100Mi
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: "1"
+      memory: 256Mi
