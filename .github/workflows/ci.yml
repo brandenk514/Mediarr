@@ -23,9 +23,11 @@ concurrency:
   group: ci-${{ github.event_name == 'workflow_dispatch' && format('run-{0}', github.run_id) || github.ref }}
   cancel-in-progress: true
 
-# Keyless cosign signing (docker job) needs GitHub's OIDC endpoint, which
-# only exists when the token has id-token: write; without it cosign v3
-# falls back to the interactive device flow and times out.
+# GITHUB_TOKEN scopes: read the contents, write ghcr packages, and keep
+# id-token: write for a future keyless (Fulcio/OIDC) signing path. v0.1.0
+# signs with the repo's release key instead (docs/cosign.pub + the
+# COSIGN_KEY/COSIGN_PASSWORD secrets), because account-level OpenID
+# Connect is not enabled, so an id-token: write request is dropped.
 permissions:
   contents: read
   packages: write
@@ -357,12 +359,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Keyless Sigstore/cosign signing (Fulcio) with GITHUB_TOKEN, per
+      # Sigstore/cosign signing with the repo's release key (docs/cosign.pub;
+      # private key lives in the COSIGN_KEY/COSIGN_PASSWORD repo secrets), per
       # #48: a published image is signed, not just scanned. Verify follows
-      # immediately so a broken identity never publishes silently.
+      # immediately against the committed public key so a broken signature
+      # never publishes silently. (Keyless/Fulcio signing would need account-
+      # level OpenID Connect, which this account does not have; id-token:
+      # write stays in the permissions block for that future path.)
       # The archived sigstore/cosign-action repo is gone from GitHub, so we
-      # use the official cosign binary (pinned) — on GHA runners cosign
-      # auto-detects GITHUB_ACTIONS + GITHUB_TOKEN for the Fulcio/OIDC flow.
+      # use the official cosign binary (pinned).
       - name: Install cosign
         if: steps.ver.outputs.publish == 'yes'
         run: |
@@ -372,12 +377,17 @@ jobs:
           chmod +x "$RUNNER_TEMP/cosign"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Sign image (keyless)
+      - name: Sign image (key)
         if: steps.ver.outputs.publish == 'yes'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COSIGN_KEY_B64: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
+          echo "${COSIGN_KEY_B64}" | base64 -d > "$RUNNER_TEMP/cosign.key"
+          chmod 400 "$RUNNER_TEMP/cosign.key"
           cosign sign \
+            --key "$RUNNER_TEMP/cosign.key" \
             --registry-username "${GITHUB_ACTOR}" \
             --registry-password "${GITHUB_TOKEN}" \
             --tlog-upload=true \
@@ -389,10 +399,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cosign verify \
+            --key docs/cosign.pub \
             --registry-username "${GITHUB_ACTOR}" \
             --registry-password "${GITHUB_TOKEN}" \
-            --certificate-identity-regexp "github-workflow-identity:brandenk514/Mediarr.*" \
-            --certificate-oidc-issuer-regexp "https://token.actions.githubusercontent.com" \
             "ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}"
 
       # Promote the tagged image to :latest (manifest-list update only —
