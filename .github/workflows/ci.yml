@@ -6,10 +6,21 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Manual run for the release pipeline. dry_run=true does the full build,
+  # scan, SBOM and release-notes generation WITHOUT publishing anything —
+  # the documented dry-run for #48. See RELEASE.md.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build + scan + generate release notes only; do not publish or create a release'
+        type: boolean
+        default: true
 
-# Only one concurrent CI run per branch.
+# Only one concurrent CI run per branch. Manual dispatch runs are keyed by
+# run id so a dry run can never cancel (or be cancelled by) a real
+# main-branch build.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'workflow_dispatch' && format('run-{0}', github.run_id) || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -207,14 +218,38 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Version tag + publish decision.
+      #   push to main          -> sha-<short>, publish (test image)
+      #   push to tag vX.Y.Z    -> vX.Y.Z, publish + promote :latest
+      #   pull_request          -> sha-<short>, no publish (scan/SBOM only)
+      #   workflow_dispatch     -> sha-<short>; dry_run=true publishes nothing
       - name: Compute version
         id: ver
         run: |
-          if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" == v* ]]; then
-            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          fi
+          tag=sha-$(git rev-parse --short HEAD)
+          publish=no
+          latest=no
+          case "${{ github.event_name }}" in
+            push)
+              publish=yes
+              if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+                tag="${GITHUB_REF#refs/tags/}"
+                latest=yes
+              elif [[ "${{ github.ref }}" != refs/heads/main ]]; then
+                publish=no
+              fi
+              ;;
+            workflow_dispatch)
+              if [ "${{ inputs.dry_run }}" = "true" ]; then
+                echo "DRY RUN: build + scan + SBOM + notes only — no publish, no signing, no release."
+              else
+                publish=yes
+              fi
+              ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
 
       # Authenticate to Docker Hub (if configured) so the golang base-image
       # pull during the build is authenticated (avoids the anonymous rate
@@ -272,7 +307,7 @@ jobs:
 
       # Publish multi-arch to ghcr only on trusted events (main + release tags).
       - name: Log in to ghcr
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        if: steps.ver.outputs.publish == 'yes'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -280,7 +315,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish multi-arch image to ghcr
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        if: steps.ver.outputs.publish == 'yes'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -294,6 +329,49 @@ jobs:
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Keyless Sigstore/cosign signing (Fulcio) with GITHUB_TOKEN, per
+      # #48: a published image is signed, not just scanned. Verify follows
+      # immediately so a broken identity never publishes silently.
+      # (cosign-action bundles the cosign binary; `go install
+      # sigstore/cosign/...` is unusable on the Go proxy — "missing dot in
+      # first path element".)
+      - name: Sign image (keyless)
+        if: steps.ver.outputs.publish == 'yes'
+        uses: sigstore/cosign-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image: ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
+          sign: true
+          registry: ghcr.io
+          keyless: true
+          ref: ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
+          scope: repository
+
+      - name: Verify signature
+        if: steps.ver.outputs.publish == 'yes'
+        uses: sigstore/cosign-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image: ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
+          verify: true
+          registry: ghcr.io
+          ref: ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
+          scope: repository
+          certificate_identity_regex: "github-workflow-identity:brandenk514/Mediarr.*"
+          certificate_issuer_regex: "https://token.actions.githubusercontent.com"
+
+      # Promote the tagged image to :latest (manifest-list update only —
+      # no rebuild, per PLAN §11 "on tag: promote to :latest").
+      - name: Promote tag to :latest
+        if: steps.ver.outputs.latest == 'yes'
+        run: |
+          docker buildx imagetools create \
+            -t ghcr.io/brandenk514/mediarr:latest \
+            ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }}
+          echo "promoted ghcr.io/brandenk514/mediarr:${{ steps.ver.outputs.tag }} -> :latest"
 
   # ------------------------------------------------------------------- smoke
   smoke:
@@ -338,3 +416,34 @@ jobs:
           curl -fsS http://localhost:8080/version
           echo
           docker compose -f deploy/compose.dev.yml down --remove-orphans
+
+  # ------------------------------------------------------------- release
+  release-notes:
+    name: Generate release notes
+    needs: [docker]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # #48: release notes are generated from the milestone's closed issues —
+      # every issue number referenced by a commit subject in this tag's range
+      # is fetched and rendered, in number order.
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/release-notes.sh "${GITHUB_REF#refs/tags/}" > release-notes.md
+      - name: Show generated notes
+        run: cat release-notes.md
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --latest
+          echo "release $TAG created"
