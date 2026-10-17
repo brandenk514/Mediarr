@@ -68,14 +68,23 @@ echo
 if [ "${#ISSUES[@]}" -eq 0 ]; then
   echo "_No issue references in this range._"
 else
-  # One batched API call for all issues; join locally. (Per-issue calls in a
-  # loop hit rate limits and make notes generation flaky.)
-  gh api "repos/${REPO}/issues?state=all&per_page=100" \
+  # One batched, fully-paginated API call for all issues; join locally.
+  # (Per-issue calls in a loop hit rate limits and make notes generation
+  # flaky. --paginate matters: on v0.1.0 the single-page call came back
+  # partial on a CI runner and 27 titles fell back to the placeholder.)
+  gh api --paginate "repos/${REPO}/issues?state=all&per_page=100" \
     --jq '.[] | [.number, .title, .state] | @tsv' > /tmp/mediarr-issues.tsv
   TAB=$'	'
   for n in "${ISSUES[@]}"; do
     line="$(awk -F'	' -v n="$n" '$1 == n { print $2 "	" $3; exit }' /tmp/mediarr-issues.tsv)"
     if [ -z "$line" ]; then
+      # Fallback: direct per-issue fetch, bounded by the number of missing
+      # entries, so a partial list call can't blank out titles.
+      line="$(gh api "repos/${REPO}/issues/${n}" \
+        --jq '[.title, .state] | @tsv' 2>/dev/null || true)"
+    fi
+    if [ -z "$line" ]; then
+      echo "warning: issue #${n} not found in list or direct fetch" >&2
       echo "* [#${n}](https://github.com/${REPO}/issues/${n}) — _(title unavailable)_"
       continue
     fi
