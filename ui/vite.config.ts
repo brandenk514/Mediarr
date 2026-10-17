@@ -10,6 +10,10 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
+    // The dev server runs with --host so it is reachable from other machines
+    // (e.g. http://ai-local-llm.local.uaccloud.com:5173). Vite 8 otherwise
+    // rejects requests whose Host header it doesn't recognize.
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: process.env.MEDIARR_API_URL ?? 'http://localhost:8080',
