@@ -77,12 +77,14 @@ const (
 const (
 	// Threshold 1: p95 read latency at 10k scale. The dashboard is the
 	// heaviest read (cross-library snapshot); the paginated lists are
-	// single-table count + LIMIT/OFFSET. The list gate is 250 ms — 100 ms is
+	// single-table count + LIMIT/OFFSET. The gate is 300 ms — 100 ms is
 	// achievable on dev hardware (~8-30 ms measured) but 2-core CI runners
-	// have been observed at 100-220 ms, and this gate exists to catch
-	// regression (10x headroom over the baseline), not to pin a number.
-	thresholdDashboardP95 = 250 * time.Millisecond
-	thresholdListP95      = 250 * time.Millisecond
+	// have been observed at 100-250 ms (a single music p95 hit 251 ms and
+	// failed a main run), so 250 ms sat at the noise floor. 300 ms keeps a
+	// real regression gate (10x+ headroom over baseline), not a pinned
+	// target — see docs/loadtest.md.
+	thresholdDashboardP95 = 300 * time.Millisecond
+	thresholdListP95      = 300 * time.Millisecond
 
 	// Threshold 2: sustained import throughput through the full pipeline.
 	// The mock download client performs no network I/O, so this measures DB
