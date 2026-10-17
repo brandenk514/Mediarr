@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/brandenk514/mediarr/internal/dashboard"
@@ -231,5 +233,17 @@ func TestDashboardRepo_EmptyLibrary(t *testing.T) {
 	if len(snap.RecentHistory) != 0 || len(snap.RecentQueue) != 0 {
 		t.Errorf("expected empty feeds on empty db: hist=%d queue=%d",
 			len(snap.RecentHistory), len(snap.RecentQueue))
+	}
+	// Wire-format regression: empty feeds must marshal as [] (not null).
+	// A null feed crashed the UI's render, unmounting the whole app and
+	// leaving a black page after login.
+	b, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	for _, want := range []string{`"libraries":[`, `"recent_history":[]`, `"recent_queue":[]`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("snapshot JSON missing %s: %s", want, b)
+		}
 	}
 }

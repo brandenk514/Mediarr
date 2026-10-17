@@ -1,0 +1,35 @@
+# Prometheus configuration for Mediarr (M7 #46).
+#
+# /metrics is gated behind the same Bearer-token auth as the rest of the API
+# (single-user v1). Get a token with POST /api/v1/auth/login, put it in a
+# file, and point bearer_token_file at that file.
+#
+# Run standalone:
+#   docker run -d --name prometheus \
+#     -p 9090:9090 \
+#     -v "$PWD/deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+#     -v "$PWD/deploy/prometheus/rules.yml:/etc/prometheus/rules.yml:ro" \
+#     -v "$PWD/deploy/prometheus/mediarr-token:/etc/prometheus/secrets/mediarr-token:ro" \
+#     prom/prometheus:latest
+#
+# …or alongside the dev stack:
+#   docker compose -f deploy/compose.dev.yml -f deploy/compose.observability.yml up
+#
+# The alert rules in rules.yml are evaluated by this instance; Grafana picks
+# them up for display.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: mediarr
+    metrics_path: /metrics
+    static_configs:
+      # Same compose project as the dev stack (service DNS name), not
+      # localhost: Prometheus and Mediarr share the compose network.
+      - targets: ["mediarr:8080"]
+    bearer_token_file: /etc/prometheus/secrets/mediarr-token
+
+rule_files:
+  - /etc/prometheus/rules.yml

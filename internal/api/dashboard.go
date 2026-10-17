@@ -27,7 +27,7 @@ type DashboardDeps struct {
 // boot and tests.
 func (s *Server) SetDashboard(deps *DashboardDeps) {
 	s.dashboardDeps = deps
-	s.mux.HandleFunc("GET /api/v1/dashboard", s.requireAuth(s.Dashboard))
+	s.register("GET /api/v1/dashboard", s.requireAuth(s.Dashboard))
 }
 
 // recentClamp bounds ?recent=N so a hostile or buggy client can't turn a

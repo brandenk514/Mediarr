@@ -27,3 +27,6 @@ ui/dist/
 
 # Docker local artifacts
 docker-compose.override.yml
+
+# Observability secrets (token file for the Prometheus scrape, M7 #46)
+deploy/prometheus/mediarr-token

@@ -24,20 +24,20 @@ type BooksDeps struct {
 // route-guard test (TestBooksRoutesRegister) pins this.
 func (s *Server) SetBooks(deps *BooksDeps) {
 	s.booksDeps = deps
-	s.mux.HandleFunc("POST /api/v1/books/authors", s.requireAuth(s.AddAuthor))
-	s.mux.HandleFunc("GET /api/v1/books/authors", s.requireAuth(s.ListAuthors))
-	s.mux.HandleFunc("GET /api/v1/books/authors/{id}", s.requireAuth(s.GetAuthor))
-	s.mux.HandleFunc("PUT /api/v1/books/authors/{id}", s.requireAuth(s.SetAuthorMonitored))
-	s.mux.HandleFunc("POST /api/v1/books/authors/{id}/titles", s.requireAuth(s.AddTitle))
-	s.mux.HandleFunc("GET /api/v1/books/authors/{id}/titles", s.requireAuth(s.ListTitles))
-	s.mux.HandleFunc("GET /api/v1/books/titles/{id}", s.requireAuth(s.GetTitle))
-	s.mux.HandleFunc("PUT /api/v1/books/titles/{id}", s.requireAuth(s.SetTitleMonitored))
-	s.mux.HandleFunc("POST /api/v1/books/titles/{id}/editions", s.requireAuth(s.AddEdition))
-	s.mux.HandleFunc("GET /api/v1/books/titles/{id}/editions", s.requireAuth(s.ListEditions))
-	s.mux.HandleFunc("GET /api/v1/books/editions/{id}", s.requireAuth(s.GetEdition))
-	s.mux.HandleFunc("PUT /api/v1/books/editions/{id}", s.requireAuth(s.SetEditionMonitored))
-	s.mux.HandleFunc("GET /api/v1/books/titles/{id}/wanted", s.requireAuth(s.ListTitleWanted))
-	s.mux.HandleFunc("POST /api/v1/books/authors/{id}/pipeline", s.requireAuth(s.RunBooksPipeline))
+	s.register("POST /api/v1/books/authors", s.requireAuth(s.AddAuthor))
+	s.register("GET /api/v1/books/authors", s.requireAuth(s.ListAuthors))
+	s.register("GET /api/v1/books/authors/{id}", s.requireAuth(s.GetAuthor))
+	s.register("PUT /api/v1/books/authors/{id}", s.requireAuth(s.SetAuthorMonitored))
+	s.register("POST /api/v1/books/authors/{id}/titles", s.requireAuth(s.AddTitle))
+	s.register("GET /api/v1/books/authors/{id}/titles", s.requireAuth(s.ListTitles))
+	s.register("GET /api/v1/books/titles/{id}", s.requireAuth(s.GetTitle))
+	s.register("PUT /api/v1/books/titles/{id}", s.requireAuth(s.SetTitleMonitored))
+	s.register("POST /api/v1/books/titles/{id}/editions", s.requireAuth(s.AddEdition))
+	s.register("GET /api/v1/books/titles/{id}/editions", s.requireAuth(s.ListEditions))
+	s.register("GET /api/v1/books/editions/{id}", s.requireAuth(s.GetEdition))
+	s.register("PUT /api/v1/books/editions/{id}", s.requireAuth(s.SetEditionMonitored))
+	s.register("GET /api/v1/books/titles/{id}/wanted", s.requireAuth(s.ListTitleWanted))
+	s.register("POST /api/v1/books/authors/{id}/pipeline", s.requireAuth(s.RunBooksPipeline))
 }
 
 // addAuthorRequest is the body for POST /api/v1/books/authors. Monitored is a

@@ -21,7 +21,9 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/paging"
+	"github.com/brandenk514/mediarr/internal/queue"
 	"github.com/brandenk514/mediarr/internal/store"
 )
 
@@ -60,6 +62,9 @@ type Deps struct {
 	// the pipeline advances (#40 live dashboard). It is optional so the
 	// pipeline runs without a bus (e.g. tests).
 	Events store.Events
+	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
+	// Nil-safe: the pipeline runs identically without it.
+	Metrics *metrics.Metrics
 }
 
 // Service implements the music use-cases.
@@ -260,7 +265,16 @@ func (s *Service) SetTrackMonitored(ctx context.Context, albumID int64, disc, nu
 // wanted within that album (the album file contains each track). The pipeline
 // is idempotent: wanted entries already satisfied are skipped, and an artist
 // with no pending wanted entries returns ErrNoWanted without searching.
-func (s *Service) RunPipeline(ctx context.Context, artistID int64) (int, error) {
+func (s *Service) RunPipeline(ctx context.Context, artistID int64) (imported int, err error) {
+	start := time.Now()
+	defer func() {
+		result := metrics.ResultOK
+		if err != nil {
+			result = metrics.ResultError
+		}
+		s.deps.Metrics.RecordPipeline(string(queue.KindMusic), result, time.Since(start), imported)
+	}()
+
 	artist, err := s.deps.Repo.GetArtist(ctx, artistID)
 	if err != nil {
 		return 0, err
@@ -309,7 +323,6 @@ func (s *Service) RunPipeline(ctx context.Context, artistID int64) (int, error) 
 	s.record(ctx, artistID, "searched", fmt.Sprintf("%d candidate release(s)", len(results)))
 
 	// 2. Service each album that has pending wanted entries.
-	imported := 0
 	for _, w := range work {
 		profile := w.album.QualityProfile
 		if profile == "" {
