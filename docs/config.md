@@ -122,11 +122,59 @@ at `<root>/<Author>/<Title>/<Title>.<ext>`; see the per-domain
 
 ---
 
-## 4. Security
+## 4. Download client
+
+The download client is selected **at startup** from the environment. The
+client is built once (all four media pipelines share it), so changing these
+variables requires a restart. Unknown values **fail fast** — a typo must not
+silently fall back to the mock client.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `MEDIARR_AUTH_PINNING` | `true` | Single-user v1 mode: the first user created is the only one that can change credentials. Set to `false` to allow additional credential holders (multi-user). |
+| `MEDIARR_DOWNLOAD_CLIENT` | `mock` | Client kind: `mock` (in-process, writes files directly into `MEDIARR_DOWNLOADS_DIR` — no external software), `qbittorrent`, or `sabnzbd`. |
+| `MEDIARR_QB_BASE` | — | qBittorrent Web API base URL (used when kind is `qbittorrent`). |
+| `MEDIARR_QB_API_KEY` | — | qBittorrent `X-Api-Key` (preferred auth). |
+| `MEDIARR_QB_USERNAME` | — | qBittorrent username (cookie-login fallback, with `MEDIARR_QB_PASSWORD`). |
+| `MEDIARR_QB_PASSWORD` | — | qBittorrent password (cookie-login fallback). |
+| `MEDIARR_SAB_BASE` | — | SABnzbd Web UI base URL (used when kind is `sabnzbd`). |
+| `MEDIARR_SAB_API_KEY` | — | SABnzbd API key (required for this kind). |
+
+Client init failures are logged and degrade the pipeline to "no download
+client available" — the library/queue routes still work.
+
+The UI's `GET/PUT /api/v1/settings/download-client` persists the **same
+fields** (identical names) in Postgres, with API key / password encrypted at
+rest by the vault; it is the durable settings surface the UI renders.
+
+---
+
+## 5. Metadata providers
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MEDIARR_TMDB_API_KEY` | — (optional) | TMDB v3 API key for the movies and TV (TMDB) search endpoints. |
+| `MEDIARR_TVDB_API_KEY` | — (optional) | TVDB v4 API key for the TV (TVDB) series search endpoint. |
+
+MusicBrainz and Open Library are keyless and need no configuration. Provider
+keys are **optional at boot**: an unset key makes the corresponding search
+endpoint answer 503 "provider not configured" at request time (the UI
+surfaces it inline) instead of failing startup.
+
+---
+
+## 6. Indexer health
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MEDIARR_INDEXER_HEALTH_INTERVAL` | `0` (boot-time sweep only) | Go duration (e.g. `5m`, `1h30m`) between periodic sweeps that probe every enabled indexer. `0` (or an unparseable value) means the worker performs the initial sweep at boot and then exits; on-demand tests via the API work regardless. Negative values are normalised to `0`. |
+
+---
+
+## 7. Security
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MEDIARR_AUTH_PINNING` | `true` | Single-user v1 mode. The flag is parsed and stored, but **no v1 code path enforces it**: the first user created is the only credential holder regardless of its value. It exists to make the v1 contract explicit (and to keep multi-user changes a deliberate config decision later). |
 
 At-rest encryption of secrets uses `MEDIARR_ENCRYPTION_KEY` (see
 [Encryption key](#encryption-key)). Secrets are stored only in the environment
@@ -135,7 +183,7 @@ rest.
 
 ---
 
-## 5. Quality / format profiles
+## 8. Quality / format profiles
 
 Profiles are **not** environment variables. They are defined in code per domain
 and selected per item (movie/series/album/book) through the API. Each domain
@@ -164,7 +212,7 @@ profile, edit the domain's `quality.go` / `format.go` — not a config file.
 
 ---
 
-## 6. Quick reference (`.env.example`)
+## 9. Quick reference (`.env.example`)
 
 The canonical, commented template:
 
@@ -192,3 +240,10 @@ MEDIARR_AUTH_PINNING=true
 ```
 
 `MEDIARR_REDIS_DB` (default `0`) selects the Redis logical database index.
+
+The template covers only the variables needed to boot and serve. The optional
+variables from [§4 Download client](#4-download-client),
+[§5 Metadata providers](#5-metadata-providers), and
+[§6 Indexer health](#6-indexer-health) are deliberately left out of
+`.env.example` — add them to `.env` as you wire up a real download client,
+metadata providers, or periodic indexer sweeps.
