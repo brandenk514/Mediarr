@@ -9,14 +9,15 @@
 # Usage:
 #   GITHUB_REPO=owner/repo bash release-notes.sh vX.Y.Z
 #
-# In CI (GitHub Actions) GITHUB_REPO is set automatically and GH_TOKEN is
-# GITHUB_TOKEN. Locally, set GITHUB_REPO and rely on `gh auth` (or export
+# In CI (GitHub Actions) the built-in GITHUB_REPOSITORY is set and GH_TOKEN
+# is GITHUB_TOKEN. Locally, set GITHUB_REPO and rely on `gh auth` (or export
 # GH_TOKEN from a file — not typed into a shell).
 
 set -euo pipefail
 
 TAG="${1:?usage: release-notes.sh <tag>}"
-REPO="${GITHUB_REPO:?GITHUB_REPO must be set (e.g. brandenk514/Mediarr)}"
+REPO="${GITHUB_REPO:-${GITHUB_REPOSITORY:-}}"
+: "${REPO:?GITHUB_REPO (or GITHUB_REPOSITORY in CI) must be set (e.g. brandenk514/Mediarr)}"
 # --- config ------------------------------------------------------------------
 # In CI, GH_TOKEN is provided by the workflow (GITHUB_TOKEN). Locally the
 # script falls back to whatever `gh auth` already has — pass GH_TOKEN only

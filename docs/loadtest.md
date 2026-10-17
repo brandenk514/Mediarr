@@ -16,9 +16,11 @@ e2e/integration suites established) — and runs four phases:
 
 1. **Seed 10,000 items** via bulk INSERT: 4,000 movies, 3,000 series,
    2,000 artists, 1,000 authors (10k items total).
-2. **API latency:** 200 GETs per read endpoint at concurrency 10 against the
-   full HTTP server (dashboard, paginated movie/tv/music/books lists, queue)
-   → p50/p95/p99 per endpoint.
+2. **API latency:** two passes of 200 GETs per read endpoint at concurrency
+   10 against the full HTTP server (dashboard, paginated movie/tv/music/books
+   lists, queue) → p50/p95/p99 per endpoint over the combined n=400 samples
+   (one pass is decided by a single sample, so a lone CI-runner outlier
+   would flake the gate).
 3. **Sustained import:** 50 full movie pipelines back to back
    (add → indexer search → profile match → mock download → import), reporting
    items/min and a **first-half vs second-half rate ratio** — import must stay
