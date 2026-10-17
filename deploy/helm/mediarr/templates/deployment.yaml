@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mediarr.fullname" . }}
+  labels:
+    {{- include "mediarr.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mediarr.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "mediarr.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: app
+    spec:
+      securityContext:
+        {{- include "mediarr.podSecurityContext" . | nindent 8 }}
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: mediarr
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "mediarr.containerSecurityContext" . | nindent 12 }}
+            readOnlyRootFilesystem: true
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: MEDIARR_HTTP_ADDR
+              value: {{ .Values.httpAddr | quote }}
+            - name: MEDIARR_HTTP_BASE_URL
+              value: {{ .Values.httpBaseUrl | quote }}
+            - name: MEDIARR_MEDIA_ROOT
+              value: {{ .Values.mediaRoot | quote }}
+            - name: MEDIARR_DOWNLOADS_DIR
+              value: {{ .Values.downloadsDir | quote }}
+            - name: MEDIARR_POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret | default (include "mediarr.fullname" .) }}
+                  key: MEDIARR_POSTGRES_DSN
+            - name: MEDIARR_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret | default (include "mediarr.fullname" .) }}
+                  key: MEDIARR_REDIS_URL
+            - name: MEDIARR_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret | default (include "mediarr.fullname" .) }}
+                  key: MEDIARR_ENCRYPTION_KEY
+            {{- range .Values.extraEnv }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: media
+              mountPath: /media
+            - name: downloads
+              mountPath: /downloads
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # PLAN §9: emptyDir only for /media and /downloads (plus /tmp scratch);
+        # the root filesystem stays read-only (distroless nonroot image).
+        - name: media
+          emptyDir: {}
+        - name: downloads
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
