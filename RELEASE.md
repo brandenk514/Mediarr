@@ -14,8 +14,8 @@ git tag vX.Y.Z && git push origin vX.Y.Z
        │    ├─ multi-arch build      linux/amd64 + linux/arm64 (buildx)
        │    ├─ Trivy scan            exit 1 on CRITICAL/HIGH (unfixed ignored)
        │    ├─ SBOM (trivy SPDX)     artifact: mediarr-sbom
-       │    ├─ cosign sign           keyless / Sigstore Fulcio (GITHUB_TOKEN)
-       │    ├─ cosign verify         cert identity = this repo's workflow
+       │    ├─ cosign sign           release key (docs/cosign.pub)
+       │    ├─ cosign verify         --key docs/cosign.pub
        │    └─ push                  ghcr.io/brandenk514/mediarr:vX.Y.Z
        ├─ (tag only) Promote         :latest ← vX.Y.Z (buildx imagetools, no rebuild)
        └─ (tag only) Generate release notes → GitHub release (--latest)
@@ -35,15 +35,18 @@ smoke test (real Postgres + Redis via `deploy/compose.dev.yml`).
 
 ## Verifying a release
 
-Images are signed keylessly by this repository's workflow (Sigstore/Fulcio).
-Consumers verify without any shared key:
+Images are signed with the repo's release key (public key committed at
+`docs/cosign.pub`). Consumers verify with that public key:
 
 ```sh
 cosign verify \
-  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  --certificate-identity-regex "github-workflow-identity:brandenk514/Mediarr.*" \
+  --key docs/cosign.pub \
   ghcr.io/brandenk514/mediarr:vX.Y.Z
 ```
+
+Signatures are also uploaded to the public Sigstore transparency log
+(`--tlog-upload=true`), so `sigstore verify` works for consumers who trust
+the log instead of the key.
 
 The SBOM for a run is the `mediarr-sbom` artifact of that Actions run.
 
@@ -76,6 +79,26 @@ repos), and — only if you scan/pull Docker Hub images anonymously at scale —
 the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` repo secrets (optional; CI
 pulls anonymously otherwise).
 
+## Signing key
+
+Keyless (Fulcio/OIDC) signing requires account-level OpenID Connect, which
+this GitHub account does not have — GitHub silently drops the `id-token:
+write` request and cosign falls back to an interactive device flow that
+times out in CI. So the pipeline signs with a **long-lived release keypair**:
+
+| Where | What |
+|---|---|
+| `docs/cosign.pub` | public key (committed; used by `cosign verify`) |
+| secret `COSIGN_KEY` | private key, `base64` of the `cosign generate-key-pair` output |
+| secret `COSIGN_PASSWORD` | passphrase that encrypts the private key |
+
+**Rotate the key:** `cosign generate-key-pair` (new keypair), commit the new
+`docs/cosign.pub`, then `gh secret set COSIGN_KEY -b "$(base64 -w0 <newkey>)"`
+and `gh secret set COSIGN_PASSWORD`. Release after the new key lands; old
+signatures stay verifiable with the old public key. If the account ever
+enables OIDC, swap the sign/verify steps back to keyless (the `id-token:
+write` permission is already in place).
+
 ## Release notes
 
 `scripts/release-notes.sh <tag>` (run by the `release-notes` job) collects
@@ -103,4 +126,4 @@ milestone; patch for fixes between milestones.
 
 | Tag | Date | Dry run | Real run | Result |
 |---|---|---|---|---|
-| _(filled on first release)_ | | | | |
+| v0.1.0 | 2026-10-16 | [39001054696](https://github.com/brandenk514/Mediarr/actions/runs/39001054696) — success, 4m22s | _(in flight — key-based signing fix)_ | |
