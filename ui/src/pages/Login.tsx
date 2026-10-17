@@ -1,8 +1,11 @@
 import { useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
 export function LoginPage() {
   const { login } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -14,6 +17,10 @@ export function LoginPage() {
     setBusy(true)
     try {
       await login(username, password)
+      // Successful sign-in: send the user to the route that originally
+      // bounced them to /login (stored by AuthGate), or the dashboard.
+      const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
+      navigate(from && from !== '/login' ? from : '/', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'login failed')
     } finally {

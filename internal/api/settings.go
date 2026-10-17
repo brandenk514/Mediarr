@@ -28,10 +28,10 @@ type SettingsDeps struct {
 //	PUT  /api/v1/settings/library/{kind}           save one library's override
 func (s *Server) SetSettings(deps *SettingsDeps) {
 	s.settingsDeps = deps
-	s.mux.HandleFunc("GET /api/v1/settings/download-client", s.requireAuth(s.GetDownloadClient))
-	s.mux.HandleFunc("PUT /api/v1/settings/download-client", s.requireAuth(s.PutDownloadClient))
-	s.mux.HandleFunc("GET /api/v1/settings/library", s.requireAuth(s.GetLibraryOverrides))
-	s.mux.HandleFunc("PUT /api/v1/settings/library/{kind}", s.requireAuth(s.PutLibraryOverride))
+	s.register("GET /api/v1/settings/download-client", s.requireAuth(s.GetDownloadClient))
+	s.register("PUT /api/v1/settings/download-client", s.requireAuth(s.PutDownloadClient))
+	s.register("GET /api/v1/settings/library", s.requireAuth(s.GetLibraryOverrides))
+	s.register("PUT /api/v1/settings/library/{kind}", s.requireAuth(s.PutLibraryOverride))
 }
 
 // ---- download client ----

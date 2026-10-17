@@ -39,13 +39,13 @@ type SearchDeps struct {
 //	GET /api/v1/profiles?kind=movies      -> built-in quality profiles + default
 func (s *Server) SetSearch(deps *SearchDeps) {
 	s.searchDeps = deps
-	s.mux.HandleFunc("GET /api/v1/search/movies", s.requireAuth(s.searchMovies))
-	s.mux.HandleFunc("GET /api/v1/search/tv", s.requireAuth(s.searchTV))
-	s.mux.HandleFunc("GET /api/v1/search/tv-tmdb", s.requireAuth(s.searchTVMDB))
-	s.mux.HandleFunc("GET /api/v1/search/artists", s.requireAuth(s.searchArtists))
-	s.mux.HandleFunc("GET /api/v1/search/books/authors", s.requireAuth(s.searchBookAuthors))
-	s.mux.HandleFunc("GET /api/v1/search/books/works", s.requireAuth(s.searchBookWorks))
-	s.mux.HandleFunc("GET /api/v1/profiles", s.requireAuth(s.listProfiles))
+	s.register("GET /api/v1/search/movies", s.requireAuth(s.searchMovies))
+	s.register("GET /api/v1/search/tv", s.requireAuth(s.searchTV))
+	s.register("GET /api/v1/search/tv-tmdb", s.requireAuth(s.searchTVMDB))
+	s.register("GET /api/v1/search/artists", s.requireAuth(s.searchArtists))
+	s.register("GET /api/v1/search/books/authors", s.requireAuth(s.searchBookAuthors))
+	s.register("GET /api/v1/search/books/works", s.requireAuth(s.searchBookWorks))
+	s.register("GET /api/v1/profiles", s.requireAuth(s.listProfiles))
 }
 
 // searchResult is the wire shape of one provider search hit. Fields mirror

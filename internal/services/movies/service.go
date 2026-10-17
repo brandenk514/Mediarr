@@ -19,7 +19,9 @@ import (
 	dom "github.com/brandenk514/mediarr/internal/domains/movies"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/paging"
+	"github.com/brandenk514/mediarr/internal/queue"
 	"github.com/brandenk514/mediarr/internal/store"
 )
 
@@ -30,9 +32,9 @@ var ErrNoMatch = fmt.Errorf("movies: no release matched the quality profile")
 // can map it to 404 without importing the domain directly.
 var ErrMovieNotFound = dom.ErrMovieNotFound
 
-// Deps bundles the Service's collaborators. Everything is an interface (or the
-// pure domain), so the service is testable with a fake indexer, a mock download
-// client, and either a real Postgres repo or an in-memory fake.
+// Deps bundles the Service's collaborators. Everything is an interface (or
+// the pure domain), so the service is testable with a fake indexer, a mock
+// download client, and either a real Postgres repo or an in-memory fake.
 type Deps struct {
 	// Repo persists movies, wanted, queue, and history.
 	Repo dom.Repo
@@ -52,6 +54,9 @@ type Deps struct {
 	// advances (PLAN §5/§6, #36 "state transitions feed ... pub/sub events").
 	// It is optional so the pipeline runs without a bus (e.g. tests).
 	Events store.Events
+	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
+	// Nil-safe: the pipeline runs identically without it.
+	Metrics *metrics.Metrics
 }
 
 // Service implements the movie use-cases.
@@ -144,7 +149,24 @@ func (s *Service) GetMovie(ctx context.Context, id int64) (*dom.Movie, error) {
 // the best release against the quality profile, download it, import it, and
 // mark the wanted entry satisfied. It is idempotent: if the movie's wanted row
 // is already satisfied, it returns without re-searching.
-func (s *Service) RunPipeline(ctx context.Context, movieID int64) (string, error) {
+func (s *Service) RunPipeline(ctx context.Context, movieID int64) (path string, err error) {
+	start := time.Now()
+	skip := false
+	defer func() {
+		result := metrics.ResultOK
+		switch {
+		case err != nil:
+			result = metrics.ResultError
+		case skip:
+			result = metrics.ResultSkip
+		}
+		imported := 0
+		if err == nil && !skip {
+			imported = 1
+		}
+		s.deps.Metrics.RecordPipeline(string(queue.KindMovie), result, time.Since(start), imported)
+	}()
+
 	m, err := s.deps.Repo.GetMovie(ctx, movieID)
 	if err != nil {
 		return "", err
@@ -156,6 +178,7 @@ func (s *Service) RunPipeline(ctx context.Context, movieID int64) (string, error
 		return "", err
 	}
 	if w.Status == dom.WantedSatisfied {
+		skip = true
 		return "", nil // already imported
 	}
 

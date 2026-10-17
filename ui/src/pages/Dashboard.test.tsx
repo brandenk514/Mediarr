@@ -94,6 +94,26 @@ describe('DashboardPage', () => {
     expect(screen.getByTestId('live-badge')).toBeInTheDocument()
   })
 
+  // Regression: an empty-DB backend used to emit `null` for the recent feeds
+  // (Go marshals nil slices as null), which crashed the feed render and
+  // unmounted the whole app — a black page right after login. The dashboard
+  // must render its empty states instead.
+  it('renders empty states when the API emits null for the recent feeds', async () => {
+    const d = {
+      ...sampleDashboard(),
+      recent_history: null,
+      recent_queue: null,
+    } as never
+    vi.mocked(client.getDashboard).mockResolvedValue(d)
+    renderPage()
+
+    expect(await screen.findByText('No recent activity.')).toBeInTheDocument()
+    expect(screen.getByText('No recent queue activity.')).toBeInTheDocument()
+    // the rest of the dashboard is still up
+    expect(screen.getByTestId('lib-movie')).toBeInTheDocument()
+    expect(screen.getByTestId('live-badge')).toBeInTheDocument()
+  })
+
   it('shows an error state with retry on load failure', async () => {
     vi.mocked(client.getDashboard).mockRejectedValue(new Error('boom'))
     renderPage()
