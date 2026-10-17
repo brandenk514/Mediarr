@@ -149,6 +149,44 @@ jobs:
       - name: E2E pipeline tests (real qBittorrent + SABnzbd clients)
         run: go test ./test/e2e/... -count=1 -timeout 300s
 
+  # ------------------------------------------------------------------- load
+  # Load test (M7 #45): 10k items in the DB, p95 read latency at concurrency
+  # 10, sustained import through the pipeline, and a memory ceiling. Runs as
+  # its own job so the ~2-4 minute scenario doesn't slow the PR feedback loop;
+  # the thresholds it asserts on are documented in docs/loadtest.md.
+  load:
+    name: Load test (10k items)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Authenticate to Docker Hub (if configured) so the testcontainers
+      # pulls of postgres/redis are authenticated (avoids the anonymous rate
+      # limit). No-op if DOCKERHUB_TOKEN is not set.
+      - name: Log in to Docker Hub (if configured)
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DOCKERHUB_TOKEN" ] && [ -n "$DOCKERHUB_USERNAME" ]; then
+            echo "$DOCKERHUB_TOKEN" | docker login \
+              -u "$DOCKERHUB_USERNAME" --password-stdin registry-1.docker.io
+            echo "Docker Hub authenticated (pulls are no longer anonymous)."
+          else
+            echo "DOCKERHUB_TOKEN/USERNAME not set - pulling anonymously."
+          fi
+
+      - name: Load harness (seed 10k, latency, sustained import, RSS)
+        run: go test ./test/loadtest/... -count=1 -timeout 600s -v
+
   # ------------------------------------------------------------------- build
   docker:
     name: Build + scan image
