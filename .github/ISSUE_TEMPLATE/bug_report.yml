@@ -1,0 +1,66 @@
+name: Bug report
+description: Something in Mediarr is not working as documented
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Before posting:
+
+        - Search existing issues in case it's already known.
+        - **Never paste real API keys, tokens, passwords, or DSNs** — redact them.
+  - type: input
+    id: version
+    attributes:
+      label: Mediarr version
+      description: Output of GET /api/v1/version, or the Docker image tag.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS / architecture / deployment
+      description: e.g. "Docker on Ubuntu 24.04 aarch64" or "Helm on k3s x86_64".
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - movies
+        - tv
+        - music
+        - books
+        - indexers
+        - downloads
+        - auth / settings
+        - ui
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add a movie ...
+        2. Run the pipeline ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Structured JSON logs around the event. Redact anything sensitive.
+      render: shell

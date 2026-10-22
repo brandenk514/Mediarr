@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest an idea or a missing capability
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggestions are welcome. Keep it to what you want and why — the design
+        is up for discussion.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is missing or painful today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways you thought about solving this, including workarounds.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - movies
+        - tv
+        - music
+        - books
+        - indexers
+        - downloads
+        - ui
+        - other

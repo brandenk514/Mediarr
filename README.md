@@ -6,6 +6,11 @@ backend owns the whole pipeline (indexer search → download client → import),
 React/TypeScript SPA drives it, Postgres is the source of truth, and Redis
 handles caching and live event push.
 
+> **A note on AI assistance.** This project was built with AI coding agents —
+> most of the code was written by AI under human review. It's a disclosure,
+> not a caveat: AI-written and human-written code go through the same gates,
+> and AI-assisted contributions are welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
 ## Features
 
 - **Four libraries.** Movies (title + year), TV (series → seasons →
@@ -48,6 +53,14 @@ handles caching and live event push.
   dev-parity security model (see `deploy/helm/README.md`).
 
 ## Quick start
+
+> **⚠️ Do not expose the API port to the internet.** Mediarr is a
+> self-hosted service for a trusted network (home lab / LAN / VPN). It has no
+> internet-grade protection: the first login mints the admin user, tokens are
+> the only auth, and there is no TLS termination. Keep `:8080` bound to your
+> LAN or put it behind an authenticated reverse proxy; for remote access use
+> a VPN or a tunnel with access controls (Tailscale, Cloudflare Tunnel),
+> not a port forward.
 
 Requirements: Go 1.27+, Docker (for `make dev`), Node 22+ (for the UI).
 
@@ -145,6 +158,9 @@ and `GET /metrics`. Full route list: `docs/architecture.md` §4.
 | `docs/observability.md` | Metrics reference and Prometheus/Grafana wiring |
 | `docs/loadtest.md` | Load-test methodology, thresholds, baseline |
 | `RELEASE.md` | Release process (tags, cosign signing, deployment) |
+| `SECURITY.md` | Supported versions, private vulnerability reporting, response SLA |
+| `CONTRIBUTING.md` | Development loop, gates, and PR process |
+| `CODE_OF_CONDUCT.md` | Contributor Covenant (v2.1) |
 | `deploy/helm/README.md` | Helm chart values and security model |
 
 ## Testing & CI

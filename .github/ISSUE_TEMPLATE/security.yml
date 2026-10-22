@@ -1,0 +1,13 @@
+name: Security concern
+description: You think you found a security vulnerability
+title: "[Security] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Please close this issue and do not post vulnerability details here.**
+
+        Security reports belong in the **private vulnerability reporting**
+        channel — see [SECURITY.md](SECURITY.md). Details posted in a public
+        issue cannot be treated as confidential and will be treated as a
+        normal public report.
