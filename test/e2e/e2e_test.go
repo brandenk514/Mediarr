@@ -133,10 +133,11 @@ func (h *harness) setMediaEnv(t *testing.T, clientType, base, apiKey, dlDir, med
 	t.Setenv("MEDIARR_DOWNLOADS_DIR", dlDir)
 	t.Setenv("MEDIARR_MEDIA_ROOT", mediaRoot)
 	t.Setenv("MEDIARR_DOWNLOAD_CLIENT", clientType)
-	if clientType == "qbittorrent" {
+	switch clientType {
+	case "qbittorrent":
 		t.Setenv("MEDIARR_QB_BASE", base)
 		t.Setenv("MEDIARR_QB_API_KEY", apiKey)
-	} else if clientType == "sabnzbd" {
+	case "sabnzbd":
 		t.Setenv("MEDIARR_SAB_BASE", base)
 		t.Setenv("MEDIARR_SAB_API_KEY", apiKey)
 	}

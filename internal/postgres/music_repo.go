@@ -67,7 +67,7 @@ func (r *MusicRepo) ListArtists(ctx context.Context) ([]music.Artist, error) {
 	if err != nil {
 		return nil, fmt.Errorf("music: list artists: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []music.Artist
 	for rows.Next() {
 		var a music.Artist
@@ -139,7 +139,7 @@ func (r *MusicRepo) ListAlbums(ctx context.Context, artistID int64) ([]music.Alb
 	if err != nil {
 		return nil, fmt.Errorf("music: list albums: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []music.Album
 	for rows.Next() {
 		var a music.Album
@@ -209,7 +209,7 @@ func (r *MusicRepo) ListTracks(ctx context.Context, albumID int64) ([]music.Trac
 	if err != nil {
 		return nil, fmt.Errorf("music: list tracks: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []music.Track
 	for rows.Next() {
 		var t music.Track
@@ -294,7 +294,7 @@ func (r *MusicRepo) ListWanted(ctx context.Context, albumID int64) ([]music.Want
 	if err != nil {
 		return nil, fmt.Errorf("music: list wanted: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []music.Wanted
 	for rows.Next() {
 		var w music.Wanted
@@ -382,7 +382,7 @@ func (r *MusicRepo) ListQueue(ctx context.Context, artistID int64) ([]music.Queu
 	if err != nil {
 		return nil, fmt.Errorf("music: list queue: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []music.QueueEntry
 	for rows.Next() {
 		var e music.QueueEntry
@@ -421,7 +421,7 @@ func (r *MusicRepo) ListHistory(ctx context.Context, artistID int64, limit int) 
 	if err != nil {
 		return nil, fmt.Errorf("music: list history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []music.HistoryEntry
 	for rows.Next() {
 		var e music.HistoryEntry

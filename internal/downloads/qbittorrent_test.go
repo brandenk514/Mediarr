@@ -204,8 +204,6 @@ func nameFromLink(link string) string {
 	return base
 }
 
-func (s *stubQB) host() string { return s.url() }
-
 // TestQB_Add_SendsURLAndSavepath verifies Add POSTs the magnet URL and the
 // release's PathDir as savepath to the Web API.
 func TestQB_Add_SendsURLAndSavepath(t *testing.T) {

@@ -1,0 +1,46 @@
+# golangci-lint (v2) — the Go lint gate, run in CI ("lint-and-test" job)
+# and locally via `make lint` / scripts/ci-preflight.sh.
+#
+# gosec + errcheck + govet + unused on top of the default set (errcheck,
+# govet, ineffassign, staticcheck). gofmt is enforced separately by its
+# own step (gofmt -l), not through the formatters here.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - gosec    # security issues (bad perms, weak crypto, SSRF-prone calls)
+    - errcheck # unchecked error returns
+    - govet    # suspicious constructs (subset runs in `go vet` too)
+    - unused   # dead code
+  exclusions:
+    # Test files are out of scope for gosec: fixtures legitimately contain
+    # fake credentials (G101 FPs — the redaction/vault tests *must* embed
+    # secrets) and test-only patterns are not user-facing code paths.
+    rules:
+      - path: .*_test\.go
+        linters:
+          - gosec
+  settings:
+    gosec:
+      # gosec scans the production attack surface. Test files are handled
+      # below (linters.exclusions.rules): fixtures legitimately contain fake
+      # credentials (G101 FPs — the redaction/vault tests *must* embed
+      # secrets) and test-only patterns (SQL placeholder building, rune-
+      # based test names) are not user-facing code paths.
+      #
+      # Exclusions below must be deliberate and reviewed. Each entry names
+      # the rule and why the finding is accepted for this codebase.
+      excludes: []
+    errcheck:
+      # No exclusions: every unchecked error is a finding. Teardown closes
+      # whose failure is intentionally ignored are written as
+      # `defer func() { _ = x.Close() }()` at the call site, so the
+      # intentional ignore lives next to the code it describes.
+      exclude-functions: []
+
+# Policy: new code stays clean; nothing is grandfathered in. If a finding is
+# genuinely accepted, record it in the settings above WITH a comment (and an
+# issue to fix it) rather than silencing it silently.

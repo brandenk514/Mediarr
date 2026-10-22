@@ -51,9 +51,9 @@ type olSearchResponse struct {
 }
 
 func (o *OpenLibrary) search(ctx context.Context, values url.Values) (*olSearchResponse, error) {
-	o.Client.Base = o.baseURL()
+	o.Base = o.baseURL()
 	var resp olSearchResponse
-	if err := o.Client.getJSON(ctx, "/search.json", values, &resp); err != nil {
+	if err := o.getJSON(ctx, "/search.json", values, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

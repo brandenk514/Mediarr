@@ -161,16 +161,16 @@ func (s *Store) MigrateDown(ctx context.Context) error {
 	for rows.Next() {
 		var v string
 		if err := rows.Scan(&v); err != nil {
-			rows.Close()
+			_ = rows.Close() // abandoned on scan error
 			return fmt.Errorf("postgres: scan applied: %w", err)
 		}
 		versions = append(versions, v)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close() // abandoned on rows.Err()
 		return fmt.Errorf("postgres: scan applied: %w", err)
 	}
-	rows.Close()
+	_ = rows.Close() // fully read above
 
 	for _, version := range versions {
 		name := version + ".down.sql"

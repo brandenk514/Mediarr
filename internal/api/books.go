@@ -255,10 +255,10 @@ func (s *Server) RunBooksPipeline(w http.ResponseWriter, r *http.Request) {
 	imported, err := s.booksDeps.Svc.RunPipeline(r.Context(), id)
 	if err != nil {
 		status := http.StatusInternalServerError
-		switch {
-		case err == bookssvc.ErrNoMatch:
+		switch err {
+		case bookssvc.ErrNoMatch:
 			status = http.StatusUnprocessableEntity
-		case err == bookssvc.ErrNoWanted:
+		case bookssvc.ErrNoWanted:
 			status = http.StatusNoContent
 		}
 		writeError(w, status, err.Error())

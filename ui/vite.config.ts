@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react'
+import { configDefaults } from 'vitest/config'
 import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
@@ -29,5 +30,8 @@ export default defineConfig({
     // production build, which lacks React.act (testing-library needs it).
     // Pin the test env regardless of the surrounding shell.
     env: { NODE_ENV: 'test' },
+    // Playwright e2e specs live in e2e/ and run via `npm run e2e`
+    // (see playwright.config.ts); keep vitest on unit/component tests only.
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 })

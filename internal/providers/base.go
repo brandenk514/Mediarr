@@ -105,7 +105,7 @@ func (c *Client) getJSON(ctx context.Context, path string, values url.Values, ou
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrBadResponse, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read at most 4 MiB — a metadata search response is small; a runaway
 	// body must not grow memory unbounded.

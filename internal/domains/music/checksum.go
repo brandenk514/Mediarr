@@ -17,11 +17,11 @@ import (
 
 // HashFile returns the hex-encoded sha256 of the file at path.
 func HashFile(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path is built by the import planner (media root + planned name), not user input
 	if err != nil {
 		return "", fmt.Errorf("music: checksum: open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // body fully read above
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", fmt.Errorf("music: checksum: read %s: %w", path, err)

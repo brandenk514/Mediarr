@@ -67,7 +67,7 @@ func (r *BooksRepo) ListAuthors(ctx context.Context) ([]books.Author, error) {
 	if err != nil {
 		return nil, fmt.Errorf("books: list authors: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []books.Author
 	for rows.Next() {
 		var a books.Author
@@ -142,7 +142,7 @@ func (r *BooksRepo) ListTitles(ctx context.Context, authorID int64) ([]books.Tit
 	if err != nil {
 		return nil, fmt.Errorf("books: list titles: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []books.Title
 	for rows.Next() {
 		var t books.Title
@@ -218,7 +218,7 @@ func (r *BooksRepo) ListEditions(ctx context.Context, titleID int64) ([]books.Ed
 	if err != nil {
 		return nil, fmt.Errorf("books: list editions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []books.Edition
 	for rows.Next() {
 		var e books.Edition
@@ -303,7 +303,7 @@ func (r *BooksRepo) ListWanted(ctx context.Context, titleID int64) ([]books.Want
 	if err != nil {
 		return nil, fmt.Errorf("books: list wanted: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []books.Wanted
 	for rows.Next() {
 		var w books.Wanted
@@ -395,7 +395,7 @@ func (r *BooksRepo) ListQueue(ctx context.Context, authorID int64) ([]books.Queu
 	if err != nil {
 		return nil, fmt.Errorf("books: list queue: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []books.QueueEntry
 	for rows.Next() {
 		var e books.QueueEntry
@@ -436,7 +436,7 @@ func (r *BooksRepo) ListHistory(ctx context.Context, authorID int64, limit int) 
 	if err != nil {
 		return nil, fmt.Errorf("books: list history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []books.HistoryEntry
 	for rows.Next() {
 		var e books.HistoryEntry

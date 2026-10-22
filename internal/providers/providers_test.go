@@ -35,6 +35,15 @@ type recordedRequest struct {
 	Header http.Header
 }
 
+// writeBody writes a test response body and fails the test if the write
+// fails (a broken test server must never pass silently).
+func writeBody(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	if _, err := w.Write([]byte(body)); err != nil {
+		t.Errorf("write test response: %v", err)
+	}
+}
+
 func TestTMDBSearchMovies(t *testing.T) {
 	url, rec := newStub(t, http.StatusOK, `{
 	  "results": [
@@ -124,14 +133,14 @@ func TestTVDBSearchTwoStep(t *testing.T) {
 			if r.Method != http.MethodPost {
 				t.Errorf("login method: %s", r.Method)
 			}
-			w.Write([]byte(`{"token":"jwt-abc"}`))
+			writeBody(t, w, `{"token":"jwt-abc"}`)
 		case "/search/series":
 			searchCalls++
 			searchSawBearer = r.Header.Get("Authorization")
 			if r.URL.Query().Get("query") != "severance" {
 				t.Errorf("query: %v", r.URL.Query())
 			}
-			w.Write([]byte(`{"data":[{"id":378434,"seriesName":"Severance","firstAired":"2022-02-18","overview":"Adam."}]}`))
+			writeBody(t, w, `{"data":[{"id":378434,"seriesName":"Severance","firstAired":"2022-02-18","overview":"Adam."}]}`)
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
@@ -167,7 +176,7 @@ func TestTVDBNotConfigured(t *testing.T) {
 func TestTVDBLoginFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"detail":"invalid key"}`))
+		writeBody(t, w, `{"detail":"invalid key"}`)
 	}))
 	t.Cleanup(srv.Close)
 	tvd := NewTVDB("nope")

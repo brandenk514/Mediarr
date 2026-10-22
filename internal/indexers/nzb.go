@@ -65,7 +65,7 @@ func (n *NZBIndexer) Test(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(body, 1<<20))
 	return nil
 }
@@ -87,7 +87,7 @@ func (n *NZBIndexer) Search(ctx context.Context, q SearchQuery) ([]SearchResult,
 	if err != nil {
 		return nil, err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(body, 32<<20))
 	if err != nil {

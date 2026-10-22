@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# pre-push: refuse to push until the CI preflight passes.
+# Installed by `make hooks` (symlinked into .git/hooks/).
+#
+# Runs the full gate set when a Docker daemon is available (that is what CI
+# will run), and the fast pure-local set otherwise.
+#
+# Bypass (use with care — the same gates run in CI, so a bypassed push will
+# just fail there): git push --no-verify
+set -u
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "=== pre-push: running CI preflight ==="
+if docker info >/dev/null 2>&1; then
+  scripts/ci-preflight.sh --full </dev/null
+else
+  scripts/ci-preflight.sh </dev/null
+fi
+status=$?
+
+if [ "$status" -ne 0 ]; then
+  echo
+  echo "PUSH REFUSED: the preflight failed. These same gates run in CI on"
+  echo "GitHub, so this push would fail there too. Fix the failures above,"
+  echo "re-run the preflight until it passes, then push."
+  echo "(Truly need to bypass? git push --no-verify — you have been warned.)"
+  exit 1
+fi
+exit 0

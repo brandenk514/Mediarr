@@ -69,9 +69,9 @@ func (t *TMDB) search(ctx context.Context, path string, isMovie bool, q string) 
 	values.Set("query", q)
 	values.Set("include_adult", "false")
 
-	t.Client.Base = t.baseURL()
+	t.Base = t.baseURL()
 	var resp tmdbSearchResponse
-	if err := t.Client.getJSON(ctx, path, values, &resp); err != nil {
+	if err := t.getJSON(ctx, path, values, &resp); err != nil {
 		return nil, err
 	}
 	out := make([]Result, 0, len(resp.Results))

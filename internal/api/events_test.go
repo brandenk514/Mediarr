@@ -156,7 +156,7 @@ func TestEvents_RequiresAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query-token dial failed: %v (resp %v)", err, resp)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	hello := readFrame(t, conn)
 	if hello.Type != "hello" {
 		t.Fatalf("first frame = %q, want hello", hello.Type)
@@ -173,7 +173,7 @@ func TestEvents_Stream(t *testing.T) {
 	defer srv.Close()
 
 	conn := wsDial(t, srv.URL+"/api/v1/events", token)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// 1. hello frame.
 	hello := readFrame(t, conn)

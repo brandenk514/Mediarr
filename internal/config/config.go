@@ -265,7 +265,7 @@ func validateEncryptionKey(key string) error {
 		return fmt.Errorf("encryption key must be 64 hex chars (32 bytes), got %d", len(key))
 	}
 	for _, c := range key {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return fmt.Errorf("encryption key must be hexadecimal")
 		}
 	}

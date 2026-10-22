@@ -82,7 +82,7 @@ func (s *Server) Events(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return // Upgrade already sent the appropriate error response.
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // teardown: handler exits either way
 
 	sub, err := s.eventsDeps.Events.Subscribe(r.Context(), liveEventTypes...)
 	if err != nil {
@@ -124,8 +124,10 @@ func (s *Server) Events(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case <-r.Context().Done():
-	case <-readErr:
-	case <-writeErr:
+	case rerr := <-readErr:
+		_ = rerr // connection teardown: no further handling needed
+	case werr := <-writeErr:
+		_ = werr
 	}
 }
 

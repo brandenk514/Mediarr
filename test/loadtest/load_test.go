@@ -105,10 +105,6 @@ const (
 	thresholdPeakRSSMiB = 600
 )
 
-// testKey is a 64-hex-char (32-byte) AES-256-GCM key for the indexer vault.
-// Test-only, not a real credential.
-const testKey = "00000000000000000000000000000000000000000000000000000000000000"
-
 // harness holds the live API server, a shared keep-alive client, and the
 // movie service used directly for the sustained-import phase.
 type harness struct {
@@ -130,7 +126,7 @@ func (h *harness) getRaw(path string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode, nil
 }
@@ -175,7 +171,7 @@ func TestLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open postgres: %v", err)
 	}
-	defer pg.Close()
+	defer func() { _ = pg.Close() }() // teardown: test is exiting
 	// e2e's proven pattern: ping with a retry loop before the first real
 	// query (the first connection can hit the server mid-startup).
 	deadline := time.Now().Add(30 * time.Second)
@@ -197,7 +193,7 @@ func TestLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("redis client: %v", err)
 	}
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }() // teardown: test is exiting
 	cache := redis.NewCache(rdb)
 	events := redis.NewEvents(rdb)
 	if err := cache.Ping(ctx); err != nil {

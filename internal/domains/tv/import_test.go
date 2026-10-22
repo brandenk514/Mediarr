@@ -12,7 +12,9 @@ import (
 // (PLAN §6).
 func TestPlanImport_Layout(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "media")
-	os.MkdirAll(root, 0o755)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	src := filepath.Join(root, "downloads", "Breaking.Bad.S01E01.Piloto.1080p.WEB.x264.mkv")
 	imp, err := PlanImport(root, "Breaking Bad", 2008, 1, 1, "Piloto", src)
@@ -58,7 +60,9 @@ func TestPlanImport_NoYear(t *testing.T) {
 func TestPlanImport_Collision(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "media")
 	seriesDir := filepath.Join(root, "Breaking Bad (2008)", "Season 01")
-	os.MkdirAll(seriesDir, 0o755)
+	if err := os.MkdirAll(seriesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	dest := filepath.Join(seriesDir, "Breaking Bad S01E01 Piloto.mkv")
 	if err := os.WriteFile(dest, []byte("existing"), 0o644); err != nil {
 		t.Fatal(err)

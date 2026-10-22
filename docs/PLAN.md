@@ -261,6 +261,7 @@ mediarr/
 | M5 | Real indexers + clients | 5+ working indexer adapters; qBittorrent + SABnzbd adapters; indexer health UI endpoints |
 | M6 | Web UI | React SPA: dashboard, per-kind list, add flows, queue view, settings |
 | M7 | Hardening | load test (10k items, sustained import), observability (Prometheus metrics, Grafana dashboards), Helm chart, release process |
+| M8 | OpenAPI contract + codegen | `openapi.yaml` for the full `/api/v1` surface; UI wire types generated from the spec (hand mirror deleted); Go drift test validates live responses against the spec; CI `make generate` lockstep gate |
 
 M1 is the spike that proves the architecture. If the modular approach
 struggles at M1, we pivot before M2 — not after M4.
