@@ -121,7 +121,7 @@ func (r *Repo) TokenUser(ctx context.Context, rawToken string) (*UserRow, int64,
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows are consumed by the loop below
 
 	var (
 		tokenID int64

@@ -73,7 +73,7 @@ type MockClient struct {
 
 // NewMockClient builds a MockClient that writes into dir (created if needed).
 func NewMockClient(name, dir string) (*MockClient, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
 	return &MockClient{name: name, base: dir, files: map[string]string{}}, nil
@@ -88,12 +88,12 @@ func (m *MockClient) Add(ctx context.Context, r Release) error {
 	if dir == "" {
 		dir = m.base
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
 	f := filepath.Join(dir, r.FileName)
 	// A minimal placeholder payload; enough for the import step to move it.
-	if err := os.WriteFile(f, []byte("mediarr-mock-download: "+r.Title+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(f, []byte("mediarr-mock-download: "+r.Title+"\n"), 0o644); err != nil { //nolint:gosec // mock download stands in for a real media file; must be readable for the import step
 		return err
 	}
 	m.files[r.Title] = f

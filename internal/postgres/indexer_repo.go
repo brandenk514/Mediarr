@@ -141,7 +141,7 @@ func (r *IndexersRepo) listByQuery(ctx context.Context, query string) ([]indexer
 	if err != nil {
 		return nil, fmt.Errorf("indexers: list: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []indexers.Definition
 	for rows.Next() {
 		def, err := r.scanIndexer(rows)

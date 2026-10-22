@@ -311,7 +311,7 @@ func (c *scrapeCollector) Collect(ch chan<- prometheus.Metric) {
 
 	if c.db != nil {
 		if rows, err := c.db.QueryContext(ctx, queueDepthSQL); err == nil {
-			defer rows.Close()
+			defer func() { _ = rows.Close() }()
 			for rows.Next() {
 				var kind, state string
 				var n int64
@@ -323,7 +323,7 @@ func (c *scrapeCollector) Collect(ch chan<- prometheus.Metric) {
 			}
 		}
 		if rows, err := c.db.QueryContext(ctx, librarySQL); err == nil {
-			defer rows.Close()
+			defer func() { _ = rows.Close() }()
 			for rows.Next() {
 				var kind string
 				var n int64

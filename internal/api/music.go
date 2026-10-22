@@ -244,10 +244,10 @@ func (s *Server) RunMusicPipeline(w http.ResponseWriter, r *http.Request) {
 	imported, err := s.musicDeps.Svc.RunPipeline(r.Context(), id)
 	if err != nil {
 		status := http.StatusInternalServerError
-		switch {
-		case err == musicsvc.ErrNoMatch:
+		switch err {
+		case musicsvc.ErrNoMatch:
 			status = http.StatusUnprocessableEntity
-		case err == musicsvc.ErrNoWanted:
+		case musicsvc.ErrNoWanted:
 			status = http.StatusNoContent
 		}
 		writeError(w, status, err.Error())

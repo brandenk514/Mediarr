@@ -577,12 +577,12 @@ func extForFormat(format string) string {
 
 // copyFile copies src to dst, creating dst's directory as needed.
 func copyFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //nolint:gosec // media tree dirs must stay group/world-readable for media-server users (Plex, etc.)
 		return err
 	}
-	data, err := os.ReadFile(src)
+	data, err := os.ReadFile(src) //nolint:gosec // src is the download client's output path, built by the pipeline
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0o644)
+	return os.WriteFile(dst, data, 0o644) //nolint:gosec // media files must be world-readable for media-server users
 }

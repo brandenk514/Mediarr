@@ -57,12 +57,18 @@ func (d *AuthDeps) firstBootCreate(ctx context.Context, username, password strin
 	return d.Repo.GetUserByUsername(ctx, username)
 }
 
+// isUsernameChar reports whether c is allowed in a username.
+func isUsernameChar(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+		c == '_' || c == '-'
+}
+
 func validUsername(s string) bool {
 	if len(s) < 3 || len(s) > 32 {
 		return false
 	}
 	for _, c := range s {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+		if !isUsernameChar(c) {
 			return false
 		}
 	}

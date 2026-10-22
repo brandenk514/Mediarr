@@ -81,7 +81,7 @@ func (d *AdapterDeps) httpGet(ctx context.Context, name, baseURL string, q url.V
 		return nil, newError(name+" get", ErrTransport, redactURL(err.Error()))
 	}
 	if e := ClassifyError(resp.StatusCode); e != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close() // probe body discarded; close error not actionable
 		record(false, fmt.Sprintf("status %d", resp.StatusCode))
 		return nil, newError(name+" get", e, fmt.Sprintf("status %d", resp.StatusCode))
 	}
@@ -97,7 +97,7 @@ func (d *AdapterDeps) httpStatus(ctx context.Context, name, baseURL string, q ur
 		return err
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(body, 1<<20))
-	body.Close()
+	_ = body.Close() // probe body discarded above; close error not actionable
 	return nil
 }
 

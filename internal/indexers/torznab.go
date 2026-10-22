@@ -91,7 +91,7 @@ func (t *TorznabIndexer) Search(ctx context.Context, q SearchQuery) ([]SearchRes
 	if err != nil {
 		return nil, err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	return parseTorznab(t.name, body)
 }
 

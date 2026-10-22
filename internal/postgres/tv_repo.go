@@ -68,7 +68,7 @@ func (r *TVRepo) ListSeries(ctx context.Context) ([]tv.Series, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tv: list series: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []tv.Series
 	for rows.Next() {
 		var s tv.Series
@@ -138,7 +138,7 @@ func (r *TVRepo) ListEpisodes(ctx context.Context, seriesID int64) ([]tv.Episode
 	if err != nil {
 		return nil, fmt.Errorf("tv: list episodes: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []tv.Episode
 	for rows.Next() {
 		var e tv.Episode
@@ -209,7 +209,7 @@ func (r *TVRepo) ListWanted(ctx context.Context, seriesID int64) ([]tv.Wanted, e
 	if err != nil {
 		return nil, fmt.Errorf("tv: list wanted: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []tv.Wanted
 	for rows.Next() {
 		var w tv.Wanted
@@ -296,7 +296,7 @@ func (r *TVRepo) ListQueue(ctx context.Context, seriesID int64) ([]tv.QueueEntry
 	if err != nil {
 		return nil, fmt.Errorf("tv: list queue: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []tv.QueueEntry
 	for rows.Next() {
 		var e tv.QueueEntry
@@ -334,7 +334,7 @@ func (r *TVRepo) ListHistory(ctx context.Context, seriesID int64, limit int) ([]
 	if err != nil {
 		return nil, fmt.Errorf("tv: list history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []tv.HistoryEntry
 	for rows.Next() {
 		var e tv.HistoryEntry

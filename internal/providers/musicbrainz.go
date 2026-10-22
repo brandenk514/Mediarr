@@ -58,9 +58,9 @@ func (m *MusicBrainz) Search(ctx context.Context, q string) ([]Result, error) {
 	values.Set("query", "artist:"+q)
 	values.Set("fmt", "json")
 
-	m.Client.Base = m.baseURL()
+	m.Base = m.baseURL()
 	var resp mbResponse
-	if err := m.Client.getJSON(ctx, "/artist", values, &resp); err != nil {
+	if err := m.getJSON(ctx, "/artist", values, &resp); err != nil {
 		return nil, err
 	}
 	out := make([]Result, 0, len(resp.Artists))

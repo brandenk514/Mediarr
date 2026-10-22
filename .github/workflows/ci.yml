@@ -60,6 +60,13 @@ jobs:
         working-directory: ui
         run: npm ci
 
+      # Fail the build on high/critical advisories in the npm tree. An
+      # advisory that genuinely doesn't apply can be allowlisted here with
+      # a comment explaining why.
+      - name: Dependency audit
+        working-directory: ui
+        run: npm audit --audit-level=high
+
       - name: Type-check + build
         working-directory: ui
         run: npm run build
@@ -98,6 +105,14 @@ jobs:
 
       - name: go vet
         run: go vet ./...
+
+      - name: golangci-lint
+        # Pinned: linter behavior changes between versions, and this gate's
+        # rules (gosec/errcheck/govet/unused, see .golangci.yml) must be
+        # deterministic. Bump deliberately and review the new findings.
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+          golangci-lint run ./...
 
       - name: govulncheck
         run: |
@@ -213,7 +228,9 @@ jobs:
   # ------------------------------------------------------------------- build
   docker:
     name: Build + scan image
-    needs: lint-and-test
+    # Gate the image on BOTH the Go pipeline and the UI job: a broken UI
+    # build must never ship inside a published image.
+    needs: [lint-and-test, ui]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -455,5 +472,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --latest
+          # 0.x versions are pre-1.0: mark them as GitHub pre-releases so
+          # nobody lands on a beta by accident.
+          PRERELEASE=( )
+          [[ "$TAG" =~ ^v0\. ]] && PRERELEASE=(--prerelease)
+          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --latest "${PRERELEASE[@]}"
           echo "release $TAG created"

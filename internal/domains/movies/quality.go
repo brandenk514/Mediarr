@@ -8,7 +8,6 @@ package movies
 
 import (
 	"sort"
-	"strconv"
 )
 
 // Codec, audio, and source identifiers used in quality profiles.
@@ -246,32 +245,4 @@ func SortReleases(matches []ProfileMatch) {
 	sort.SliceStable(matches, func(i, j int) bool {
 		return matches[i].Score > matches[j].Score
 	})
-}
-
-// heightToken converts a scene height token like "1080p" to px.
-func heightToken(tok string) (int, bool) {
-	tok = trimTok(tok)
-	if len(tok) < 3 || !endsWith(tok, "p") {
-		return 0, false
-	}
-	n, err := strconv.Atoi(tok[:len(tok)-1])
-	if err != nil {
-		return 0, false
-	}
-	return n, true
-}
-
-func trimTok(s string) string {
-	start, end := 0, len(s)
-	for start < end && (s[start] == '.' || s[start] == '_' || s[start] == '-' || s[start] == '(' || s[start] == '[') {
-		start++
-	}
-	for end > start && (s[end-1] == '.' || s[end-1] == '_' || s[end-1] == '-' || s[end-1] == ')' || s[end-1] == ']') {
-		end--
-	}
-	return s[start:end]
-}
-
-func endsWith(s, suf string) bool {
-	return len(s) >= len(suf) && s[len(s)-len(suf):] == suf
 }

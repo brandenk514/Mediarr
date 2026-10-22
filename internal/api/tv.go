@@ -168,10 +168,10 @@ func (s *Server) RunTVPipeline(w http.ResponseWriter, r *http.Request) {
 	imported, err := s.tvDeps.Svc.RunPipeline(r.Context(), id)
 	if err != nil {
 		status := http.StatusInternalServerError
-		switch {
-		case err == tvsvc.ErrNoMatch:
+		switch err {
+		case tvsvc.ErrNoMatch:
 			status = http.StatusUnprocessableEntity
-		case err == tvsvc.ErrNoWanted:
+		case tvsvc.ErrNoWanted:
 			status = http.StatusNoContent
 		}
 		writeError(w, status, err.Error())

@@ -337,17 +337,6 @@ func isBareNumber(s string) bool {
 	return true
 }
 
-func rangeInts(start, end int) []int {
-	if end < start {
-		end = start
-	}
-	out := make([]int, 0, end-start+1)
-	for i := start; i <= end; i++ {
-		out = append(out, i)
-	}
-	return out
-}
-
 func dedupeSortedInts(in []int) []int {
 	if len(in) == 0 {
 		return in

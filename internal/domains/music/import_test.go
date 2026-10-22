@@ -70,7 +70,9 @@ func TestPlanTrackImport_DiscZeroDefaults(t *testing.T) {
 func TestPlanTrackImport_Collision(t *testing.T) {
 	root := t.TempDir()
 	albumDir := filepath.Join(root, "Bob Marley", "Legend")
-	os.MkdirAll(albumDir, 0o755)
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	dest := filepath.Join(albumDir, "01-01 No Woman, No Man.flac")
 	if err := os.WriteFile(dest, []byte("existing"), 0o644); err != nil {
 		t.Fatal(err)
@@ -141,8 +143,12 @@ func TestPlanAlbumImport_Layout(t *testing.T) {
 func TestPlanAlbumImport_Collision(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "Bob Marley", "Legend")
-	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "Legend.flac"), []byte("x"), 0o644)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Legend.flac"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	src := filepath.Join(root, "downloads", "legend.flac")
 	_, err := PlanAlbumImport(root, "Bob Marley", "Legend", src)

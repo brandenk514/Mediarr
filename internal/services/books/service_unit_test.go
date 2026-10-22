@@ -168,7 +168,9 @@ func TestService_RunPipeline_NoClient(t *testing.T) {
 	svc := New(Deps{Repo: repo, DefaultProfile: "Best"}) // no Client
 	ctx := context.Background()
 	authorID, _ := svc.AddAuthor(ctx, "A Author", true)
-	svc.AddTitle(ctx, authorID, "Title", true)
+	if _, err := svc.AddTitle(ctx, authorID, "Title", true); err != nil {
+		t.Fatalf("add title: %v", err)
+	}
 
 	_, err := svc.RunPipeline(ctx, authorID)
 	if err == nil {
@@ -196,7 +198,9 @@ func TestService_RunPipeline_NoMatch(t *testing.T) {
 	})
 	ctx := context.Background()
 	authorID, _ := svc.AddAuthor(ctx, "A Author", true)
-	svc.AddTitle(ctx, authorID, "Title", true)
+	if _, err := svc.AddTitle(ctx, authorID, "Title", true); err != nil {
+		t.Fatalf("add title: %v", err)
+	}
 
 	_, err := svc.RunPipeline(ctx, authorID)
 	if !errors.Is(err, ErrNoMatch) {

@@ -1,0 +1,38 @@
+# Keep dependencies current. Nothing here auto-merges: Dependabot opens PRs,
+# and they go through the normal CI gate on main.
+version: 2
+updates:
+  # Go modules (backend).
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+
+  # UI (Vite/React) npm dependencies.
+  - package-ecosystem: "npm"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+
+  # GitHub Actions in CI — the CI pipeline is a dependency too.
+  - package-ecosystem: "github-actions"
+    directory: "/.github/workflows"
+    schedule:
+      interval: "weekly"
+
+  # Docker base images: golang builder + distroless runtime in
+  # deploy/Dockerfile, and postgres/redis in deploy/compose.dev.yml.
+  # Major bumps are planned upgrades with compatibility implications
+  # (a newer database major can't open an older data directory), not
+  # routine dep updates — leave those to a human, not the bot.
+  - package-ecosystem: "docker"
+    directory: "/deploy"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - update-types:
+          - "version-update:semver-major"

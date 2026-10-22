@@ -224,12 +224,18 @@ func TestBooksPipeline_CascadeWithPipelineTables(t *testing.T) {
 
 	authorID, _ := r.CreateAuthor(ctx, books.Author{Name: "Ted Chiang"})
 	titleID, _ := r.CreateTitle(ctx, books.Title{AuthorID: authorID, Name: "Stories of Your Life"})
-	r.EnsureWantedTitle(ctx, titleID)
-	r.CreateQueue(ctx, books.QueueEntry{
+	if err := r.EnsureWantedTitle(ctx, titleID); err != nil {
+		t.Fatalf("ensure wanted: %v", err)
+	}
+	if _, err := r.CreateQueue(ctx, books.QueueEntry{
 		AuthorID: authorID, TitleID: titleID, ReleaseTitle: "rel",
 		Indexer: "fake", DownloadClient: "mock", State: books.QueueComplete,
-	})
-	r.AddHistory(ctx, books.HistoryEntry{AuthorID: authorID, Event: "added", Detail: "x"})
+	}); err != nil {
+		t.Fatalf("create queue: %v", err)
+	}
+	if err := r.AddHistory(ctx, books.HistoryEntry{AuthorID: authorID, Event: "added", Detail: "x"}); err != nil {
+		t.Fatalf("add history: %v", err)
+	}
 
 	if _, err := db.ExecContext(ctx, `DELETE FROM book_authors WHERE id = $1`, authorID); err != nil {
 		t.Fatalf("delete author: %v", err)

@@ -85,7 +85,7 @@ func (t *TorrentRSSIndexer) Test(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(body, 32<<20))
 	if err != nil {
 		return newError(t.name+" test", err, "read feed")
@@ -108,7 +108,7 @@ func (t *TorrentRSSIndexer) Search(ctx context.Context, q SearchQuery) ([]Search
 	if err != nil {
 		return nil, err
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(body, 32<<20))
 	if err != nil {

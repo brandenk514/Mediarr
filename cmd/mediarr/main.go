@@ -84,7 +84,7 @@ func healthcheck() int {
 		log.Warn("postgres open failed", "error", err)
 		return 1
 	}
-	defer pg.Close()
+	defer func() { _ = pg.Close() }() // teardown: shutdown path
 	if err := pg.Ping(ctx); err != nil {
 		log.Warn("postgres ping failed", "error", err)
 		return 1
@@ -95,7 +95,7 @@ func healthcheck() int {
 		log.Warn("redis open failed", "error", err)
 		return 1
 	}
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }() // teardown: shutdown path
 	if err := rdb.RDB().Ping(ctx).Err(); err != nil {
 		log.Warn("redis ping failed", "error", err)
 		return 1
@@ -122,7 +122,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer pg.Close()
+	defer func() { _ = pg.Close() }() // teardown: shutdown path
 
 	if err := pg.Migrate(ctx); err != nil {
 		return err
@@ -135,7 +135,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }() // teardown: shutdown path
 
 	cache := redis.NewCache(rdb)
 	queue := redis.NewQueue(rdb)

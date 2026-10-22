@@ -68,7 +68,7 @@ func TestCache_RealRedis_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New client: %v", err)
 	}
-	defer cl.Close()
+	defer func() { _ = cl.Close() }()
 	cache := NewCache(cl)
 
 	// Miss on an empty key.
@@ -104,7 +104,7 @@ func TestCache_RealRedis_TTLExpires(t *testing.T) {
 	ctx := context.Background()
 
 	cl, _ := New("redis://" + addrOf(rdb))
-	defer cl.Close()
+	defer func() { _ = cl.Close() }()
 	cache := NewCache(cl)
 
 	if err := cache.Set(ctx, "eph", "x", 300*time.Millisecond); err != nil {

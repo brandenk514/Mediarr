@@ -57,7 +57,7 @@ func (t *TVDB) login(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: login: %v", ErrBadResponse, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("%w: login returned %d", ErrBadResponse, resp.StatusCode)
 	}
@@ -106,7 +106,7 @@ func (t *TVDB) Search(ctx context.Context, q string) ([]Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: search: %v", ErrBadResponse, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("%w: search returned %d", ErrBadResponse, resp.StatusCode)
 	}

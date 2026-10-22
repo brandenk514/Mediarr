@@ -112,7 +112,7 @@ func TestNewRequestID_Format(t *testing.T) {
 		t.Errorf("request ID length = %d, want 16", len(id))
 	}
 	for _, c := range id {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'z') {
 			t.Errorf("unexpected char %q in request ID %q", c, id)
 		}
 	}
@@ -340,7 +340,8 @@ func TestServe_Smoke(t *testing.T) {
 	cancel()
 	// Drain shutdown.
 	select {
-	case <-done:
+	case serr := <-done:
+		_ = serr // drain only: the exit error was already handled above
 	case <-time.After(2 * time.Second):
 		t.Error("server did not shut down in time")
 	}

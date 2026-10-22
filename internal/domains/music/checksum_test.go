@@ -13,7 +13,9 @@ import (
 func TestHashFile_Deterministic(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.flac")
-	os.WriteFile(p, []byte("hello music"), 0o644)
+	if err := os.WriteFile(p, []byte("hello music"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
 
 	h1, err := HashFile(p)
 	if err != nil {
@@ -33,7 +35,9 @@ func TestHashFile_Deterministic(t *testing.T) {
 
 	// Different content → different hash.
 	p2 := filepath.Join(dir, "b.flac")
-	os.WriteFile(p2, []byte("different bytes"), 0o644)
+	if err := os.WriteFile(p2, []byte("different bytes"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
 	h3, err := HashFile(p2)
 	if err != nil {
 		t.Fatalf("HashFile (2): %v", err)
@@ -53,7 +57,9 @@ func TestHashFile_Missing(t *testing.T) {
 // TestVerifyChecksum_Match confirms a matching checksum returns nil.
 func TestVerifyChecksum_Match(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "a.flac")
-	os.WriteFile(p, []byte("the file"), 0o644)
+	if err := os.WriteFile(p, []byte("the file"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
 	sum, _ := HashFile(p)
 
 	if err := VerifyChecksum(p, sum); err != nil {
@@ -69,7 +75,9 @@ func TestVerifyChecksum_Match(t *testing.T) {
 // ErrChecksumMismatch.
 func TestVerifyChecksum_Mismatch(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "a.flac")
-	os.WriteFile(p, []byte("the file"), 0o644)
+	if err := os.WriteFile(p, []byte("the file"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
 	if err := VerifyChecksum(p, strings.Repeat("0", 64)); !errors.Is(err, ErrChecksumMismatch) {
 		t.Errorf("expected ErrChecksumMismatch, got %v", err)
 	}
@@ -79,7 +87,9 @@ func TestVerifyChecksum_Mismatch(t *testing.T) {
 // no-op (the call site decides whether to verify, per the per-library opt-out).
 func TestVerifyChecksum_EmptyExpected(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "a.flac")
-	os.WriteFile(p, []byte("any bytes"), 0o644)
+	if err := os.WriteFile(p, []byte("any bytes"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
 	if err := VerifyChecksum(p, ""); err != nil {
 		t.Errorf("empty expected checksum should be a no-op, got %v", err)
 	}

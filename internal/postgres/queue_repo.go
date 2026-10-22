@@ -65,7 +65,7 @@ func (r *QueueRepo) List(ctx context.Context) ([]queue.Item, error) {
 	if err != nil {
 		return nil, fmt.Errorf("queue: query queue: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 
 	var out []queue.Item
 	for rows.Next() {
@@ -118,7 +118,7 @@ func (r *QueueRepo) History(ctx context.Context, kind queue.Kind, parentID int64
 	if err != nil {
 		return nil, fmt.Errorf("queue: query history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 
 	var out []queue.HistoryEvent
 	for rows.Next() {

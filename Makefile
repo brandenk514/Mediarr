@@ -4,6 +4,8 @@
 #   make image    # build the Docker test image
 #   make lint     # go vet + gofmt check
 #   make scan     # gosec / govulncheck (if installed)
+#   make preflight  # all CI gates locally, in one pass
+#   make hooks      # install the pre-push git hook (runs preflight)
 #   make clean    # remove local build artifacts
 # -------------------------------------------------
 
@@ -48,9 +50,11 @@ loadtest: ## Load test: 10k items, latency, sustained import (Docker required)
 	$(GO) test ./test/loadtest/... -count=1 -timeout 600s -v
 
 .PHONY: lint
-lint: ## go vet + gofmt check
+lint: ## go vet + gofmt check + golangci-lint (gosec/errcheck/govet/unused)
 	$(GO) vet ./...
 	@test -z "$$(gofmt -l .)" || (echo "gofmt needed on:"; gofmt -l .; exit 1)
+	@command -v golangci-lint >/dev/null || $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+	golangci-lint run ./...
 
 .PHONY: tidy
 tidy: ## Sync go.mod / go.sum
@@ -63,6 +67,19 @@ scan: ## Security scans (installs tools if missing)
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
 	@command -v gosec >/dev/null || echo "gosec not installed — skipping"
 	@command -v gosec >/dev/null && gosec ./... || true
+
+.PHONY: preflight
+preflight: ## Run the CI gates locally in one pass (gofmt, vet, golangci-lint, unit+coverage, UI, semgrep, govulncheck)
+	bash scripts/ci-preflight.sh
+
+.PHONY: preflight-full
+preflight-full: ## Preflight + Docker-dependent gates (integration, e2e)
+	bash scripts/ci-preflight.sh --full
+
+.PHONY: hooks
+hooks: ## Install the git pre-push hook (runs the preflight before every push)
+	ln -sf ../../scripts/git-hooks/pre-push .git/hooks/pre-push
+	@echo "installed .git/hooks/pre-push -> scripts/git-hooks/pre-push"
 
 .PHONY: image
 image: ## Build the Docker image (test artifact)

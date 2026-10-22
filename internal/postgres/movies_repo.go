@@ -68,7 +68,7 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 	if err != nil {
 		return nil, fmt.Errorf("movies: list: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []movies.Movie
 	for rows.Next() {
 		var m movies.Movie
@@ -130,7 +130,7 @@ func (r *MovieRepo) ListWanted(ctx context.Context) ([]movies.Wanted, error) {
 	if err != nil {
 		return nil, fmt.Errorf("movies: list wanted: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []movies.Wanted
 	for rows.Next() {
 		var w movies.Wanted
@@ -209,7 +209,7 @@ func (r *MovieRepo) ListQueue(ctx context.Context) ([]movies.QueueEntry, error) 
 	if err != nil {
 		return nil, fmt.Errorf("movies: list queue: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []movies.QueueEntry
 	for rows.Next() {
 		var e movies.QueueEntry
@@ -244,7 +244,7 @@ func (r *MovieRepo) ListHistory(ctx context.Context, limit int) ([]movies.Histor
 	if err != nil {
 		return nil, fmt.Errorf("movies: list history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []movies.HistoryEntry
 	for rows.Next() {
 		var e movies.HistoryEntry

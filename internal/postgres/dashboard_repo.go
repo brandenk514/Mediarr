@@ -106,7 +106,7 @@ func (r *DashboardRepo) libraries(ctx context.Context) ([]dashboard.Library, err
 	if err != nil {
 		return nil, fmt.Errorf("dashboard: query libraries: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 
 	var libs []dashboard.Library
 	for rows.Next() {
@@ -139,7 +139,7 @@ func (r *DashboardRepo) history(ctx context.Context, limit int) ([]dashboard.His
 	if err != nil {
 		return nil, fmt.Errorf("dashboard: query history: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 
 	var out []dashboard.HistoryItem
 	for rows.Next() {
@@ -172,7 +172,7 @@ func (r *DashboardRepo) queue(ctx context.Context, limit int) ([]dashboard.Queue
 	if err != nil {
 		return nil, fmt.Errorf("dashboard: query queue: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 
 	var out []dashboard.QueueItem
 	for rows.Next() {

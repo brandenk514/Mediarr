@@ -246,7 +246,7 @@ func (s *Service) selectBest(m *dom.Movie, results []indexers.SearchResult) (bes
 	if !ok {
 		profile, ok = dom.ProfileByName(s.deps.DefaultProfile)
 		if !ok {
-			profile, ok = dom.ProfileByName("Any")
+			profile, _ = dom.ProfileByName("Any") // fallback profile; ok not needed past this point
 		}
 	}
 
@@ -477,16 +477,16 @@ func fileNameFor(p dom.ParsedRelease) string {
 
 // moveFile moves src to dst, creating dst's directory as needed.
 func moveFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //nolint:gosec // media tree dirs must stay group/world-readable for media-server users (Plex, etc.)
 		return err
 	}
 	if err := os.Rename(src, dst); err != nil {
 		// Cross-device rename can fail; fall back to copy + remove.
-		data, rerr := os.ReadFile(src)
+		data, rerr := os.ReadFile(src) //nolint:gosec // src is the download client's output path, built by the pipeline
 		if rerr != nil {
 			return err
 		}
-		if werr := os.WriteFile(dst, data, 0o644); werr != nil {
+		if werr := os.WriteFile(dst, data, 0o644); werr != nil { //nolint:gosec // media files must be world-readable for media-server users
 			return werr
 		}
 		return os.Remove(src)
