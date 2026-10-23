@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
-import type { Episode, Page, Series } from '../../api/types'
+import type { Episode, PageSeries, Series } from '../../api/types'
 import { TvPage } from './Tv'
 
 // Page test for the TV list (#41): server-side filtered/paginated series with
@@ -17,7 +17,7 @@ vi.mock('../../api/client', () => ({
   },
 }))
 
-function seriesPage(items: Series[], total = items.length, pg = 1): Page<Series> {
+function seriesPage(items: Series[], total = items.length, pg = 1): PageSeries {
   return { items, total, page: pg, page_size: 25 }
 }
 

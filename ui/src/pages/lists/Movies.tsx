@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { client } from '../../api/client'
-import type { ListQuery, Movie } from '../../api/types'
+import type { ListQuery, PageMovie } from '../../api/types'
 import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
@@ -15,7 +15,7 @@ import {
 // Movies are flat (no children to expand).
 export function MoviesPage() {
   const load = useCallback((q: ListQuery) => client.listMovies(q), [])
-  const { data, loading, error, text, setText, monitored, setMonitored, page, setPage, total, reload } = usePagedList<Movie>(load)
+  const { data, loading, error, text, setText, monitored, setMonitored, page, setPage, total, reload } = usePagedList<PageMovie>(load)
 
   return (
     <div className="list-page">

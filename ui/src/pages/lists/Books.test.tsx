@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
-import type { Author, Edition, Page, Title } from '../../api/types'
+import type { Author, Edition, PageAuthor, Title } from '../../api/types'
 import { BooksPage } from './Books'
 
 // Page test for the books list (#41): paginated authors with two-level lazy
@@ -19,7 +19,7 @@ vi.mock('../../api/client', () => ({
   },
 }))
 
-function authorPage(items: Author[], total = items.length, pg = 1): Page<Author> {
+function authorPage(items: Author[], total = items.length, pg = 1): PageAuthor {
   return { items, total, page: pg, page_size: 25 }
 }
 
@@ -28,7 +28,7 @@ function author(id: number, name: string, monitored = true): Author {
 }
 
 function title(id: number, authorId: number, name: string): Title {
-  return { ID: id, AuthorID: authorId, Name: name, Year: 1984, QualityProfile: 'epub', Monitored: true, AddedAt: '' }
+  return { ID: id, AuthorID: authorId, Name: name, Monitored: true, AddedAt: '' }
 }
 
 function edition(id: number, titleId: number, format: string): Edition {

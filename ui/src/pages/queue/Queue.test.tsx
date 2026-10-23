@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, client } from '../../api/client'
-import type { EventFrame, Page, QueueViewItem } from '../../api/types'
+import type { EventFrame, PageQueueItem, QueueViewItem } from '../../api/types'
 import { QueuePage } from './Queue'
 
 // Capture the callbacks the page wires into connectEvents so a test can push a
@@ -56,7 +56,7 @@ function item(
   }
 }
 
-function samplePage(): Page<QueueViewItem> {
+function samplePage(): PageQueueItem {
   return {
     items: [
       item('movie', 101, 'Dune', 'Dune.Part.Two.2160p.WEB.x265', 'downloading'),
@@ -206,7 +206,19 @@ describe('QueuePage', () => {
     renderPage()
     await waitFor(() => expect(screen.getByTestId('queue-row-movie-101')).toBeInTheDocument())
 
-    liveOnEvent?.({ type: 'queue.updated', payload: { state: 'complete' }, at: NOW })
+    liveOnEvent?.({
+      type: 'queue.updated',
+      payload: {
+        movie_id: 101,
+        queue_id: 1,
+        release_title: 'Dune.Part.Two.2160p.WEB.x265',
+        indexer: 'idx',
+        client: 'qBittorrent',
+        state: 'complete',
+        progress: 100,
+      },
+      at: NOW,
+    })
 
     await waitFor(() => expect(client.listQueue).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.getByTestId('queue-row-movie-101')).toHaveTextContent('complete'))

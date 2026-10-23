@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
-import type { Author, Edition, ListQuery, Title } from '../../api/types'
+import type { Edition, ListQuery, PageAuthor, Title } from '../../api/types'
 import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
@@ -29,7 +29,7 @@ export function BooksPage() {
     reload,
     expanded,
     toggleExpanded,
-  } = usePagedList<Author>(load)
+  } = usePagedList<PageAuthor>(load)
 
   return (
     <div className="list-page">
@@ -149,7 +149,6 @@ function TitleList({ authorId }: { authorId: number }) {
                 {open.has(t.ID) ? '▾' : '▸'}
               </span>
               <span className="lt-name">{t.Name}</span>
-              {t.Year ? <span className="lt-dim">{t.Year}</span> : null}
             </button>
             <MonitoredToggle
               monitored={t.Monitored}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
-import type { Episode, ListQuery, Series } from '../../api/types'
+import type { Episode, ListQuery, PageSeries } from '../../api/types'
 import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
@@ -29,7 +29,7 @@ export function TvPage() {
     reload,
     expanded,
     toggleExpanded,
-  } = usePagedList<Series>(load)
+  } = usePagedList<PageSeries>(load)
 
   return (
     <div className="list-page">

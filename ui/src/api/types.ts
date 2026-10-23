@@ -1,494 +1,107 @@
-// Wire types for the mediarr v1 API.
+// Wire types for the mediarr v1 API, generated from openapi.yaml (M8 #77).
 //
-// IMPORTANT: the Go domain structs carry NO json tags, so encoding/json emits
-// the *exact Go field names* (e.g. `ID`, `Title`, `Monitored`, `AddedAt`).
-// These interfaces mirror that wire format verbatim — do NOT rename to camelCase
-// to "clean them up"; the client would then fail to parse real responses.
+// types.gen.ts is the openapi-typescript output — the single source of
+// truth for every request/response shape. This file is a thin re-export
+// shim so call sites keep their short names, plus the two client
+// ergonomics (ListQuery, QueueFilter) that build URL query strings
+// rather than wire documents.
+import type { components } from './types.gen'
 
-export type QueueState = 'queued' | 'downloading' | 'complete' | 'failed'
-export type WantedStatus = 'pending' | 'satisfied'
+export type Error = components["schemas"]["Error"]
+export type VersionInfo = components["schemas"]["VersionInfo"]
+export type ReadinessCheck = components["schemas"]["ReadinessCheck"]
+export type ReadinessReport = components["schemas"]["ReadinessReport"]
+export type LoginRequest = components["schemas"]["LoginRequest"]
+export type LoginResponse = components["schemas"]["LoginResponse"]
+export type Me = components["schemas"]["Me"]
+export type PageMovie = components["schemas"]["PageMovie"]
+export type PageSeries = components["schemas"]["PageSeries"]
+export type PageArtist = components["schemas"]["PageArtist"]
+export type PageAuthor = components["schemas"]["PageAuthor"]
+export type PageQueueItem = components["schemas"]["PageQueueItem"]
+export type AddedId = components["schemas"]["AddedId"]
+export type MonitoredResult = components["schemas"]["MonitoredResult"]
+export type SeasonMonitoredResult = components["schemas"]["SeasonMonitoredResult"]
+export type EpisodeMonitoredResult = components["schemas"]["EpisodeMonitoredResult"]
+export type TrackMonitoredResult = components["schemas"]["TrackMonitoredResult"]
+export type ImportedResult = components["schemas"]["ImportedResult"]
+export type Movie = components["schemas"]["Movie"]
+export type AddMovieRequest = components["schemas"]["AddMovieRequest"]
+export type Series = components["schemas"]["Series"]
+export type AddSeriesRequest = components["schemas"]["AddSeriesRequest"]
+export type Episode = components["schemas"]["Episode"]
+export type AddEpisodeRequest = components["schemas"]["AddEpisodeRequest"]
+export type WantedStatus = components["schemas"]["WantedStatus"]
+export type SeriesWanted = components["schemas"]["SeriesWanted"]
+export type Artist = components["schemas"]["Artist"]
+export type AddArtistRequest = components["schemas"]["AddArtistRequest"]
+export type Album = components["schemas"]["Album"]
+export type AddAlbumRequest = components["schemas"]["AddAlbumRequest"]
+export type Track = components["schemas"]["Track"]
+export type AddTrackRequest = components["schemas"]["AddTrackRequest"]
+export type AlbumWanted = components["schemas"]["AlbumWanted"]
+export type Author = components["schemas"]["Author"]
+export type AddAuthorRequest = components["schemas"]["AddAuthorRequest"]
+export type BookTitle = components["schemas"]["BookTitle"]
+export type AddTitleRequest = components["schemas"]["AddTitleRequest"]
+export type Edition = components["schemas"]["Edition"]
+export type AddEditionRequest = components["schemas"]["AddEditionRequest"]
+export type TitleWanted = components["schemas"]["TitleWanted"]
+export type MediaKind = components["schemas"]["MediaKind"]
+export type QueueState = components["schemas"]["QueueState"]
+export type IndexerHealthStatus = components["schemas"]["IndexerHealthStatus"]
+export type DashboardLibrary = components["schemas"]["DashboardLibrary"]
+export type DashboardTotals = components["schemas"]["DashboardTotals"]
+export type HistoryItem = components["schemas"]["HistoryItem"]
+export type DashboardQueueItem = components["schemas"]["DashboardQueueItem"]
+export type IndexerHealth = components["schemas"]["IndexerHealth"]
+export type Dashboard = components["schemas"]["Dashboard"]
+export type QueueViewItem = components["schemas"]["QueueViewItem"]
+export type QueueHistoryEvent = components["schemas"]["QueueHistoryEvent"]
+export type Indexer = components["schemas"]["Indexer"]
+export type IndexerCreate = components["schemas"]["IndexerCreate"]
+export type IndexerUpdate = components["schemas"]["IndexerUpdate"]
+export type IndexerEnabled = components["schemas"]["IndexerEnabled"]
+export type IndexerTestResult = components["schemas"]["IndexerTestResult"]
+export type IndexerStats = components["schemas"]["IndexerStats"]
+export type DownloadClientView = components["schemas"]["DownloadClientView"]
+export type DownloadClientRequest = components["schemas"]["DownloadClientRequest"]
+export type LibraryOverride = components["schemas"]["LibraryOverride"]
+export type LibraryOverrides = components["schemas"]["LibraryOverrides"]
+export type SearchResult = components["schemas"]["SearchResult"]
+export type ProfileKind = components["schemas"]["ProfileKind"]
+export type ProfilesResponse = components["schemas"]["ProfilesResponse"]
+export type EventFrame = components["schemas"]["EventFrame"]
+export type EventPayload = components["schemas"]["EventPayload"]
+export type QueueUpdatedMovie = components["schemas"]["QueueUpdatedMovie"]
+export type QueueUpdatedTV = components["schemas"]["QueueUpdatedTV"]
+export type QueueUpdatedMusic = components["schemas"]["QueueUpdatedMusic"]
+export type QueueUpdatedBook = components["schemas"]["QueueUpdatedBook"]
+export type HistoryAppendedMovie = components["schemas"]["HistoryAppendedMovie"]
+export type HistoryAppendedTV = components["schemas"]["HistoryAppendedTV"]
+export type HistoryAppendedMusic = components["schemas"]["HistoryAppendedMusic"]
+export type HistoryAppendedBook = components["schemas"]["HistoryAppendedBook"]
 
-// ---- auth ----
+// Books' domain type is books.Title; the spec names it BookTitle so the
+// document reads clearly at a glance.
+export type Title = components["schemas"]["BookTitle"]
 
-export interface LoginRequest {
-  username: string
-  password: string
-}
+// The dashboard's recent-queue feed item (the queue view uses QueueViewItem).
+export type QueueItem = components["schemas"]["DashboardQueueItem"]
 
-export interface LoginResponse {
-  token: string
-  user: string
-  role: string
-  token_prefix: string
-}
-
-export interface Me {
-  username: string
-  role: string
-}
-
-// ---- list pagination (#41) ----
-//
-// Every top-level per-kind list (movies, tv series, music artists, book
-// authors) is filtered and paginated server-side and returns this envelope.
-// The envelope fields are camelCase snake (json-tagged in Go); the *item*
-// fields inside `items` keep their bare Go names (see the domain types above).
-
-export interface Page<T> {
-  items: T[]
-  total: number
-  page: number
-  page_size: number
-}
-
-// ListQuery is the optional filter/pagination input for a list call. All
-// fields are optional; omit them to get the first page of 25.
+// ListQuery is the optional list input (q / monitored / page / page_size).
 export interface ListQuery {
-  // Case-insensitive substring search on the item name.
   q?: string
-  // When set (true or false), keep only items whose monitored flag matches.
   monitored?: boolean
   page?: number
   page_size?: number
 }
 
-// ---- movies ----
-
-export interface Movie {
-  ID: number
-  Title: string
-  Year: number
-  QualityProfile: string
-  Monitored: boolean
-  AddedAt: string
-}
-
-export interface AddMovieRequest {
-  title: string
-  year?: string
-  quality_profile?: string
-}
-
-export interface AddedId {
-  id: number
-}
-
-export interface MonitoredResult {
-  id: number
-  monitored: boolean
-}
-
-export interface TrackMonitoredResult {
-  disc: number
-  number: number
-  monitored: boolean
-}
-
-// ---- tv ----
-
-export interface Series {
-  ID: number
-  TVDBID: number
-  TMDBID: number
-  Title: string
-  Year: number
-  QualityProfile: string
-  Monitored: boolean
-  AddedAt: string
-}
-
-export interface AddSeriesRequest {
-  title: string
-  year?: string
-  quality_profile?: string
-  monitored?: boolean
-  // Provider ids of the selected search result (#42). Set whichever matches
-  // the search source; the server stores 0 for the unknown one.
-  tvdb_id?: string
-  tmdb_id?: string
-}
-
-export interface Episode {
-  ID: number
-  SeriesID: number
-  Season: number
-  Episode: number
-  Title: string
-  Monitored: boolean
-  AddedAt: string
-}
-
-export interface AddEpisodeRequest {
-  season: number
-  episode: number
-  title?: string
-  monitored?: boolean
-}
-
-export interface SeriesWanted {
-  SeriesID: number
-  Season: number
-  Episode: number
-  Status: WantedStatus
-  ReleaseTitle: string
-  CreatedAt: string
-  SatisfiedAt: string | null
-}
-
-// ---- music ----
-
-export interface Artist {
-  ID: number
-  MBID: string
-  Name: string
-  Monitored: boolean
-  AddedAt: string
-}
-
-export interface AddArtistRequest {
-  name: string
-  // MBID is the MusicBrainz artist id of the selected search result (#42);
-  // omit it for a manual add (server stores "").
-  mbid?: string
-  monitored?: boolean
-}
-
-export interface Album {
-  ID: number
-  ArtistID: number
-  MBID: string
-  Name: string
-  Year: number
-  QualityProfile: string
-  Monitored: boolean
-  VerifyChecksums: boolean
-  Checksum: string
-  AddedAt: string
-}
-
-export interface AddAlbumRequest {
-  name: string
-  year?: number
-  quality_profile?: string
-  monitored?: boolean
-}
-
-export interface Track {
-  ID: number
-  AlbumID: number
-  MBID: string
-  Disc: number
-  Number: number
-  Title: string
-  Checksum: string
-  Monitored: boolean
-  AddedAt: string
-}
-
-export interface AddTrackRequest {
-  disc: number
-  number: number
-  title?: string
-  monitored?: boolean
-}
-
-export interface AlbumWanted {
-  AlbumID: number
-  TrackID: number
-  Status: WantedStatus
-  ReleaseTitle: string
-  CreatedAt: string
-  SatisfiedAt: string | null
-}
-
-// ---- books ----
-
-export interface Author {
-  ID: number
-  Name: string
-  Monitored: boolean
-  AddedAt: string
-}
-
-export interface AddAuthorRequest {
-  name: string
-  monitored?: boolean
-}
-
-export interface Title {
-  ID: number
-  AuthorID: number
-  Name: string
-  Year: number
-  QualityProfile: string
-  Monitored: boolean
-  AddedAt: string
-}
-
-export interface AddTitleRequest {
-  name: string
-  year?: number
-  quality_profile?: string
-  monitored?: boolean
-}
-
-export interface Edition {
-  ID: number
-  TitleID: number
-  Format: string
-  Publisher: string
-  ISBN: string
-  Year: number
-  Pages: number
-  Monitored: boolean
-  AddedAt: string
-}
-
-export interface AddEditionRequest {
-  format: string
-  isbn?: string
-  publisher?: string
-  year?: number
-  pages?: number
-  monitored?: boolean
-}
-
-export interface TitleWanted {
-  TitleID: number
-  EditionID: number
-  Status: WantedStatus
-  ReleaseTitle: string
-  CreatedAt: string
-  SatisfiedAt: string | null
-}
-
-// ---- dashboard (M6 #40) ----
-
-export type MediaKind = 'movie' | 'tv' | 'music' | 'book'
-
-export interface DashboardLibrary {
-  kind: MediaKind
-  label: string
-  count: number
-  wants: number
-  queue: number
-}
-
-export interface DashboardTotals {
-  libraries: number
-  wants: number
-  queue: number
-}
-
-export interface HistoryItem {
-  kind: MediaKind
-  name: string
-  event: string
-  detail: string
-  at: string
-}
-
-export interface QueueItem {
-  kind: MediaKind
-  release_title: string
-  indexer: string
-  state: string
-  progress: number
-  updated_at: string
-}
-
-export type IndexerHealthStatus = 'ok' | 'error' | 'idle'
-
-export interface IndexerHealth {
-  name: string
-  status: IndexerHealthStatus
-  successes: number
-  failures: number
-  last_error: string
-  last_success: string | null
-  avg_latency_ns: number
-}
-
-export interface Dashboard {
-  libraries: DashboardLibrary[]
-  totals: DashboardTotals
-  recent_history: HistoryItem[]
-  recent_queue: QueueItem[]
-  indexers: IndexerHealth[]
-  generated_at: string
-}
-
-// ---- queue view (M6 #43) ----
-//
-// The dedicated queue view shows the *full* download/import queue (not the
-// dashboard's recent tail): every job across all four kinds, filtered and
-// paginated server-side, with a per-parent history drill-down. These types
-// mirror the internal/queue Go wire types (json-tagged snake_case).
-
-export interface QueueViewItem {
-  kind: MediaKind
-  parent_id: number
-  parent_name: string
-  release_title: string
-  indexer: string
-  state: QueueState
-  progress: number
-  updated_at: string
-}
-
-export interface QueueHistoryEvent {
-  event: string
-  detail: string
-  at: string
-}
-
-// QueueFilter is the optional filter/pagination input for a queue list call.
-// All fields are optional; omit them for the first page of 25, unfiltered.
+// QueueFilter is the optional queue-list input (q / kind / state / page / page_size).
 export interface QueueFilter {
-  // Case-insensitive substring search on the release title or parent name.
   q?: string
-  // Restrict to one kind ('movie' | 'tv' | 'music' | 'book'); 'all' omitted.
   kind?: MediaKind
-  // Restrict to one job state ('queued' | 'downloading' | 'complete' | 'failed').
   state?: QueueState
   page?: number
   page_size?: number
 }
-
-// ---- live events (/api/v1/events WebSocket, M6 #40) ----
-
-// One on-the-wire frame. The first frame is the "hello" handshake (payload
-// omitted). queue.updated / history.appended frames carry the bus payload.
-export interface EventFrame {
-  type: string
-  payload?: Record<string, unknown>
-  at: string
-}
-
-// ---- add flows (#42) ----
-//
-// The provider search endpoints return a flat array of hits in the provider
-// adapters' wire shape (internal/providers): lowercase json-tagged fields,
-// unlike the library item types above (bare Go names). `extra` carries
-// display-only detail per kind: movies/tv → overview+rating, artists →
-// country, book works → author.
-export interface SearchResult {
-  id: string
-  title: string
-  year: number
-  extra: Record<string, string>
-}
-
-// ProfileKind is the `kind` accepted by GET /api/v1/profiles. Note it is the
-// plural "movies" (not the dashboard's singular MediaKind "movie").
-export type ProfileKind = 'movies' | 'tv' | 'music' | 'books'
-
-// ProfilesResponse is the built-in quality profiles of one kind plus the
-// kind's default, so the add-flow picker can preselect it.
-export interface ProfilesResponse {
-  profiles: string[]
-  default: string
-}
-
-// ---- indexers ----
-
-export interface Indexer {
-  id: number
-  name: string
-  kind: string
-  base_url: string
-  enabled: boolean
-  has_api_key: boolean
-  last_test: string | null
-}
-
-export interface IndexerStats {
-  name: string
-  calls: number
-  successes: number
-  failures: number
-  last_success: string | null
-  last_error: string
-  last_latency_ns: number
-  avg_latency_ns: number
-  total_latency_ns: number
-}
-
-export interface IndexerTestResult {
-  ok: boolean
-  error?: string
-}
-
-// ---------------------------------------------------------------------------
-// Settings (#44)
-// ---------------------------------------------------------------------------
-
-// IndexerKind is one of the indexer protocols the build can materialize. The
-// server validates a definition's kind against its registry (a saved indexer
-// can always be searched), so the UI offers these as the known set.
-export type IndexerKind = 'fake' | 'torznab' | 'torrent-rss' | 'nzb'
-
-// IndexerCreate is the body for POST /api/v1/indexers. api_key is plaintext in
-// the request but is never echoed back (the response only reports has_api_key).
-// An empty api_key is legal (keyless indexers).
-export interface IndexerCreate {
-  name: string
-  kind: string
-  base_url?: string
-  api_key?: string
-  settings_json?: string
-  enabled?: boolean
-}
-
-// IndexerUpdate is the body for PUT /api/v1/indexers/{id}. An empty api_key
-// means "keep the existing key" (the masked-edit round-trip).
-export interface IndexerUpdate {
-  name: string
-  kind: string
-  base_url?: string
-  api_key?: string
-  settings_json?: string
-}
-
-// ClientKind is one of the download-client implementations.
-export type ClientKind = 'mock' | 'qbittorrent' | 'sabnzbd'
-
-// DownloadClientView is the *masked* read shape of the download-client config.
-// The secrets are never returned — only presence booleans — so the UI can show
-// "key stored" without ever seeing the key.
-export interface DownloadClientView {
-  kind: string
-  qb_base: string
-  qb_username: string
-  qb_api_key_set: boolean
-  qb_password_set: boolean
-  sab_base: string
-  sab_api_key_set: boolean
-  sab_complete_dir: string
-}
-
-// DownloadClientRequest is the write shape for the download-client config. An
-// empty secret means "keep the existing value" (masked-edit: edit the non-secret
-// fields without clobbering a stored credential).
-export interface DownloadClientRequest {
-  kind: string
-  qb_base?: string
-  qb_username?: string
-  qb_api_key?: string
-  qb_password?: string
-  sab_base?: string
-  sab_api_key?: string
-  sab_complete_dir?: string
-}
-
-// LibraryOverride is a per-library override. checksum_verify is a tristate:
-// null/undefined = use the default, false = opt out, true = opt in.
-export interface LibraryOverride {
-  path: string
-  quality_profile: string
-  checksum_verify?: boolean | null
-}
-
-// LibraryOverrides is the GET /api/v1/settings/library document: all four
-// libraries keyed by kind.
-export type LibraryOverrides = Record<MediaKind, LibraryOverride>

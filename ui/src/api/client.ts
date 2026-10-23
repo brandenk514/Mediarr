@@ -40,12 +40,15 @@ import type {
   MonitoredResult,
   Movie,
   MediaKind,
-  Page,
+  PageArtist,
+  PageAuthor,
+  PageMovie,
+  PageQueueItem,
+  PageSeries,
   ProfileKind,
   ProfilesResponse,
   QueueFilter,
   QueueHistoryEvent,
-  QueueViewItem,
   SearchResult,
   Series,
   SeriesWanted,
@@ -132,7 +135,7 @@ export const client = {
   logout: () => clearToken(),
 
   // ---- movies ----
-  listMovies: (q?: ListQuery) => request<Page<Movie>>('GET', `/movies${buildListQuery(q)}`),
+  listMovies: (q?: ListQuery) => request<PageMovie>('GET', `/movies${buildListQuery(q)}`),
   getMovie: (id: number) => request<Movie>('GET', `/movies/${id}`),
   addMovie: (req: AddMovieRequest) => request<AddedId>('POST', '/movies', req),
   setMovieMonitored: (id: number, monitored: boolean) =>
@@ -140,7 +143,7 @@ export const client = {
   runMoviePipeline: (id: number) => request<{ imported: string }>('POST', `/movies/${id}/pipeline`),
 
   // ---- tv ----
-  listSeries: (q?: ListQuery) => request<Page<Series>>('GET', `/tv${buildListQuery(q)}`),
+  listSeries: (q?: ListQuery) => request<PageSeries>('GET', `/tv${buildListQuery(q)}`),
   getSeries: (id: number) => request<Series>('GET', `/tv/${id}`),
   addSeries: (req: AddSeriesRequest) => request<AddedId>('POST', '/tv', req),
   setSeriesMonitored: (id: number, monitored: boolean) =>
@@ -156,7 +159,7 @@ export const client = {
   listSeriesWanted: (id: number) => request<SeriesWanted[]>('GET', `/tv/${id}/wanted`),
 
   // ---- music ----
-  listArtists: (q?: ListQuery) => request<Page<Artist>>('GET', `/music/artists${buildListQuery(q)}`),
+  listArtists: (q?: ListQuery) => request<PageArtist>('GET', `/music/artists${buildListQuery(q)}`),
   getArtist: (id: number) => request<Artist>('GET', `/music/artists/${id}`),
   addArtist: (req: AddArtistRequest) => request<AddedId>('POST', '/music/artists', req),
   setArtistMonitored: (id: number, monitored: boolean) =>
@@ -179,7 +182,7 @@ export const client = {
   listAlbumWanted: (albumId: number) => request<AlbumWanted[]>('GET', `/music/albums/${albumId}/wanted`),
 
   // ---- books ----
-  listAuthors: (q?: ListQuery) => request<Page<Author>>('GET', `/books/authors${buildListQuery(q)}`),
+  listAuthors: (q?: ListQuery) => request<PageAuthor>('GET', `/books/authors${buildListQuery(q)}`),
   getAuthor: (id: number) => request<Author>('GET', `/books/authors/${id}`),
   addAuthor: (req: AddAuthorRequest) => request<AddedId>('POST', '/books/authors', req),
   setAuthorMonitored: (id: number, monitored: boolean) =>
@@ -219,7 +222,7 @@ export const client = {
 
   // ---- queue view (#43) ----
   // The full, filterable + paginated queue (the dedicated view's data source).
-  listQueue: (f?: QueueFilter) => request<Page<QueueViewItem>>('GET', `/queue${buildQueueQuery(f)}`),
+  listQueue: (f?: QueueFilter) => request<PageQueueItem>('GET', `/queue${buildQueueQuery(f)}`),
   // One parent's lifecycle history (the queue row's drill-down).
   queueHistory: (kind: MediaKind, parentId: number, limit?: number) =>
     request<QueueHistoryEvent[]>(

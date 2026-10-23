@@ -69,13 +69,22 @@ describe('connectEvents', () => {
     const ws = lastWs()
     ws.fireOpen()
     ws.sendFrame({ type: 'hello', at: '2026-10-11T12:00:00Z' })
-    ws.sendFrame({ type: 'queue.updated', payload: { state: 'downloading' }, at: '2026-10-11T12:00:01Z' })
+    const queuePayload = {
+      movie_id: 101,
+      queue_id: 1,
+      release_title: 'rel',
+      indexer: 'idx',
+      client: 'qBittorrent',
+      state: 'downloading',
+      progress: 42,
+    } as const
+    ws.sendFrame({ type: 'queue.updated', payload: queuePayload, at: '2026-10-11T12:00:01Z' })
 
     expect(onStatus).toHaveBeenNthCalledWith(1, 'connecting')
     expect(onStatus).toHaveBeenNthCalledWith(2, 'open')
     expect(onEvent).toHaveBeenCalledTimes(2)
     expect(onEvent.mock.calls[0][0].type).toBe('hello')
-    expect(onEvent.mock.calls[1][0].payload).toEqual({ state: 'downloading' })
+    expect(onEvent.mock.calls[1][0].payload).toEqual(queuePayload)
     close()
   })
 

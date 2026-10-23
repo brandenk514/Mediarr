@@ -141,7 +141,19 @@ describe('DashboardPage', () => {
     await waitFor(() => expect(screen.getByTestId('queue-feed')).toBeInTheDocument())
 
     // push a live frame through the captured WS handler
-    liveOnEvent?.({ type: 'queue.updated', payload: { state: 'complete' }, at: '2026-10-11T12:01:00Z' })
+    liveOnEvent?.({
+      type: 'queue.updated',
+      payload: {
+        movie_id: 101,
+        queue_id: 0,
+        release_title: 'rel',
+        indexer: 'idx',
+        client: 'qBittorrent',
+        state: 'complete',
+        progress: 100,
+      },
+      at: '2026-10-11T12:01:00Z',
+    })
 
     await waitFor(() => expect(client.getDashboard).toHaveBeenCalledTimes(2))
     // and the feed reflects the updated state

@@ -10,7 +10,7 @@
 // button with a MonitoredToggle sibling — a button cannot legally nest inside
 // another button, so the two controls must be siblings.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ListQuery, Page } from '../api/types'
+import type { ListQuery } from '../api/types'
 
 export type MonitoredFilter = 'all' | 'monitored' | 'unmonitored'
 
@@ -19,14 +19,18 @@ export const SEARCH_DEBOUNCE_MS = 300
 
 // usePagedList drives one server-side filtered, paginated list. `load` takes
 // the full wire query (q/monitored/page/page_size) and returns the envelope.
-// Search is debounced; changing the search resets the page to 1 and collapses
-// any expanded children so a stale expanded row can't outlive its item.
-export function usePagedList<T>(load: (q: ListQuery) => Promise<Page<T>>) {
+// P is the generated page type (PageMovie, PageSeries, ...) — the generic
+// constraint only names the envelope fields this hook reads. Search is
+// debounced; changing the search resets the page to 1 and collapses any
+// expanded children so a stale expanded row can't outlive its item.
+export function usePagedList<P extends { items: unknown[]; total: number }>(
+  load: (q: ListQuery) => Promise<P>,
+) {
   const [text, setText] = useState('')
   const [q, setQ] = useState('')
   const [monitored, setMonitored] = useState<MonitoredFilter>('all')
   const [page, setPage] = useState(1)
-  const [data, setData] = useState<Page<T> | null>(null)
+  const [data, setData] = useState<P | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
