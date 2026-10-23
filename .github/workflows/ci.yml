@@ -60,6 +60,20 @@ jobs:
         working-directory: ui
         run: npm ci
 
+      # Lockstep gate (M8 #79): ui/src/api/types.gen.ts must be a pure
+      # function of openapi.yaml. Regenerate in CI and fail the build with
+      # the fix command when it isn't, so spec and code can't drift
+      # (docs/openapi.md).
+      - name: OpenAPI lockstep (regenerate + diff)
+        working-directory: ui
+        run: |
+          npm run generate
+          if ! git diff --exit-code -- src/api/types.gen.ts; then
+            echo "::error::ui/src/api/types.gen.ts is out of date with openapi.yaml. Run 'make generate' (or 'npm run generate' in ui/) and commit the regenerated file."
+            git diff -- src/api/types.gen.ts | head -100
+            exit 1
+          fi
+
       # Fail the build on high/critical advisories in the npm tree. An
       # advisory that genuinely doesn't apply can be allowlisted here with
       # a comment explaining why.
@@ -105,6 +119,11 @@ jobs:
 
       - name: go vet
         run: go vet ./...
+
+      # Spec validity (M8 #76): openapi.yaml is the wire-contract source of
+      # truth, so a malformed spec fails every PR that touches it.
+      - name: OpenAPI spec check
+        run: go run ./tools/speccheck
 
       - name: golangci-lint
         # Pinned: linter behavior changes between versions, and this gate's

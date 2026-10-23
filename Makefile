@@ -60,6 +60,10 @@ lint: ## go vet + gofmt check + golangci-lint (gosec/errcheck/govet/unused)
 spec-check: ## Validate openapi.yaml against the OpenAPI 3.0 spec (kin-openapi)
 	$(GO) run ./tools/speccheck
 
+.PHONY: generate
+generate: ## Regenerate ui/src/api/types.gen.ts from openapi.yaml (openapi-typescript)
+	cd ui && npm run generate
+
 .PHONY: tidy
 tidy: ## Sync go.mod / go.sum
 	$(GO) mod tidy
