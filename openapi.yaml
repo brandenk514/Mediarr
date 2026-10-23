@@ -1,0 +1,2994 @@
+openapi: "3.0.3"
+info:
+  title: Mediarr API
+  version: 1.0.0
+  description: |
+    The v1 HTTP API of mediarr, a four-library (movies / TV / music / books)
+    download-and-import manager.
+
+    ## Wire naming (important)
+
+    The Go domain structs carry NO json tags, so `encoding/json` emits the
+    *exact Go field names* on every library item: `ID`, `Title`, `Monitored`,
+    `AddedAt`, ... Envelopes and API-only documents use snake_case json tags
+    (`items`, `page_size`, `release_title`, ...). This spec mirrors the wire
+    format verbatim — do NOT "clean up" names to camelCase.
+
+    ## Nullability contract
+
+    - Paginated list endpoints (`Page` envelope) always return `items` as a
+      JSON array, never `null` (empty page = `[]`).
+    - Dashboard arrays (`libraries`, `recent_history`, `recent_queue`,
+      `indexers`) are always `[]`, never `null`.
+    - Child collections (episodes, albums, tracks, titles, editions, wanted
+      lists) and queue history events are `null` when empty — the repositories
+      return a nil slice. Marked `nullable: true` below.
+    - `Page` is not generic in OpenAPI: one schema per kind
+      (`PageMovie`, `PageSeries`, `PageArtist`, `PageAuthor`, `PageQueueItem`).
+
+    ## Live events
+
+    `/api/v1/events` is a hand-rolled WebSocket (not part of the generated
+    client). Its frame and per-kind payload types are declared under
+    `components.schemas` (`EventFrame`, `QueueUpdated*`, `HistoryAppended*`)
+    so TS consumers can import them.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: ops
+    description: Process liveness / readiness / build info (no auth).
+  - name: auth
+    description: Login and current-user.
+  - name: movies
+    description: Movies library (add, list, get, monitor, pipeline).
+  - name: tv
+    description: TV library (series, episodes, seasons, wanted, pipeline).
+  - name: music
+    description: Music library (artists, albums, tracks, wanted, pipeline).
+  - name: books
+    description: Books library (authors, titles, editions, wanted, pipeline).
+  - name: indexers
+    description: Indexer definitions, on-demand tests, health stats.
+  - name: settings
+    description: Download-client config and per-library overrides.
+  - name: dashboard
+    description: Cross-library overview.
+  - name: queue
+    description: Full download/import queue and per-parent history.
+  - name: search
+    description: Provider search for the add flows + quality profiles.
+  - name: events
+    description: Live WebSocket push of queue/history events.
+  - name: metrics
+    description: Prometheus scrape endpoint.
+paths:
+  /healthz:
+    get:
+      tags: [ops]
+      summary: Liveness probe.
+      operationId: getLiveness
+      security: []
+      responses:
+        "200":
+          description: The process is alive. Body carries build info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionInfo"
+  /readyz:
+    get:
+      tags: [ops]
+      summary: Readiness probe (pings Postgres + Redis).
+      operationId: getReadiness
+      security: []
+      responses:
+        "200":
+          description: All dependency checks passed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessReport"
+        "503":
+          description: One or more dependency checks failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessReport"
+  /version:
+    get:
+      tags: [ops]
+      summary: Build info.
+      operationId: getVersion
+      security: []
+      responses:
+        "200":
+          description: Build info for the running binary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionInfo"
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Log in and mint an API token.
+      operationId: login
+      security: []
+      description: |
+        First boot: if no user exists yet, the first successful login creates
+        the initial admin (username 3-32 chars of [A-Za-z0-9_-], password of
+        at least 10 chars). All other auth failures return a uniform 401.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Token minted (the raw token is shown once).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Invalid credentials (uniform for all auth failures).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Current user.
+      operationId: me
+      responses:
+        "200":
+          description: The authenticated user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/movies:
+    get:
+      tags: [movies]
+      summary: List movies (server-side filtered + paginated).
+      operationId: listMovies
+      parameters:
+        - $ref: "#/components/parameters/ListQ"
+        - $ref: "#/components/parameters/ListMonitored"
+        - $ref: "#/components/parameters/ListPage"
+        - $ref: "#/components/parameters/ListPageSize"
+      responses:
+        "200":
+          description: One page of movies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageMovie"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [movies]
+      summary: Add a movie.
+      operationId: addMovie
+      description: Creates the movie and a pending wanted row. Duplicate (title, year) is a 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMovieRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/movies/{id}:
+    get:
+      tags: [movies]
+      summary: Get one movie.
+      operationId: getMovie
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The movie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Movie"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [movies]
+      summary: Toggle movie monitoring.
+      operationId: setMovieMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/movies/{id}/pipeline:
+    post:
+      tags: [movies]
+      summary: Run the movie pipeline (search, match, download, import).
+      operationId: runMoviePipeline
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Import result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportedResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: No release matched the wanted request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/tv:
+    get:
+      tags: [tv]
+      summary: List series (server-side filtered + paginated).
+      operationId: listSeries
+      parameters:
+        - $ref: "#/components/parameters/ListQ"
+        - $ref: "#/components/parameters/ListMonitored"
+        - $ref: "#/components/parameters/ListPage"
+        - $ref: "#/components/parameters/ListPageSize"
+      responses:
+        "200":
+          description: One page of series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageSeries"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [tv]
+      summary: Add a series.
+      operationId: addSeries
+      description: |
+        A series is monitored by default; an explicit false opts out.
+        tvdb_id / tmdb_id carry the provider ids of the selected search
+        result (omitted = 0 on the server).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddSeriesRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/tv/{id}:
+    get:
+      tags: [tv]
+      summary: Get one series.
+      operationId: getSeries
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Series"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [tv]
+      summary: Toggle series-level monitoring (fans out to known episodes).
+      operationId: setSeriesMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/tv/{id}/seasons/{season}:
+    put:
+      tags: [tv]
+      summary: Toggle a season's monitoring.
+      operationId: setSeasonMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+        - $ref: "#/components/parameters/PathSeason"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeasonMonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/tv/{id}/episodes:
+    get:
+      tags: [tv]
+      summary: List a series' episodes.
+      operationId: listEpisodes
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The episodes, or null when the series has none.
+          content:
+            application/json:
+              schema:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/Episode"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [tv]
+      summary: Add an episode to a series.
+      operationId: addEpisode
+      description: A new episode is monitored by default; an explicit false opts out.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddEpisodeRequest"
+      responses:
+        "201":
+          description: Created (empty body).
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/tv/{id}/episodes/{season}/{episode}:
+    put:
+      tags: [tv]
+      summary: Toggle one episode's monitoring.
+      operationId: setEpisodeMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+        - $ref: "#/components/parameters/PathSeason"
+        - $ref: "#/components/parameters/PathEpisode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EpisodeMonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/tv/{id}/wanted:
+    get:
+      tags: [tv]
+      summary: List a series' wanted episodes.
+      operationId: listSeriesWanted
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The wanted rows, or null when none.
+          content:
+            application/json:
+              schema:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/SeriesWanted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/tv/{id}/pipeline:
+    post:
+      tags: [tv]
+      summary: Run the TV pipeline.
+      operationId: runTVPipeline
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Import result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportedResult"
+        "204":
+          description: Nothing to do (no pending wanted episodes).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: No release matched the wanted request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/artists:
+    get:
+      tags: [music]
+      summary: List artists (server-side filtered + paginated).
+      operationId: listArtists
+      parameters:
+        - $ref: "#/components/parameters/ListQ"
+        - $ref: "#/components/parameters/ListMonitored"
+        - $ref: "#/components/parameters/ListPage"
+        - $ref: "#/components/parameters/ListPageSize"
+      responses:
+        "200":
+          description: One page of artists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageArtist"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [music]
+      summary: Add an artist.
+      operationId: addArtist
+      description: |
+        An artist is monitored by default; an explicit false opts out.
+        mbid is the MusicBrainz artist id of a selected search result
+        (omitted = unset).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddArtistRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/artists/{id}:
+    get:
+      tags: [music]
+      summary: Get one artist.
+      operationId: getArtist
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The artist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Artist"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [music]
+      summary: Toggle artist-level monitoring (fans out to known albums).
+      operationId: setArtistMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/artists/{id}/albums:
+    get:
+      tags: [music]
+      summary: List an artist's albums.
+      operationId: listAlbums
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The albums, or null when the artist has none.
+          content:
+            application/json:
+              schema:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/Album"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [music]
+      summary: Add an album to an artist.
+      operationId: addAlbum
+      description: A new album is monitored by default; an explicit false opts out.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddAlbumRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/artists/{id}/pipeline:
+    post:
+      tags: [music]
+      summary: Run the music pipeline.
+      operationId: runMusicPipeline
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Import result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportedResult"
+        "204":
+          description: Nothing to do (no pending wanted albums).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: No release matched the wanted request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/albums/{id}:
+    get:
+      tags: [music]
+      summary: Get one album.
+      operationId: getAlbum
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The album.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Album"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [music]
+      summary: Toggle a single album's monitoring.
+      operationId: setAlbumMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/albums/{id}/tracks:
+    get:
+      tags: [music]
+      summary: List an album's tracks.
+      operationId: listTracks
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The tracks, or null when the album has none.
+          content:
+            application/json:
+              schema:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/Track"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [music]
+      summary: Add a track to an album.
+      operationId: addTrack
+      description: A new track is monitored by default; an explicit false opts out.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddTrackRequest"
+      responses:
+        "201":
+          description: Created (empty body).
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/albums/{id}/tracks/{disc}/{number}:
+    put:
+      tags: [music]
+      summary: Toggle one track's monitoring.
+      operationId: setTrackMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+        - $ref: "#/components/parameters/PathDisc"
+        - $ref: "#/components/parameters/PathNumber"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackMonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/albums/{id}/wanted:
+    get:
+      tags: [music]
+      summary: List an album's wanted entries (album-level and track-level).
+      operationId: listAlbumWanted
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The wanted rows, or null when none.
+          content:
+            application/json:
+              schema:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/AlbumWanted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/authors:
+    get:
+      tags: [books]
+      summary: List authors (server-side filtered + paginated).
+      operationId: listAuthors
+      parameters:
+        - $ref: "#/components/parameters/ListQ"
+        - $ref: "#/components/parameters/ListMonitored"
+        - $ref: "#/components/parameters/ListPage"
+        - $ref: "#/components/parameters/ListPageSize"
+      responses:
+        "200":
+          description: One page of authors.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageAuthor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [books]
+      summary: Add an author.
+      operationId: addAuthor
+      description: An author is monitored by default; an explicit false opts out.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddAuthorRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/authors/{id}:
+    get:
+      tags: [books]
+      summary: Get one author.
+      operationId: getAuthor
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The author.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Author"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [books]
+      summary: Toggle author-level monitoring (fans out to known titles).
+      operationId: setAuthorMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/authors/{id}/titles:
+    get:
+      tags: [books]
+      summary: List an author's titles.
+      operationId: listTitles
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The titles, or null when the author has none.
+          content:
+            application/json:
+              schema:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/BookTitle"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [books]
+      summary: Add a title to an author.
+      operationId: addTitle
+      description: A new title is monitored by default; an explicit false opts out.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddTitleRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/authors/{id}/pipeline:
+    post:
+      tags: [books]
+      summary: Run the books pipeline.
+      operationId: runBooksPipeline
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Import result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportedResult"
+        "204":
+          description: Nothing to do (no pending wanted titles).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: No release matched the wanted request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/titles/{id}:
+    get:
+      tags: [books]
+      summary: Get one title.
+      operationId: getTitle
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The title.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookTitle"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [books]
+      summary: Toggle a single title's monitoring.
+      operationId: setTitleMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/titles/{id}/editions:
+    get:
+      tags: [books]
+      summary: List a title's editions.
+      operationId: listEditions
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The editions, or null when the title has none.
+          content:
+            application/json:
+              schema:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/Edition"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [books]
+      summary: Add an edition to a title.
+      operationId: addEdition
+      description: |
+        A new edition is monitored by default; an explicit false opts out.
+        format must be one of epub, mobi, azw3 (400 otherwise).
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddEditionRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/editions/{id}:
+    get:
+      tags: [books]
+      summary: Get one edition.
+      operationId: getEdition
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The edition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Edition"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [books]
+      summary: Toggle a single edition's monitoring.
+      operationId: setEditionMonitored
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MonitoredResult"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/titles/{id}/wanted:
+    get:
+      tags: [books]
+      summary: List a title's wanted entries (title-level and edition-level).
+      operationId: listTitleWanted
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The wanted rows, or null when none.
+          content:
+            application/json:
+              schema:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/TitleWanted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/indexers:
+    get:
+      tags: [indexers]
+      summary: List configured indexers.
+      operationId: listIndexers
+      description: Secrets are never returned — only the has_api_key presence flag.
+      responses:
+        "200":
+          description: All configured indexer definitions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Indexer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [indexers]
+      summary: Create an indexer.
+      operationId: createIndexer
+      description: |
+        api_key is plaintext in the request but never echoed back. An empty
+        api_key is legal (keyless indexers). kind must be one this build can
+        materialize (currently fake, torznab, torrent-rss, nzb); unknown
+        kinds are 400. A duplicate name is 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexerCreate"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Indexer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/indexers/{id}:
+    put:
+      tags: [indexers]
+      summary: Update an indexer.
+      operationId: updateIndexer
+      description: An empty api_key keeps the stored key (masked-edit round-trip).
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexerUpdate"
+      responses:
+        "200":
+          description: The updated indexer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Indexer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [indexers]
+      summary: Delete an indexer.
+      operationId: deleteIndexer
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "204":
+          description: Deleted (no body).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/indexers/{id}/enabled:
+    patch:
+      tags: [indexers]
+      summary: Enable or disable an indexer.
+      operationId: setIndexerEnabled
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexerEnabled"
+      responses:
+        "200":
+          description: The updated indexer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Indexer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/indexers/{id}/test:
+    post:
+      tags: [indexers]
+      summary: On-demand health probe for one indexer.
+      operationId: testIndexer
+      description: |
+        A failed probe is a successful endpoint call (200 with ok false) —
+        the indexer being reachable-but-broken is the useful answer. Only an
+        unknown indexer is a 404.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The probe result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndexerTestResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/indexers/{id}/stats:
+    get:
+      tags: [indexers]
+      summary: Per-indexer health rollup.
+      operationId: indexerStats
+      description: An unknown-but-configured indexer yields a zero-valued stats document.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The stats rollup.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndexerStats"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/download-client:
+    get:
+      tags: [settings]
+      summary: Get the download-client config (masked).
+      operationId: getDownloadClient
+      description: Secrets are never returned — only the *_set presence booleans.
+      responses:
+        "200":
+          description: The masked config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadClientView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    put:
+      tags: [settings]
+      summary: Save the download-client config.
+      operationId: putDownloadClient
+      description: |
+        An empty secret means keep the existing value (masked-password
+        round-trip). kind defaults to mock and must be one of mock,
+        qbittorrent, sabnzbd. Per-client required fields are validated
+        server-side — qbittorrent needs a base URL plus an API key or a
+        username+password; sabnzbd needs a base URL plus an API key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownloadClientRequest"
+      responses:
+        "200":
+          description: The saved (masked) config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadClientView"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/library:
+    get:
+      tags: [settings]
+      summary: Get all four per-library overrides.
+      operationId: getLibraryOverrides
+      description: All four libraries in one document, keyed by kind.
+      responses:
+        "200":
+          description: The overrides document.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryOverrides"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/library/{kind}:
+    put:
+      tags: [settings]
+      summary: Save one library's override.
+      operationId: putLibraryOverride
+      description: |
+        An all-empty body clears the override (the row is deleted and later
+        reads yield fresh defaults).
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/MediaKind"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LibraryOverride"
+      responses:
+        "200":
+          description: The saved override.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryOverride"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/dashboard:
+    get:
+      tags: [dashboard]
+      summary: Cross-library overview.
+      operationId: getDashboard
+      parameters:
+        - name: recent
+          in: query
+          description: Bounds the recent-history / recent-queue feeds (clamped to 1..100).
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: The dashboard snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/queue:
+    get:
+      tags: [queue]
+      summary: Full download/import queue (filtered + paginated).
+      operationId: listQueue
+      description: Every job across all four kinds, in the standard Page envelope.
+      parameters:
+        - $ref: "#/components/parameters/ListQ"
+        - name: kind
+          in: query
+          description: Restrict to one kind.
+          required: false
+          schema:
+            $ref: "#/components/schemas/MediaKind"
+        - name: state
+          in: query
+          description: Restrict to one job state.
+          required: false
+          schema:
+            $ref: "#/components/schemas/QueueState"
+        - $ref: "#/components/parameters/ListPage"
+        - $ref: "#/components/parameters/ListPageSize"
+      responses:
+        "200":
+          description: One page of queue items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageQueueItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/queue/{kind}/{parent}/history:
+    get:
+      tags: [queue]
+      summary: One parent's lifecycle history (newest first).
+      operationId: queueHistory
+      description: A valid-but-empty history is a 200 with null.
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/MediaKind"
+        - name: parent
+          in: path
+          required: true
+          description: The parent id (movie/series/album/author id).
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: limit
+          in: query
+          description: Max events (clamped to 100).
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: The history events, or null when the parent has none.
+          content:
+            application/json:
+              schema:
+                type: array
+                nullable: true
+                items:
+                  $ref: "#/components/schemas/QueueHistoryEvent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/movies:
+    get:
+      tags: [search]
+      summary: Search movies via TMDB.
+      operationId: searchMovies
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: The hits (flat array, provider wire shape).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/tv:
+    get:
+      tags: [search]
+      summary: Search TV series via TVDB (hits carry tvdb_id).
+      operationId: searchTV
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: The hits (flat array, provider wire shape).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/tv-tmdb:
+    get:
+      tags: [search]
+      summary: Search TV series via TMDB (hits carry tmdb_id).
+      operationId: searchTVMDB
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: The hits (flat array, provider wire shape).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/artists:
+    get:
+      tags: [search]
+      summary: Search artists via MusicBrainz (keyless, always available).
+      operationId: searchArtists
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: The hits (flat array, provider wire shape).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/books/authors:
+    get:
+      tags: [search]
+      summary: Search book authors via Open Library (keyless, always available).
+      operationId: searchBookAuthors
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: The hits (flat array, provider wire shape).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/books/works:
+    get:
+      tags: [search]
+      summary: Search book works via Open Library (keyless, always available).
+      operationId: searchBookWorks
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+        - name: author
+          in: query
+          description: Restrict works to this author.
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The hits (flat array, provider wire shape).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/profiles:
+    get:
+      tags: [search]
+      summary: Built-in quality profiles for one kind.
+      operationId: listProfiles
+      description: The kind's profiles plus its default, so the add-flow picker can preselect it.
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          description: Note the plural movies / books (not the singular dashboard kind).
+          schema:
+            $ref: "#/components/schemas/ProfileKind"
+      responses:
+        "200":
+          description: The profiles and default.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfilesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/events:
+    get:
+      tags: [events]
+      summary: Live WebSocket push of queue and history events.
+      operationId: events
+      description: |
+        Hand-rolled WebSocket (gorilla/websocket), not part of the generated
+        client. Auth is a bearer token like the REST API, or a token query
+        parameter (browsers cannot set headers on a WebSocket handshake).
+
+        The first frame is a hello handshake (payload omitted). Subsequent
+        frames carry bus events — queue.updated and history.appended — with
+        per-kind payloads declared under components.schemas (QueueUpdated*
+        and HistoryAppended*).
+      parameters:
+        - name: token
+          in: query
+          required: false
+          description: API token (alternative to the Authorization header).
+          schema:
+            type: string
+      responses:
+        "101":
+          description: WebSocket upgrade (JSON frames per EventFrame).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventFrame"
+        "401":
+          description: Missing or invalid token (before upgrade).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /metrics:
+    get:
+      tags: [metrics]
+      summary: Prometheus scrape (auth-gated).
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Prometheus text exposition format.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API token minted by POST /api/v1/auth/login.
+  parameters:
+    PathID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    PathSeason:
+      name: season
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    PathEpisode:
+      name: episode
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    PathDisc:
+      name: disc
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    PathNumber:
+      name: number
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    ListQ:
+      name: q
+      in: query
+      required: false
+      description: Case-insensitive substring search on the item name.
+      schema:
+        type: string
+    ListMonitored:
+      name: monitored
+      in: query
+      required: false
+      description: When set (true or false), keep only items whose monitored flag matches.
+      schema:
+        type: boolean
+    ListPage:
+      name: page
+      in: query
+      required: false
+      description: 1-based page number (default 1).
+      schema:
+        type: integer
+        minimum: 1
+    ListPageSize:
+      name: page_size
+      in: query
+      required: false
+      description: Page size (default 25, max 100).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    SearchQuery:
+      name: query
+      in: query
+      required: true
+      description: Free-text search query.
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadRequest:
+      description: Invalid input (bad JSON, missing field, bad path/query value).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Unknown id.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Duplicate resource.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Internal:
+      description: Internal server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadGateway:
+      description: Upstream provider returned a bad answer.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServiceUnavailable:
+      description: Provider not configured (missing API key).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    VersionInfo:
+      type: object
+      required: [version, commit, build_time, go_version, started_at]
+      properties:
+        version:
+          type: string
+        commit:
+          type: string
+        build_time:
+          type: string
+        go_version:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+    ReadinessCheck:
+      type: object
+      required: [name, ok]
+      properties:
+        name:
+          type: string
+        ok:
+          type: boolean
+        latency:
+          type: string
+        error:
+          type: string
+    ReadinessReport:
+      type: object
+      required: [status, checks, version]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReadinessCheck"
+        version:
+          type: string
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    LoginResponse:
+      type: object
+      required: [token, user, role, token_prefix]
+      properties:
+        token:
+          type: string
+        user:
+          type: string
+        role:
+          type: string
+        token_prefix:
+          type: string
+    Me:
+      type: object
+      required: [username, role]
+      properties:
+        username:
+          type: string
+        role:
+          type: string
+    PageMovie:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Movie"
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        page_size:
+          type: integer
+    PageSeries:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Series"
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        page_size:
+          type: integer
+    PageArtist:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Artist"
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        page_size:
+          type: integer
+    PageAuthor:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Author"
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        page_size:
+          type: integer
+    PageQueueItem:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueueViewItem"
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        page_size:
+          type: integer
+    AddedId:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+    MonitoredResult:
+      type: object
+      required: [id, monitored]
+      properties:
+        id:
+          type: integer
+          format: int64
+        monitored:
+          type: boolean
+    SeasonMonitoredResult:
+      type: object
+      required: [season, monitored]
+      properties:
+        season:
+          type: integer
+        monitored:
+          type: boolean
+    EpisodeMonitoredResult:
+      type: object
+      required: [season, episode, monitored]
+      properties:
+        season:
+          type: integer
+        episode:
+          type: integer
+        monitored:
+          type: boolean
+    TrackMonitoredResult:
+      type: object
+      required: [disc, number, monitored]
+      properties:
+        disc:
+          type: integer
+        number:
+          type: integer
+        monitored:
+          type: boolean
+    ImportedResult:
+      type: object
+      required: [imported]
+      properties:
+        imported:
+          type: integer
+    Movie:
+      type: object
+      required: [ID, Title, Year, QualityProfile, Monitored, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        Title:
+          type: string
+        Year:
+          type: integer
+        QualityProfile:
+          type: string
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+    AddMovieRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        year:
+          type: string
+        quality_profile:
+          type: string
+    Series:
+      type: object
+      required: [ID, TVDBID, TMDBID, Title, Year, QualityProfile, Monitored, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        TVDBID:
+          type: integer
+          description: 0 = unset
+        TMDBID:
+          type: integer
+          description: 0 = unset
+        Title:
+          type: string
+        Year:
+          type: integer
+        QualityProfile:
+          type: string
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+    AddSeriesRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        year:
+          type: string
+        quality_profile:
+          type: string
+        monitored:
+          type: boolean
+          description: Omitted = monitored (default).
+        tvdb_id:
+          type: string
+          description: Provider id of the selected search result (omitted = unset).
+        tmdb_id:
+          type: string
+          description: Provider id of the selected search result (omitted = unset).
+    Episode:
+      type: object
+      required: [ID, SeriesID, Season, Episode, Title, Monitored, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        SeriesID:
+          type: integer
+          format: int64
+        Season:
+          type: integer
+        Episode:
+          type: integer
+        Title:
+          type: string
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+    AddEpisodeRequest:
+      type: object
+      required: [season, episode]
+      properties:
+        season:
+          type: integer
+          minimum: 1
+        episode:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+        monitored:
+          type: boolean
+          description: Omitted = monitored (default).
+    WantedStatus:
+      type: string
+      enum: [pending, satisfied]
+    SeriesWanted:
+      type: object
+      required: [SeriesID, Season, Episode, Status, ReleaseTitle, CreatedAt, SatisfiedAt]
+      properties:
+        SeriesID:
+          type: integer
+          format: int64
+        Season:
+          type: integer
+        Episode:
+          type: integer
+        Status:
+          $ref: "#/components/schemas/WantedStatus"
+        ReleaseTitle:
+          type: string
+        CreatedAt:
+          type: string
+          format: date-time
+        SatisfiedAt:
+          type: string
+          format: date-time
+          nullable: true
+    Artist:
+      type: object
+      required: [ID, MBID, Name, Monitored, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        MBID:
+          type: string
+          description: MusicBrainz artist id (empty = unset).
+        Name:
+          type: string
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+    AddArtistRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        mbid:
+          type: string
+          description: MusicBrainz artist id of the selected search result (omitted = unset).
+        monitored:
+          type: boolean
+          description: Omitted = monitored (default).
+    Album:
+      type: object
+      required: [ID, ArtistID, MBID, Name, Year, QualityProfile, Monitored, VerifyChecksums, Checksum, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        ArtistID:
+          type: integer
+          format: int64
+        MBID:
+          type: string
+          description: MusicBrainz release id (empty = unset).
+        Name:
+          type: string
+        Year:
+          type: integer
+        QualityProfile:
+          type: string
+        Monitored:
+          type: boolean
+        VerifyChecksums:
+          type: boolean
+        Checksum:
+          type: string
+          description: Expected sha256 of the whole-album file, when known.
+        AddedAt:
+          type: string
+          format: date-time
+    AddAlbumRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        year:
+          type: integer
+        quality_profile:
+          type: string
+        monitored:
+          type: boolean
+          description: Omitted = monitored (default).
+    Track:
+      type: object
+      required: [ID, AlbumID, MBID, Disc, Number, Title, Checksum, Monitored, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        AlbumID:
+          type: integer
+          format: int64
+        MBID:
+          type: string
+          description: MusicBrainz track id (empty = unset).
+        Disc:
+          type: integer
+          minimum: 1
+        Number:
+          type: integer
+          minimum: 1
+        Title:
+          type: string
+        Checksum:
+          type: string
+          description: Expected sha256 of the file, when known.
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+    AddTrackRequest:
+      type: object
+      required: [disc, number]
+      properties:
+        disc:
+          type: integer
+          minimum: 1
+        number:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+        monitored:
+          type: boolean
+          description: Omitted = monitored (default).
+    AlbumWanted:
+      type: object
+      required: [AlbumID, TrackID, Status, ReleaseTitle, CreatedAt, SatisfiedAt]
+      properties:
+        AlbumID:
+          type: integer
+          format: int64
+        TrackID:
+          type: integer
+          format: int64
+          description: 0 = whole-album request
+        Status:
+          $ref: "#/components/schemas/WantedStatus"
+        ReleaseTitle:
+          type: string
+        CreatedAt:
+          type: string
+          format: date-time
+        SatisfiedAt:
+          type: string
+          format: date-time
+          nullable: true
+    Author:
+      type: object
+      required: [ID, Name, Monitored, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        Name:
+          type: string
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+    AddAuthorRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        monitored:
+          type: boolean
+          description: Omitted = monitored (default).
+    BookTitle:
+      type: object
+      required: [ID, AuthorID, Name, Monitored, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        AuthorID:
+          type: integer
+          format: int64
+        Name:
+          type: string
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+    AddTitleRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        monitored:
+          type: boolean
+          description: Omitted = monitored (default).
+    Edition:
+      type: object
+      required: [ID, TitleID, Format, Publisher, ISBN, Year, Pages, Monitored, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        TitleID:
+          type: integer
+          format: int64
+        Format:
+          type: string
+          description: epub / mobi / azw3
+        Publisher:
+          type: string
+        ISBN:
+          type: string
+        Year:
+          type: integer
+        Pages:
+          type: integer
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+    AddEditionRequest:
+      type: object
+      required: [format]
+      properties:
+        format:
+          type: string
+          enum: [epub, mobi, azw3]
+        isbn:
+          type: string
+        publisher:
+          type: string
+        year:
+          type: integer
+        pages:
+          type: integer
+        monitored:
+          type: boolean
+          description: Omitted = monitored (default).
+    TitleWanted:
+      type: object
+      required: [TitleID, EditionID, Status, ReleaseTitle, CreatedAt, SatisfiedAt]
+      properties:
+        TitleID:
+          type: integer
+          format: int64
+        EditionID:
+          type: integer
+          format: int64
+          description: 0 = whole-title request
+        Status:
+          $ref: "#/components/schemas/WantedStatus"
+        ReleaseTitle:
+          type: string
+        CreatedAt:
+          type: string
+          format: date-time
+        SatisfiedAt:
+          type: string
+          format: date-time
+          nullable: true
+    MediaKind:
+      type: string
+      enum: [movie, tv, music, book]
+    QueueState:
+      type: string
+      enum: [queued, downloading, complete, failed]
+    IndexerHealthStatus:
+      type: string
+      enum: [ok, error, idle]
+    DashboardLibrary:
+      type: object
+      required: [kind, label, count, wants, queue]
+      properties:
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        label:
+          type: string
+        count:
+          type: integer
+          format: int64
+        wants:
+          type: integer
+          format: int64
+        queue:
+          type: integer
+          format: int64
+    DashboardTotals:
+      type: object
+      required: [libraries, wants, queue]
+      properties:
+        libraries:
+          type: integer
+          format: int64
+        wants:
+          type: integer
+          format: int64
+        queue:
+          type: integer
+          format: int64
+    HistoryItem:
+      type: object
+      required: [kind, name, event, detail, at]
+      properties:
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        name:
+          type: string
+        event:
+          type: string
+        detail:
+          type: string
+        at:
+          type: string
+          format: date-time
+    DashboardQueueItem:
+      type: object
+      required: [kind, release_title, indexer, state, progress, updated_at]
+      properties:
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        release_title:
+          type: string
+        indexer:
+          type: string
+        state:
+          type: string
+        progress:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+    IndexerHealth:
+      type: object
+      required: [name, status, successes, failures, last_error, last_success, avg_latency_ns]
+      properties:
+        name:
+          type: string
+        status:
+          $ref: "#/components/schemas/IndexerHealthStatus"
+        successes:
+          type: integer
+          format: int64
+        failures:
+          type: integer
+          format: int64
+        last_error:
+          type: string
+        last_success:
+          type: string
+          format: date-time
+          nullable: true
+        avg_latency_ns:
+          type: integer
+          format: int64
+    Dashboard:
+      type: object
+      required: [libraries, totals, recent_history, recent_queue, indexers, generated_at]
+      properties:
+        libraries:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardLibrary"
+        totals:
+          $ref: "#/components/schemas/DashboardTotals"
+        recent_history:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryItem"
+        recent_queue:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardQueueItem"
+        indexers:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndexerHealth"
+        generated_at:
+          type: string
+          format: date-time
+    QueueViewItem:
+      type: object
+      required: [kind, parent_id, parent_name, release_title, indexer, state, progress, updated_at]
+      properties:
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        parent_id:
+          type: integer
+          format: int64
+        parent_name:
+          type: string
+        release_title:
+          type: string
+        indexer:
+          type: string
+        state:
+          $ref: "#/components/schemas/QueueState"
+        progress:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+    QueueHistoryEvent:
+      type: object
+      required: [event, detail, at]
+      properties:
+        event:
+          type: string
+        detail:
+          type: string
+        at:
+          type: string
+          format: date-time
+    Indexer:
+      type: object
+      required: [id, name, kind, base_url, enabled, has_api_key, last_test]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        kind:
+          type: string
+          description: Indexer protocol (fake, torznab, torrent-rss, nzb).
+        base_url:
+          type: string
+        enabled:
+          type: boolean
+        has_api_key:
+          type: boolean
+          description: Presence flag only — the key itself is never returned.
+        last_test:
+          type: string
+          format: date-time
+          nullable: true
+    IndexerCreate:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          description: Indexer protocol (fake, torznab, torrent-rss, nzb).
+        base_url:
+          type: string
+        api_key:
+          type: string
+          description: Plaintext in the request; never echoed back. Empty = keyless.
+        settings_json:
+          type: string
+          description: Adapter-specific JSON config (defaults to {}).
+        enabled:
+          type: boolean
+          description: Omitted = enabled (default).
+    IndexerUpdate:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          description: Indexer protocol (fake, torznab, torrent-rss, nzb).
+        base_url:
+          type: string
+        api_key:
+          type: string
+          description: Empty = keep the stored key (masked-edit round-trip).
+        settings_json:
+          type: string
+          description: Empty = keep the stored settings.
+    IndexerEnabled:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+    IndexerTestResult:
+      type: object
+      required: [id, name, kind, base_url, enabled, ok, duration, at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        kind:
+          type: string
+        base_url:
+          type: string
+        enabled:
+          type: boolean
+        ok:
+          type: boolean
+        error:
+          type: string
+          description: Credential-free failure reason (absent on success).
+        duration:
+          type: integer
+          description: Probe duration in nanoseconds.
+        at:
+          type: string
+          format: date-time
+    IndexerStats:
+      type: object
+      required: [name, calls, successes, failures, last_success, last_error, last_latency_ns, avg_latency_ns, total_latency_ns]
+      properties:
+        name:
+          type: string
+        calls:
+          type: integer
+          format: int64
+        successes:
+          type: integer
+          format: int64
+        failures:
+          type: integer
+          format: int64
+        last_success:
+          type: string
+          format: date-time
+          nullable: true
+        last_error:
+          type: string
+        last_latency_ns:
+          type: integer
+          format: int64
+        avg_latency_ns:
+          type: integer
+          format: int64
+        total_latency_ns:
+          type: integer
+          format: int64
+    DownloadClientView:
+      type: object
+      required: [kind, qb_base, qb_username, qb_api_key_set, qb_password_set, sab_base, sab_api_key_set, sab_complete_dir]
+      properties:
+        kind:
+          type: string
+          description: Download-client kind (mock, qbittorrent, sabnzbd).
+        qb_base:
+          type: string
+        qb_username:
+          type: string
+        qb_api_key_set:
+          type: boolean
+        qb_password_set:
+          type: boolean
+        sab_base:
+          type: string
+        sab_api_key_set:
+          type: boolean
+        sab_complete_dir:
+          type: string
+    DownloadClientRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          description: Download-client kind (mock, qbittorrent, sabnzbd); omitted means mock.
+        qb_base:
+          type: string
+        qb_username:
+          type: string
+        qb_api_key:
+          type: string
+          description: Empty = keep the stored value.
+        qb_password:
+          type: string
+          description: Empty = keep the stored value.
+        sab_base:
+          type: string
+        sab_api_key:
+          type: string
+          description: Empty = keep the stored value.
+        sab_complete_dir:
+          type: string
+    LibraryOverride:
+      type: object
+      required: [path, quality_profile]
+      properties:
+        path:
+          type: string
+        quality_profile:
+          type: string
+        checksum_verify:
+          type: boolean
+          nullable: true
+          description: Tristate — absent/null means use the default; false opts out, true opts in.
+    LibraryOverrides:
+      type: object
+      description: All four libraries keyed by kind (movie, tv, music, book).
+      additionalProperties:
+        $ref: "#/components/schemas/LibraryOverride"
+    SearchResult:
+      type: object
+      required: [id, title, year, extra]
+      properties:
+        id:
+          type: string
+          description: Provider id (tmdb_id / tvdb_id / mbid / open-library key).
+        title:
+          type: string
+        year:
+          type: integer
+        extra:
+          type: object
+          description: Display-only detail per kind (overview+rating, country, author).
+          additionalProperties:
+            type: string
+    ProfileKind:
+      type: string
+      enum: [movies, tv, music, books]
+    ProfilesResponse:
+      type: object
+      required: [profiles, default]
+      properties:
+        profiles:
+          type: array
+          items:
+            type: string
+        default:
+          type: string
+    EventFrame:
+      type: object
+      required: [type, at]
+      properties:
+        type:
+          type: string
+          description: Frame type — hello, queue.updated, or history.appended.
+        payload:
+          $ref: "#/components/schemas/EventPayload"
+        at:
+          type: string
+          format: date-time
+    EventPayload:
+      description: |
+        Per-kind bus payloads. queue.updated and history.appended frames carry
+        one of these; the id field identifies the kind (movie_id, series_id,
+        artist_id, or author_id).
+      oneOf:
+        - $ref: "#/components/schemas/QueueUpdatedMovie"
+        - $ref: "#/components/schemas/QueueUpdatedTV"
+        - $ref: "#/components/schemas/QueueUpdatedMusic"
+        - $ref: "#/components/schemas/QueueUpdatedBook"
+        - $ref: "#/components/schemas/HistoryAppendedMovie"
+        - $ref: "#/components/schemas/HistoryAppendedTV"
+        - $ref: "#/components/schemas/HistoryAppendedMusic"
+        - $ref: "#/components/schemas/HistoryAppendedBook"
+    QueueUpdatedMovie:
+      type: object
+      required: [movie_id, queue_id, release_title, indexer, client, state, progress]
+      properties:
+        movie_id:
+          type: integer
+          format: int64
+        queue_id:
+          type: integer
+          format: int64
+        release_title:
+          type: string
+        indexer:
+          type: string
+        client:
+          type: string
+        state:
+          $ref: "#/components/schemas/QueueState"
+        progress:
+          type: integer
+    QueueUpdatedTV:
+      type: object
+      required: [series_id, queue_id, release_title, indexer, client, state, progress]
+      properties:
+        series_id:
+          type: integer
+          format: int64
+        queue_id:
+          type: integer
+          format: int64
+        release_title:
+          type: string
+        indexer:
+          type: string
+        client:
+          type: string
+        state:
+          $ref: "#/components/schemas/QueueState"
+        progress:
+          type: integer
+    QueueUpdatedMusic:
+      type: object
+      required: [artist_id, album_id, queue_id, release_title, indexer, client, state, progress]
+      properties:
+        artist_id:
+          type: integer
+          format: int64
+        album_id:
+          type: integer
+          format: int64
+        queue_id:
+          type: integer
+          format: int64
+        release_title:
+          type: string
+        indexer:
+          type: string
+        client:
+          type: string
+        state:
+          $ref: "#/components/schemas/QueueState"
+        progress:
+          type: integer
+    QueueUpdatedBook:
+      type: object
+      required: [author_id, title_id, queue_id, release_title, indexer, client, state, progress]
+      properties:
+        author_id:
+          type: integer
+          format: int64
+        title_id:
+          type: integer
+          format: int64
+        queue_id:
+          type: integer
+          format: int64
+        release_title:
+          type: string
+        indexer:
+          type: string
+        client:
+          type: string
+        state:
+          $ref: "#/components/schemas/QueueState"
+        progress:
+          type: integer
+    HistoryAppendedMovie:
+      type: object
+      required: [movie_id, event, detail]
+      properties:
+        movie_id:
+          type: integer
+          format: int64
+        event:
+          type: string
+        detail:
+          type: string
+    HistoryAppendedTV:
+      type: object
+      required: [series_id, event, detail]
+      properties:
+        series_id:
+          type: integer
+          format: int64
+        event:
+          type: string
+        detail:
+          type: string
+    HistoryAppendedMusic:
+      type: object
+      required: [artist_id, event, detail]
+      properties:
+        artist_id:
+          type: integer
+          format: int64
+        event:
+          type: string
+        detail:
+          type: string
+    HistoryAppendedBook:
+      type: object
+      required: [author_id, event, detail]
+      properties:
+        author_id:
+          type: integer
+          format: int64
+        event:
+          type: string
+        detail:
+          type: string

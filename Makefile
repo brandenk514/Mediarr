@@ -56,6 +56,10 @@ lint: ## go vet + gofmt check + golangci-lint (gosec/errcheck/govet/unused)
 	@command -v golangci-lint >/dev/null || $(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 	golangci-lint run ./...
 
+.PHONY: spec-check
+spec-check: ## Validate openapi.yaml against the OpenAPI 3.0 spec (kin-openapi)
+	$(GO) run ./tools/speccheck
+
 .PHONY: tidy
 tidy: ## Sync go.mod / go.sum
 	$(GO) mod tidy
