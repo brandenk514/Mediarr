@@ -1068,6 +1068,9 @@ export interface components {
             id: number;
             monitored: boolean;
         };
+        SetMonitored: {
+            monitored: boolean;
+        };
         SeasonMonitoredResult: {
             season: number;
             monitored: boolean;
@@ -1901,7 +1904,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
@@ -2047,7 +2050,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
@@ -2078,7 +2081,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
@@ -2164,7 +2167,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
@@ -2341,7 +2344,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
@@ -2489,7 +2492,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
@@ -2575,7 +2578,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
@@ -2712,7 +2715,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
@@ -2861,7 +2864,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
@@ -2970,7 +2973,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MonitoredResult"];
+                "application/json": components["schemas"]["SetMonitored"];
             };
         };
         responses: {
