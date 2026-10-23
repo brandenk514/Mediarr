@@ -33,7 +33,8 @@ info:
     `components.schemas` (`EventFrame`, `QueueUpdated*`, `HistoryAppended*`)
     so TS consumers can import them.
 servers:
-  - url: /
+  - url: http://localhost:8080
+    description: Default local development endpoint (MEDIARR_HTTP_ADDR :8080)
 security:
   - bearerAuth: []
 tags:
@@ -232,7 +233,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -351,7 +352,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -380,7 +381,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -459,7 +460,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -601,7 +602,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -721,7 +722,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -800,7 +801,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -913,7 +914,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -1035,7 +1036,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -1133,7 +1134,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MonitoredResult"
+              $ref: "#/components/schemas/SetMonitored"
       responses:
         "200":
           description: The toggled state.
@@ -2051,6 +2052,12 @@ components:
         id:
           type: integer
           format: int64
+        monitored:
+          type: boolean
+    SetMonitored:
+      type: object
+      required: [monitored]
+      properties:
         monitored:
           type: boolean
     SeasonMonitoredResult:
