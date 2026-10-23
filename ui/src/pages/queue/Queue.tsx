@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, client, connectEvents } from '../../api/client'
-import type { EventFrame, MediaKind, Page, QueueHistoryEvent, QueueViewItem, QueueState } from '../../api/types'
+import type { EventFrame, MediaKind, PageQueueItem, QueueHistoryEvent, QueueViewItem, QueueState } from '../../api/types'
 import { DEFAULT_PAGE_SIZE } from '../../components/list'
 import { Pagination } from '../../components/list'
 import { progressLabel, timeAgo } from '../../lib/format'
@@ -35,7 +35,7 @@ function historyPillClass(event: string): string {
 // pipelines push queue.updated frames, and a per-row history drill-down that
 // expands a job's lifecycle events for its parent.
 export function QueuePage() {
-  const [data, setData] = useState<Page<QueueViewItem> | null>(null)
+  const [data, setData] = useState<PageQueueItem | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [authLost, setAuthLost] = useState(false)
   const [loading, setLoading] = useState(true)

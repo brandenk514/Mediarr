@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
-import type { Movie, Page } from '../../api/types'
+import type { Movie, PageMovie } from '../../api/types'
 import { MoviesPage } from './Movies'
 
 // Page test for the movies list (#41). The client is mocked so we exercise the
@@ -16,7 +16,7 @@ vi.mock('../../api/client', () => ({
   },
 }))
 
-function page(items: Movie[], total = items.length, pg = 1): Page<Movie> {
+function page(items: Movie[], total = items.length, pg = 1): PageMovie {
   return { items, total, page: pg, page_size: 25 }
 }
 

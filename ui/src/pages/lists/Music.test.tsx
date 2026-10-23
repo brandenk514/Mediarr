@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
-import type { Album, Artist, Page, Track } from '../../api/types'
+import type { Album, Artist, PageArtist, Track } from '../../api/types'
 import { MusicPage } from './Music'
 
 // Page test for the music list (#41): paginated artists with two-level lazy
@@ -19,7 +19,7 @@ vi.mock('../../api/client', () => ({
   },
 }))
 
-function artistPage(items: Artist[], total = items.length, pg = 1): Page<Artist> {
+function artistPage(items: Artist[], total = items.length, pg = 1): PageArtist {
   return { items, total, page: pg, page_size: 25 }
 }
 

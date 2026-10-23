@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
-import type { Album, Artist, ListQuery, Track } from '../../api/types'
+import type { Album, ListQuery, PageArtist, Track } from '../../api/types'
 import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
@@ -29,7 +29,7 @@ export function MusicPage() {
     reload,
     expanded,
     toggleExpanded,
-  } = usePagedList<Artist>(load)
+  } = usePagedList<PageArtist>(load)
 
   return (
     <div className="list-page">
