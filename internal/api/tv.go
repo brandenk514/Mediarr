@@ -3,14 +3,23 @@ package api
 import (
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 
+	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/paging"
+	rfsvc "github.com/brandenk514/mediarr/internal/services/rootfolders"
 	tvsvc "github.com/brandenk514/mediarr/internal/services/tv"
 )
 
 // TVDeps bundles what the TV endpoints need.
 type TVDeps struct {
 	Svc *tvsvc.Service
+	// RootFolders, when non-nil, backs POST /api/v1/tv/import's
+	// root_folder_id resolution (P2 parity). Nil-safe: import by path
+	// still works without it.
+	RootFolders *rfsvc.Service
 }
 
 // SetTV wires the TV endpoints. Called after construction, mirroring
@@ -21,25 +30,33 @@ func (s *Server) SetTV(deps *TVDeps) {
 	s.register("GET /api/v1/tv", s.requireAuth(s.ListSeries))
 	s.register("GET /api/v1/tv/{id}", s.requireAuth(s.GetSeries))
 	s.register("PUT /api/v1/tv/{id}", s.requireAuth(s.SetSeriesMonitored))
+	s.register("PATCH /api/v1/tv/{id}", s.requireAuth(s.UpdateSeries))
 	s.register("PUT /api/v1/tv/{id}/seasons/{season}", s.requireAuth(s.SetSeasonMonitored))
 	s.register("PUT /api/v1/tv/{id}/episodes/{season}/{episode}", s.requireAuth(s.SetEpisodeMonitored))
 	s.register("POST /api/v1/tv/{id}/episodes", s.requireAuth(s.AddEpisode))
 	s.register("GET /api/v1/tv/{id}/episodes", s.requireAuth(s.ListEpisodes))
+	s.register("POST /api/v1/tv/{id}/episodes/search", s.requireAuth(s.SearchMissing))
 	s.register("GET /api/v1/tv/{id}/wanted", s.requireAuth(s.ListWanted))
+	s.register("GET /api/v1/tv/{id}/history", s.requireAuth(s.ListSeriesHistory))
 	s.register("POST /api/v1/tv/{id}/pipeline", s.requireAuth(s.RunTVPipeline))
+	s.register("POST /api/v1/tv/import", s.requireAuth(s.ImportLibrary))
 }
 
 // addSeriesRequest is the body for POST /api/v1/tv. Monitored is a pointer so
 // "omitted" (defaults to monitored) is distinguishable from an explicit false.
-// TvbID/TMDBID carry the provider ids of the selected result (M6 #42); both
-// are optional (0/" " = unset).
+// TvdbID/TMDBID carry the provider ids of the selected result (M6 #42); both
+// are optional (0/"" = unset). The P2 parity fields (series_type,
+// season_folder, tags) are optional with sensible defaults.
 type addSeriesRequest struct {
-	Title          string `json:"title"`
-	Year           string `json:"year"`
-	QualityProfile string `json:"quality_profile"`
-	Monitored      *bool  `json:"monitored"`
-	TvdbID         string `json:"tvdb_id"`
-	TMDBID         string `json:"tmdb_id"`
+	Title          string   `json:"title"`
+	Year           string   `json:"year"`
+	QualityProfile string   `json:"quality_profile"`
+	Monitored      *bool    `json:"monitored"`
+	TvdbID         string   `json:"tvdb_id"`
+	TMDBID         string   `json:"tmdb_id"`
+	SeriesType     string   `json:"series_type"`
+	SeasonFolder   *bool    `json:"season_folder"`
+	Tags           []string `json:"tags"`
 }
 
 // AddSeries handles POST /api/v1/tv. A series is monitored by default; an
@@ -58,7 +75,21 @@ func (s *Server) AddSeries(w http.ResponseWriter, r *http.Request) {
 	if req.Monitored != nil {
 		monitored = *req.Monitored
 	}
-	id, err := s.tvDeps.Svc.AddSeries(r.Context(), req.Title, req.Year, req.QualityProfile, monitored, req.TvdbID, req.TMDBID)
+	seasonFolder := false
+	if req.SeasonFolder != nil {
+		seasonFolder = *req.SeasonFolder
+	}
+	id, err := s.tvDeps.Svc.AddSeries(r.Context(), tvsvc.AddSeriesRequest{
+		Title:          req.Title,
+		Year:           req.Year,
+		QualityProfile: req.QualityProfile,
+		Monitored:      monitored,
+		TVDBID:         req.TvdbID,
+		TMDBID:         req.TMDBID,
+		SeriesType:     req.SeriesType,
+		SeasonFolder:   seasonFolder,
+		Tags:           req.Tags,
+	})
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -263,4 +294,136 @@ func (s *Server) SetEpisodeMonitored(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"season": season, "episode": episode, "monitored": req.Monitored})
+}
+
+// updateSeriesRequest is the body for PATCH /api/v1/tv/{id}. Every field is
+// optional (pointer); omitted fields are left unchanged. This is the series
+// edit path (P2 parity): quality profile, series type, season folder, tags,
+// monitored.
+type updateSeriesRequest struct {
+	Monitored      *bool     `json:"monitored"`
+	QualityProfile *string   `json:"quality_profile"`
+	SeriesType     *string   `json:"series_type"`
+	SeasonFolder   *bool     `json:"season_folder"`
+	Tags           *[]string `json:"tags"`
+}
+
+// UpdateSeries handles PATCH /api/v1/tv/{id} and returns the updated series.
+func (s *Server) UpdateSeries(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req updateSeriesRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	series, err := s.tvDeps.Svc.UpdateSeries(r.Context(), id, tvdom.SeriesPatch{
+		Monitored:      req.Monitored,
+		QualityProfile: req.QualityProfile,
+		SeriesType:     req.SeriesType,
+		SeasonFolder:   req.SeasonFolder,
+		Tags:           req.Tags,
+	})
+	if err != nil {
+		writeMonitoredError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, series)
+}
+
+// SearchMissing handles POST /api/v1/tv/{id}/episodes/search (P2 parity):
+// it marks the series' missing monitored episodes as wanted so a pipeline
+// run (or the pipeline it fans into) can fetch them.
+func (s *Server) SearchMissing(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	searched, err := s.tvDeps.Svc.SearchMissing(r.Context(), id)
+	if err != nil {
+		writeMonitoredError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"searched": searched})
+}
+
+// ListSeriesHistory handles GET /api/v1/tv/{id}/history (P2 parity:
+// series-level history). ?limit clamps to 1..200, defaulting to 50.
+func (s *Server) ListSeriesHistory(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	h, err := s.tvDeps.Svc.ListHistory(r.Context(), id, limit)
+	if err != nil {
+		writeMonitoredError(w, err)
+		return
+	}
+	if h == nil {
+		h = []tvdom.HistoryEntry{}
+	}
+	writeJSON(w, http.StatusOK, h)
+}
+
+// importLibraryRequest is the body for POST /api/v1/tv/import. Exactly one
+// of root_folder_id (a registered root folder) or path (an ad-hoc path, the
+// "unmapped" case) is required.
+type importLibraryRequest struct {
+	RootFolderID int64  `json:"root_folder_id"`
+	Path         string `json:"path"`
+}
+
+// ImportLibrary handles POST /api/v1/tv/import (P2 parity, phase 1): it
+// scans a root folder, matches the candidate series folders against the
+// tracked series, and reports them for confirmation.
+func (s *Server) ImportLibrary(w http.ResponseWriter, r *http.Request) {
+	var req importLibraryRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	var rootPath string
+	if req.RootFolderID > 0 {
+		if s.tvDeps.RootFolders == nil {
+			writeError(w, http.StatusBadRequest, "root folder registry is not configured")
+			return
+		}
+		rf, err := s.tvDeps.RootFolders.Get(req.RootFolderID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "root folder not found")
+			return
+		}
+		rootPath = rf.Path
+	} else {
+		rootPath = req.Path
+	}
+	if rootPath == "" {
+		writeError(w, http.StatusBadRequest, "root_folder_id or path is required")
+		return
+	}
+	// Map filesystem problems to a clean 404/400 before the scan.
+	if fi, err := os.Stat(filepath.Clean(rootPath)); err != nil {
+		writeError(w, http.StatusNotFound, "root folder not found: "+rootPath)
+		return
+	} else if !fi.IsDir() {
+		writeError(w, http.StatusBadRequest, "root folder is not a directory: "+rootPath)
+		return
+	}
+	report, err := s.tvDeps.Svc.ScanLibrary(r.Context(), rootPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
 }

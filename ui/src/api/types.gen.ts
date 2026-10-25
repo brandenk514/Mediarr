@@ -188,7 +188,13 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a series (P2: quality profile, series type, season folder, tags, monitored).
+         * @description Partial update: only the fields present in the body change; omitted
+         *     fields keep their current values. A monitored change fans out to
+         *     known episodes, like the PUT toggle.
+         */
+        patch: operations["updateSeries"];
         trace?: never;
     };
     "/api/v1/tv/{id}/seasons/{season}": {
@@ -246,6 +252,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tv/{id}/episodes/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a search for the series' missing monitored episodes (P2).
+         * @description Marks every monitored episode that is not yet satisfied as wanted
+         *     (creating the wanted row if needed) so the next pipeline run fetches
+         *     it. Returns how many episodes are now searched.
+         */
+        post: operations["searchMissingEpisodes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tv/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a series' history (P2). */
+        get: operations["listSeriesHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tv/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan a root folder for series and match it to the library (P2, phase 1).
+         * @description Library import, phase 1 (scan -> match -> confirm): scans the given
+         *     root folder, treats each immediate subfolder as a candidate series
+         *     (parsed as "Title (Year)"), counts its seasons and video files, and
+         *     reports which candidates match a tracked series. Confirmation of an
+         *     import happens through the regular add-series flow.
+         */
+        post: operations["importLibrary"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tv/{id}/wanted": {
         parameters: {
             query?: never;
@@ -275,6 +344,45 @@ export interface paths {
         /** Run the TV pipeline. */
         post: operations["runTVPipeline"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/root-folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List registered root folders. */
+        get: operations["listRootFolders"];
+        put?: never;
+        /** Register a root folder. */
+        post: operations["addRootFolder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/root-folders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update a root folder.
+         * @description Omitted path/name keep their stored values.
+         */
+        put: operations["updateRootFolder"];
+        post?: never;
+        /** Delete a root folder. */
+        delete: operations["deleteRootFolder"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1114,6 +1222,15 @@ export interface components {
             Year: number;
             QualityProfile: string;
             Monitored: boolean;
+            /**
+             * @description Series type (P2); defaults to standard.
+             * @enum {string}
+             */
+            SeriesType: "standard" | "daily" | "oneshot";
+            /** @description Organize files under a per-season folder (P2); defaults to false. */
+            SeasonFolder: boolean;
+            /** @description Free-form series tags (P2); empty when unset. */
+            Tags: string[];
             /** Format: date-time */
             AddedAt: string;
         };
@@ -1127,6 +1244,96 @@ export interface components {
             tvdb_id?: string;
             /** @description Provider id of the selected search result (omitted = unset). */
             tmdb_id?: string;
+            /**
+             * @description P2 parity; omitted = standard.
+             * @enum {string}
+             */
+            series_type?: "standard" | "daily" | "oneshot";
+            /** @description P2 parity; omitted = false. */
+            season_folder?: boolean;
+            /** @description P2 parity; omitted = no tags. */
+            tags?: string[];
+        };
+        /**
+         * @description Partial series update (P2). Only the fields present in the body are
+         *     applied; omitted fields keep their current values.
+         */
+        UpdateSeriesRequest: {
+            monitored?: boolean;
+            quality_profile?: string;
+            /** @enum {string} */
+            series_type?: "standard" | "daily" | "oneshot";
+            season_folder?: boolean;
+            tags?: string[];
+        };
+        SeriesSearchResult: {
+            /** @description Number of episodes now searched (wanted). */
+            searched: number;
+        };
+        SeriesHistoryItem: {
+            /** Format: int64 */
+            ID: number;
+            /** Format: int64 */
+            SeriesID: number;
+            /** @description e.g. added, monitored, searched, download, import */
+            Event: string;
+            Detail: string;
+            /** Format: date-time */
+            At: string;
+        };
+        SeriesHistory: components["schemas"]["SeriesHistoryItem"][];
+        /**
+         * @description Library import (P2, phase 1). Exactly one of root_folder_id (a
+         *     registered root folder) or path (an ad-hoc, unmapped path) is
+         *     required.
+         */
+        ImportRequest: {
+            /** Format: int64 */
+            root_folder_id?: number;
+            path?: string;
+        };
+        ImportCandidate: {
+            /** @description Absolute path of the scanned series folder. */
+            Path: string;
+            Title: string;
+            /** @description 0 when the folder name has no year. */
+            Year: number;
+            /** @description Number of "Season NN" subfolders. */
+            Seasons: number;
+            /** @description Number of video files under the folder. */
+            Files: number;
+            /**
+             * Format: int64
+             * @description Total bytes of those video files.
+             */
+            Size: number;
+            /** @description A tracked series was found for this folder. */
+            Matched: boolean;
+            /**
+             * Format: int64
+             * @description The matched series' id (0 when not matched).
+             */
+            SeriesID: number;
+        };
+        ImportReport: {
+            Root: string;
+            /** @description Number of candidate folders. */
+            Scanned: number;
+            Candidates: components["schemas"]["ImportCandidate"][];
+        };
+        RootFolder: {
+            /** Format: int64 */
+            ID: number;
+            Path: string;
+            /** @description Optional label; empty when unset. */
+            Name: string;
+            /** Format: date-time */
+            CreatedAt: string;
+        };
+        /** @description Omitted path/name keep their stored values (PUT). */
+        RootFolderRequest: {
+            path?: string;
+            name?: string;
         };
         Episode: {
             /** Format: int64 */
@@ -1676,6 +1883,8 @@ export interface components {
         ListPage: number;
         /** @description Page size (default 25, max 100). */
         ListPageSize: number;
+        /** @description Maximum number of entries to return (server clamps to 1..200, default 50). */
+        HistoryLimit: number;
         /** @description Free-text search query. */
         SearchQuery: string;
     };
@@ -2069,6 +2278,36 @@ export interface operations {
             500: components["responses"]["Internal"];
         };
     };
+    updateSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSeriesRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Series"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
     setSeasonMonitored: {
         parameters: {
             query?: never;
@@ -2186,6 +2425,103 @@ export interface operations {
             500: components["responses"]["Internal"];
         };
     };
+    searchMissingEpisodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The number of episodes now searched. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesSearchResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listSeriesHistory: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of entries to return (server clamps to 1..200, default 50). */
+                limit?: components["parameters"]["HistoryLimit"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series' history entries, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesHistory"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    importLibrary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The scan report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportReport"];
+                };
+            };
+            /** @description Bad request (missing root, not a directory, invalid JSON). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The root folder does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
+        };
+    };
     listSeriesWanted: {
         parameters: {
             query?: never;
@@ -2247,6 +2583,112 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["Internal"];
+        };
+    };
+    listRootFolders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description All registered root folders, by id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RootFolder"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    addRootFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RootFolderRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddedId"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    updateRootFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RootFolderRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated root folder. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RootFolder"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    deleteRootFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted (empty body). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["Internal"];
         };
     };

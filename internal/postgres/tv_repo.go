@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	tv "github.com/brandenk514/mediarr/internal/domains/tv"
 )
@@ -32,10 +33,12 @@ func (r *TVRepo) CreateSeries(ctx context.Context, s tv.Series) (int64, error) {
 		return 0, fmt.Errorf("tv: create series: %w", err)
 	}
 	err = r.db.QueryRowContext(ctx, `
-		INSERT INTO tv_series (tvdb_id, tmdb_id, title, year, quality_profile, monitored)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO tv_series (tvdb_id, tmdb_id, title, year, quality_profile, monitored,
+		                       series_type, season_folder, tags)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
 		s.TVDBID, s.TMDBID, s.Title, s.Year, s.QualityProfile, s.Monitored,
+		effectiveSeriesType(s.SeriesType), s.SeasonFolder, nullSafeTags(s.Tags),
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("tv: create series: %w", err)
@@ -46,11 +49,13 @@ func (r *TVRepo) CreateSeries(ctx context.Context, s tv.Series) (int64, error) {
 // GetSeries loads a series by id.
 func (r *TVRepo) GetSeries(ctx context.Context, id int64) (*tv.Series, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, tvdb_id, tmdb_id, title, year, quality_profile, monitored, added_at
+		SELECT id, tvdb_id, tmdb_id, title, year, quality_profile, monitored,
+		       series_type, season_folder, tags, added_at
 		FROM tv_series WHERE id = $1`, id)
 	s := &tv.Series{}
 	err := row.Scan(&s.ID, &s.TVDBID, &s.TMDBID, &s.Title, &s.Year,
-		&s.QualityProfile, &s.Monitored, &s.AddedAt)
+		&s.QualityProfile, &s.Monitored, &s.SeriesType, &s.SeasonFolder,
+		&s.Tags, &s.AddedAt)
 	if err == sql.ErrNoRows {
 		return nil, tv.ErrSeriesNotFound
 	}
@@ -63,7 +68,8 @@ func (r *TVRepo) GetSeries(ctx context.Context, id int64) (*tv.Series, error) {
 // ListSeries returns all series, oldest first.
 func (r *TVRepo) ListSeries(ctx context.Context) ([]tv.Series, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, tvdb_id, tmdb_id, title, year, quality_profile, monitored, added_at
+		SELECT id, tvdb_id, tmdb_id, title, year, quality_profile, monitored,
+		       series_type, season_folder, tags, added_at
 		FROM tv_series ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("tv: list series: %w", err)
@@ -73,7 +79,8 @@ func (r *TVRepo) ListSeries(ctx context.Context) ([]tv.Series, error) {
 	for rows.Next() {
 		var s tv.Series
 		if err := rows.Scan(&s.ID, &s.TVDBID, &s.TMDBID, &s.Title, &s.Year,
-			&s.QualityProfile, &s.Monitored, &s.AddedAt); err != nil {
+			&s.QualityProfile, &s.Monitored, &s.SeriesType, &s.SeasonFolder,
+			&s.Tags, &s.AddedAt); err != nil {
 			return nil, fmt.Errorf("tv: scan series: %w", err)
 		}
 		out = append(out, s)
@@ -92,6 +99,78 @@ func (r *TVRepo) SetSeriesMonitored(ctx context.Context, id int64, monitored boo
 		return tv.ErrSeriesNotFound
 	}
 	return nil
+}
+
+// UpdateSeries applies a partial update (SeriesPatch) to a series. Nil patch
+// fields are left unchanged; a patch with no fields set is a no-op.
+func (r *TVRepo) UpdateSeries(ctx context.Context, id int64, p tv.SeriesPatch) error {
+	var sets []string
+	var args []any
+	add := func(col string, val any) {
+		args = append(args, val)
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, len(args)))
+	}
+	if p.Monitored != nil {
+		add("monitored", *p.Monitored)
+	}
+	if p.QualityProfile != nil {
+		add("quality_profile", *p.QualityProfile)
+	}
+	if p.SeriesType != nil {
+		add("series_type", *p.SeriesType)
+	}
+	if p.SeasonFolder != nil {
+		add("season_folder", *p.SeasonFolder)
+	}
+	if p.Tags != nil {
+		tags := *p.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		add("tags", tags)
+	}
+	if len(sets) == 0 {
+		// No-op patch: still verify the series exists so callers get a
+		// consistent ErrSeriesNotFound for unknown ids.
+		var found int64
+		if err := r.db.QueryRowContext(ctx,
+			`SELECT id FROM tv_series WHERE id = $1`, id).Scan(&found); err != nil {
+			if err == sql.ErrNoRows {
+				return tv.ErrSeriesNotFound
+			}
+			return fmt.Errorf("tv: update series: %w", err)
+		}
+		return nil
+	}
+	args = append(args, id)
+	query := "UPDATE tv_series SET " + strings.Join(sets, ", ") + " WHERE id = $" + //nolint:gosec // G202: columns are the fixed allowlist built by add() above; every value is a bound parameter
+		fmt.Sprint(len(args))
+	res, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("tv: update series: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return tv.ErrSeriesNotFound
+	}
+	return nil
+}
+
+// effectiveSeriesType applies the domain default ("standard") so an explicit
+// empty insert does not clobber the column default.
+func effectiveSeriesType(st string) string {
+	if st == "" {
+		return "standard"
+	}
+	return st
+}
+
+// nullSafeTags normalizes a nil tag slice to an empty one so pgx can encode
+// it into a text[] column.
+func nullSafeTags(tags []string) []string {
+	if tags == nil {
+		return []string{}
+	}
+	return tags
 }
 
 // --- Episodes ---

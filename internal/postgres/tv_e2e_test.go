@@ -48,7 +48,7 @@ func TestTVPipeline_EndToEnd_Postgres(t *testing.T) {
 	})
 
 	// 1. Add the series (monitored by default) and three monitored episodes.
-	seriesID, err := svc.AddSeries(ctx, "Breaking Bad", "2008", "HD-1080p", true, "", "")
+	seriesID, err := svc.AddSeries(ctx, tvs.AddSeriesRequest{Title: "Breaking Bad", Year: "2008", QualityProfile: "HD-1080p", Monitored: true})
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestTVPipeline_NoMatch_Postgres(t *testing.T) {
 		DefaultProfile: "HD-1080p",
 	})
 
-	seriesID, err := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true, "", "")
+	seriesID, err := svc.AddSeries(ctx, tvs.AddSeriesRequest{Title: "Fringe", Year: "2008", QualityProfile: "HD-1080p", Monitored: true})
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}

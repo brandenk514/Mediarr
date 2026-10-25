@@ -46,6 +46,8 @@ tags:
     description: Movies library (add, list, get, monitor, pipeline).
   - name: tv
     description: TV library (series, episodes, seasons, wanted, pipeline).
+  - name: root-folders
+    description: Root-folder registry (on-disk media roots for Add-New and Library Import).
   - name: music
     description: Music library (artists, albums, tracks, wanted, pipeline).
   - name: books
@@ -368,6 +370,37 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+    patch:
+      tags: [tv]
+      summary: "Update a series (P2: quality profile, series type, season folder, tags, monitored)."
+      operationId: updateSeries
+      description: |
+        Partial update: only the fields present in the body change; omitted
+        fields keep their current values. A monitored change fans out to
+        known episodes, like the PUT toggle.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSeriesRequest"
+      responses:
+        "200":
+          description: The updated series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Series"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/tv/{id}/seasons/{season}:
     put:
       tags: [tv]
@@ -476,6 +509,91 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/tv/{id}/episodes/search:
+    post:
+      tags: [tv]
+      summary: Start a search for the series' missing monitored episodes (P2).
+      operationId: searchMissingEpisodes
+      description: |
+        Marks every monitored episode that is not yet satisfied as wanted
+        (creating the wanted row if needed) so the next pipeline run fetches
+        it. Returns how many episodes are now searched.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The number of episodes now searched.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeriesSearchResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/tv/{id}/history:
+    get:
+      tags: [tv]
+      summary: List a series' history (P2).
+      operationId: listSeriesHistory
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+        - $ref: "#/components/parameters/HistoryLimit"
+      responses:
+        "200":
+          description: The series' history entries, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeriesHistory"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/tv/import:
+    post:
+      tags: [tv]
+      summary: Scan a root folder for series and match it to the library (P2, phase 1).
+      operationId: importLibrary
+      description: |
+        Library import, phase 1 (scan -> match -> confirm): scans the given
+        root folder, treats each immediate subfolder as a candidate series
+        (parsed as "Title (Year)"), counts its seasons and video files, and
+        reports which candidates match a tracked series. Confirmation of an
+        import happens through the regular add-series flow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportRequest"
+      responses:
+        "200":
+          description: The scan report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportReport"
+        "400":
+          description: Bad request (missing root, not a directory, invalid JSON).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The root folder does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/tv/{id}/wanted:
     get:
       tags: [tv]
@@ -521,6 +639,99 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/root-folders:
+    get:
+      tags: [root-folders]
+      summary: List registered root folders.
+      operationId: listRootFolders
+      responses:
+        "200":
+          description: All registered root folders, by id.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RootFolder"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [root-folders]
+      summary: Register a root folder.
+      operationId: addRootFolder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RootFolderRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/root-folders/{id}:
+    put:
+      tags: [root-folders]
+      summary: Update a root folder.
+      operationId: updateRootFolder
+      description: Omitted path/name keep their stored values.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RootFolderRequest"
+      responses:
+        "200":
+          description: The updated root folder.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RootFolder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [root-folders]
+      summary: Delete a root folder.
+      operationId: deleteRootFolder
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Deleted (empty body).
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/music/artists:
@@ -1838,6 +2049,15 @@ components:
         type: integer
         minimum: 1
         maximum: 100
+    HistoryLimit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of entries to return (server clamps to 1..200, default 50).
+      schema:
+        type: integer
+        minimum: 1
+        default: 50
     SearchQuery:
       name: query
       in: query
@@ -2124,7 +2344,7 @@ components:
           type: string
     Series:
       type: object
-      required: [ID, TVDBID, TMDBID, Title, Year, QualityProfile, Monitored, AddedAt]
+      required: [ID, TVDBID, TMDBID, Title, Year, QualityProfile, Monitored, SeriesType, SeasonFolder, Tags, AddedAt]
       properties:
         ID:
           type: integer
@@ -2143,6 +2363,18 @@ components:
           type: string
         Monitored:
           type: boolean
+        SeriesType:
+          type: string
+          enum: [standard, daily, oneshot]
+          description: Series type (P2); defaults to standard.
+        SeasonFolder:
+          type: boolean
+          description: Organize files under a per-season folder (P2); defaults to false.
+        Tags:
+          type: array
+          items:
+            type: string
+          description: Free-form series tags (P2); empty when unset.
         AddedAt:
           type: string
           format: date-time
@@ -2165,6 +2397,143 @@ components:
         tmdb_id:
           type: string
           description: Provider id of the selected search result (omitted = unset).
+        series_type:
+          type: string
+          enum: [standard, daily, oneshot]
+          description: P2 parity; omitted = standard.
+        season_folder:
+          type: boolean
+          description: P2 parity; omitted = false.
+        tags:
+          type: array
+          items:
+            type: string
+          description: P2 parity; omitted = no tags.
+    UpdateSeriesRequest:
+      type: object
+      description: |
+        Partial series update (P2). Only the fields present in the body are
+        applied; omitted fields keep their current values.
+      properties:
+        monitored:
+          type: boolean
+        quality_profile:
+          type: string
+        series_type:
+          type: string
+          enum: [standard, daily, oneshot]
+        season_folder:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+    SeriesSearchResult:
+      type: object
+      required: [searched]
+      properties:
+        searched:
+          type: integer
+          description: Number of episodes now searched (wanted).
+    SeriesHistoryItem:
+      type: object
+      required: [ID, SeriesID, Event, Detail, At]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        SeriesID:
+          type: integer
+          format: int64
+        Event:
+          type: string
+          description: "e.g. added, monitored, searched, download, import"
+        Detail:
+          type: string
+        At:
+          type: string
+          format: date-time
+    SeriesHistory:
+      type: array
+      items:
+        $ref: "#/components/schemas/SeriesHistoryItem"
+    ImportRequest:
+      type: object
+      description: |
+        Library import (P2, phase 1). Exactly one of root_folder_id (a
+        registered root folder) or path (an ad-hoc, unmapped path) is
+        required.
+      properties:
+        root_folder_id:
+          type: integer
+          format: int64
+        path:
+          type: string
+    ImportCandidate:
+      type: object
+      required: [Path, Title, Year, Seasons, Files, Size, Matched, SeriesID]
+      properties:
+        Path:
+          type: string
+          description: Absolute path of the scanned series folder.
+        Title:
+          type: string
+        Year:
+          type: integer
+          description: 0 when the folder name has no year.
+        Seasons:
+          type: integer
+          description: Number of "Season NN" subfolders.
+        Files:
+          type: integer
+          description: Number of video files under the folder.
+        Size:
+          type: integer
+          format: int64
+          description: Total bytes of those video files.
+        Matched:
+          type: boolean
+          description: A tracked series was found for this folder.
+        SeriesID:
+          type: integer
+          format: int64
+          description: The matched series' id (0 when not matched).
+    ImportReport:
+      type: object
+      required: [Root, Scanned, Candidates]
+      properties:
+        Root:
+          type: string
+        Scanned:
+          type: integer
+          description: Number of candidate folders.
+        Candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportCandidate"
+    RootFolder:
+      type: object
+      required: [ID, Path, Name, CreatedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        Path:
+          type: string
+        Name:
+          type: string
+          description: Optional label; empty when unset.
+        CreatedAt:
+          type: string
+          format: date-time
+    RootFolderRequest:
+      type: object
+      description: Omitted path/name keep their stored values (PUT).
+      properties:
+        path:
+          type: string
+        name:
+          type: string
     Episode:
       type: object
       required: [ID, SeriesID, Season, Episode, Title, Monitored, AddedAt]

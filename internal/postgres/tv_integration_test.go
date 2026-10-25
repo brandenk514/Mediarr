@@ -298,3 +298,67 @@ func TestTVRepo_MultiEpisodeAndSeasonPack(t *testing.T) {
 		t.Errorf("season-pack episode = %d, want 0", qe.Episode)
 	}
 }
+
+// TestTVRepo_SeriesP2Fields verifies the P2 parity fields (series_type,
+// season_folder, tags) survive a postgres round-trip and that UpdateSeries
+// applies partial patches without touching unset fields.
+func TestTVRepo_SeriesP2Fields(t *testing.T) {
+	r := startTVPG(t)
+	ctx := context.Background()
+
+	tags := []string{"drama", "scifi"}
+	id, err := r.CreateSeries(ctx, tv.Series{
+		Title: "Severance", Year: 2022, QualityProfile: "HD-1080p", Monitored: true,
+		SeriesType: "standard", SeasonFolder: true, Tags: tags,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	s, err := r.GetSeries(ctx, id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if s.SeriesType != "standard" || !s.SeasonFolder {
+		t.Errorf("series = %+v, want standard + season folder", *s)
+	}
+	if len(s.Tags) != 2 || s.Tags[0] != "drama" || s.Tags[1] != "scifi" {
+		t.Errorf("tags = %v, want [drama scifi]", s.Tags)
+	}
+
+	// Defaults for a series created without P2 fields.
+	id2, err := r.CreateSeries(ctx, tv.Series{Title: "Fringe", Year: 2008, Monitored: false})
+	if err != nil {
+		t.Fatalf("create 2: %v", err)
+	}
+	s2, _ := r.GetSeries(ctx, id2)
+	if s2.SeriesType != "standard" || s2.SeasonFolder || len(s2.Tags) != 0 {
+		t.Errorf("defaults = %+v, want standard/false/[]", *s2)
+	}
+
+	// Partial update: change profile + tags, keep season folder.
+	newProfile := "UHD-2160p"
+	newTags := []string{"retro"}
+	if err := r.UpdateSeries(ctx, id, tv.SeriesPatch{QualityProfile: &newProfile, Tags: &newTags}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	s3, _ := r.GetSeries(ctx, id)
+	if s3.QualityProfile != "UHD-2160p" {
+		t.Errorf("profile = %q, want UHD-2160p", s3.QualityProfile)
+	}
+	if len(s3.Tags) != 1 || s3.Tags[0] != "retro" {
+		t.Errorf("tags = %v, want [retro]", s3.Tags)
+	}
+	if !s3.SeasonFolder || s3.Monitored != true {
+		t.Errorf("untouched fields changed: %+v", *s3)
+	}
+
+	// Empty patch is a no-op.
+	if err := r.UpdateSeries(ctx, id, tv.SeriesPatch{}); err != nil {
+		t.Fatalf("empty patch: %v", err)
+	}
+	// Unknown id.
+	if err := r.UpdateSeries(ctx, 999, tv.SeriesPatch{}); err != tv.ErrSeriesNotFound {
+		t.Errorf("update missing err = %v, want ErrSeriesNotFound", err)
+	}
+}
