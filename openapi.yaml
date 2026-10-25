@@ -76,6 +76,8 @@ tags:
     description: Live WebSocket push of queue/history events.
   - name: metrics
     description: Prometheus scrape endpoint.
+  - name: system
+    description: System area (P6) — Status (structured health, disk space, about), Tasks (worker inventory), Backup (config export/import), Updates (changelog), Events (history source), Log Files (SSE stream), and the Sonarr drop-in migration.
 paths:
   /healthz:
     get:
@@ -2634,6 +2636,255 @@ paths:
                 format: binary
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/health:
+    get:
+      tags: [system]
+      summary: Structured health checks for the Status page.
+      operationId: getSystemHealth
+      description: |
+        The structured health table behind System > Status: one row per check
+        with a human message, a severity (ok | warning | error) and a wiki
+        link. The top-level ok/warning/error counts feed the System nav badge
+        (the number of non-ok checks).
+      responses:
+        '200':
+          description: The health table.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemHealth'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/tasks:
+    get:
+      tags: [system]
+      summary: Running and scheduled background tasks (the worker inventory).
+      operationId: getSystemTasks
+      description: |
+        The task inventory behind System > Tasks. Every supervised worker
+        (PLAN.md §3) is exposed here with its schedule, last-run state and
+        running flag, plus the planned-but-not-yet-implemented workers.
+      responses:
+        '200':
+          description: The task inventory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemTasks'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/disk:
+    get:
+      tags: [system]
+      summary: Disk space for the configured media roots.
+      operationId: getSystemDisk
+      description: |
+        Disk usage for the configured media roots (System > Status > Disk
+        Space): the shared media root, the downloads dir and any registered
+        root folders, each with total/used/free bytes and a usage percentage.
+      responses:
+        '200':
+          description: The disk usage report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemDisk'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/about:
+    get:
+      tags: [system]
+      summary: Build info, run mode and uptime (System > Status > About).
+      operationId: getSystemAbout
+      description: Version, commit, build time, Go version, run mode and
+        process uptime for the About card.
+      responses:
+        '200':
+          description: The about report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemAbout'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/backup:
+    get:
+      tags: [system]
+      summary: Export the configuration as a JSON backup document.
+      operationId: getSystemBackup
+      description: |
+        Exports the settings (download client, library overrides and every
+        settings section) as a self-contained JSON backup document. The
+        include_queue / include_series query params add optional queue and
+        series snapshots.
+      parameters:
+        - name: include_queue
+          in: query
+          required: false
+          description: Include a queue snapshot.
+          schema:
+            type: boolean
+        - name: include_series
+          in: query
+          required: false
+          description: Include a series snapshot.
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: The backup document (downloaded by the UI).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupDocument'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+    post:
+      tags: [system]
+      summary: Import a configuration backup document.
+      operationId: putSystemBackup
+      description: |
+        Imports a backup document produced by GET /api/v1/system/backup,
+        writing the settings back (and, when present and requested, the queue
+        and series snapshots). Idempotent: re-importing the same document
+        converges to the same state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupImportRequest'
+      responses:
+        '200':
+          description: The import report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupImportResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/events:
+    get:
+      tags: [system]
+      summary: The event log (the history source) for System > Events.
+      operationId: getSystemEvents
+      description: |
+        Reads the global history feed — the same source the Activity > History
+        page uses — so the Events page can show every lifecycle event with a
+        date / event-type filter.
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Inclusive lower bound on the event time (RFC3339).
+          schema:
+            type: string
+            format: date-time
+        - name: event
+          in: query
+          required: false
+          description: Exact (case-insensitive) event-type match.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Max rows (clamped to 1..200).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        '200':
+          description: The event log, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemEvents'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/updates:
+    get:
+      tags: [system]
+      summary: The changelog (System > Updates).
+      operationId: getSystemUpdates
+      description: The release changelog with the current running version
+        highlighted.
+      responses:
+        '200':
+          description: The changelog.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemUpdates'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/logs:
+    get:
+      tags: [system]
+      summary: Streaming log viewer (System > Log Files) over SSE.
+      operationId: getSystemLogs
+      description: |
+        A Server-Sent-Events stream of recent application log lines. The first
+        frame is a `level`-tagged backlog of the ring buffer, then live lines
+        are pushed as they occur (flushed per event). Content-Type is
+        text/event-stream, not JSON.
+      responses:
+        '200':
+          description: The SSE log stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/migration:
+    post:
+      tags: [system]
+      summary: Run the Sonarr drop-in migration.
+      operationId: runMigration
+      description: |
+        The drop-in moment: pulls a live Sonarr instance (series +
+        seasons/episodes + quality profiles + tags + indexers + download
+        client) via its v3 API and imports it into Mediarr, returning a
+        mapping report. dry_run reports what would be imported without
+        writing; the run is idempotent (re-runnable, no duplicates) and
+        resumable (a partial run can be continued).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MigrationRequest'
+      responses:
+        '200':
+          description: The mapping report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MigrationResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/migration/status:
+    get:
+      tags: [system]
+      summary: Migration progress and last result.
+      operationId: getMigrationStatus
+      description: Current migration status (idle / running / completed /
+        partial / failed) with a progress counter and the last mapping report.
+      responses:
+        '200':
+          description: The migration status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MigrationStatus'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
 components:
   securitySchemes:
     bearerAuth:
@@ -4735,3 +4986,371 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ImportRunItem"
+    # ---- System (P6) ----------------------------------------------------
+    HealthCheck:
+      type: object
+      required: [check, message, severity, wiki_link]
+      description: One row in the System > Status health table.
+      properties:
+        check:
+          type: string
+          description: Stable check id (postgres, redis, media_root, ...).
+        message:
+          type: string
+          description: Human-readable status for the check.
+        severity:
+          type: string
+          enum: [ok, warning, error]
+        wiki_link:
+          type: string
+          description: Docs link for this check; empty when none.
+    SystemHealth:
+      type: object
+      required: [checks, ok, warning, error]
+      properties:
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthCheck"
+        ok:
+          type: integer
+          description: Count of ok checks.
+        warning:
+          type: integer
+          description: Count of warning checks.
+        error:
+          type: integer
+          description: Count of error checks.
+    TaskInfo:
+      type: object
+      required: [name, description, kind, running, enabled]
+      description: One background task in the worker inventory.
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        kind:
+          type: string
+          enum: [scheduled, on-demand, planned]
+          description: scheduled = periodic worker; on-demand = manual probe; planned = in the PLAN.md §3 inventory but not yet implemented.
+        interval:
+          type: string
+          description: Human schedule for scheduled tasks; empty otherwise.
+        last_run:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the task last ran; null when it never has.
+        last_duration:
+          type: string
+          description: How long the last run took (e.g. 1.2s).
+        last_error:
+          type: string
+          description: Error message from the last run; empty when clean.
+        running:
+          type: boolean
+          description: True while the task is currently executing.
+        enabled:
+          type: boolean
+          description: False for planned tasks that are not yet active.
+    SystemTasks:
+      type: object
+      required: [tasks, running, scheduled]
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskInfo"
+        running:
+          type: integer
+          description: Number of tasks currently executing.
+        scheduled:
+          type: integer
+          description: Number of active scheduled (periodic) tasks.
+    DiskRoot:
+      type: object
+      required: [path, exists, total_bytes, used_bytes, free_bytes, usage_pct]
+      properties:
+        path:
+          type: string
+        exists:
+          type: boolean
+          description: False when the path is not present (usage fields are 0).
+        total_bytes:
+          type: integer
+          format: int64
+        used_bytes:
+          type: integer
+          format: int64
+        free_bytes:
+          type: integer
+          format: int64
+        usage_pct:
+          type: number
+          format: double
+          description: used/total as a fraction 0..1; 0 when the path is absent.
+    SystemDisk:
+      type: object
+      required: [roots, media_root, downloads_dir]
+      properties:
+        roots:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiskRoot"
+        media_root:
+          type: string
+          description: The configured shared media root.
+        downloads_dir:
+          type: string
+          description: The configured downloads dir.
+    SystemAbout:
+      type: object
+      required: [version, commit, build_time, go_version, mode, started_at, uptime_seconds]
+      properties:
+        version:
+          type: string
+        commit:
+          type: string
+        build_time:
+          type: string
+        go_version:
+          type: string
+        mode:
+          type: string
+          description: Run mode (production | development).
+        started_at:
+          type: string
+          format: date-time
+        uptime_seconds:
+          type: integer
+          format: int64
+        uptime:
+          type: string
+          description: Human uptime (e.g. 3h 12m).
+    BackupSection:
+      type: object
+      required: [section, document]
+      description: One settings section document in a backup.
+      properties:
+        section:
+          type: string
+          description: The section slug (e.g. import-lists, tags).
+        document:
+          type: string
+          description: The raw section JSON, encoded as a JSON string.
+    BackupSettings:
+      type: object
+      required: [download_client, libraries, sections]
+      properties:
+        download_client:
+          $ref: "#/components/schemas/DownloadClientView"
+        libraries:
+          $ref: "#/components/schemas/LibraryOverrides"
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackupSection"
+    BackupDocument:
+      type: object
+      required: [version, exported_at, settings]
+      description: A self-contained configuration backup.
+      properties:
+        version:
+          type: string
+          description: The mediarr build that exported this backup.
+        exported_at:
+          type: string
+          format: date-time
+        settings:
+          $ref: "#/components/schemas/BackupSettings"
+        queue:
+          type: array
+          nullable: true
+          description: Optional queue snapshot; present only when include_queue.
+          items:
+            $ref: "#/components/schemas/QueueViewItem"
+        series:
+          type: array
+          nullable: true
+          description: Optional series snapshot; present only when include_series.
+          items:
+            $ref: "#/components/schemas/Series"
+    BackupImportRequest:
+      type: object
+      required: [document, include_queue, include_series]
+      properties:
+        document:
+          $ref: "#/components/schemas/BackupDocument"
+        include_queue:
+          type: boolean
+          description: Import the queue snapshot (if present in the document).
+        include_series:
+          type: boolean
+          description: Import the series snapshot (if present in the document).
+    BackupImportResult:
+      type: object
+      required: [imported, settings_imported, queue_imported, series_imported]
+      properties:
+        imported:
+          type: boolean
+        settings_imported:
+          type: integer
+          description: Number of settings documents written.
+        queue_imported:
+          type: integer
+        series_imported:
+          type: integer
+        message:
+          type: string
+    SystemEvents:
+      type: object
+      required: [events]
+      description: The event log (the history source).
+      properties:
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/GlobalHistoryItem"
+    ChangelogEntry:
+      type: object
+      required: [version, date, entries]
+      properties:
+        version:
+          type: string
+        date:
+          type: string
+          format: date
+        entries:
+          type: array
+          items:
+            type: string
+    SystemUpdates:
+      type: object
+      required: [current, changelog]
+      properties:
+        current:
+          type: string
+          description: The running version (highlighted by the UI).
+        changelog:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangelogEntry"
+    MigrationItem:
+      type: object
+      required: [entity, external_id, action]
+      description: One migrated entity in the mapping report.
+      properties:
+        entity:
+          type: string
+          enum: [quality_profile, tag, indexer, download_client, series, episode]
+        external_id:
+          type: string
+          description: Stable source key (Sonarr id or slug).
+        source_title:
+          type: string
+        action:
+          type: string
+          enum: [created, exists, updated, skipped, error, dry-run]
+        target_id:
+          type: integer
+          format: int64
+          description: The Mediarr id the source mapped to (0 when not created).
+        message:
+          type: string
+    MigrationCounts:
+      type: object
+      required: [total, created, existing, skipped, errors]
+      properties:
+        total:
+          type: integer
+        created:
+          type: integer
+        existing:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: integer
+    MigrationResult:
+      type: object
+      required: [dry_run, resume, counts, items, resumable]
+      description: The mapping report for a migration run.
+      properties:
+        dry_run:
+          type: boolean
+        resume:
+          type: boolean
+        source_url:
+          type: string
+        counts:
+          $ref: "#/components/schemas/MigrationCounts"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrationItem"
+        resumable:
+          type: boolean
+          description: True when a partial run can be continued with resume.
+    MigrationInclude:
+      type: object
+      description: Which entity classes to migrate; omitted fields default to true.
+      properties:
+        series:
+          type: boolean
+        episodes:
+          type: boolean
+        quality_profiles:
+          type: boolean
+        tags:
+          type: boolean
+        indexers:
+          type: boolean
+        download_client:
+          type: boolean
+    MigrationRequest:
+      type: object
+      required: [source_url, dry_run]
+      properties:
+        source_url:
+          type: string
+          description: Base URL of the Sonarr instance (e.g. http://sonarr.local:8989).
+        api_key:
+          type: string
+          description: Sonarr API key (sent as X-Api-Key).
+        dry_run:
+          type: boolean
+          description: Report only; add nothing.
+        resume:
+          type: boolean
+          description: Resume a previously partial run (skips already-migrated series).
+        include:
+          $ref: "#/components/schemas/MigrationInclude"
+    MigrationStatus:
+      type: object
+      required: [status, running, done, total]
+      properties:
+        status:
+          type: string
+          enum: [idle, running, completed, partial, failed]
+        running:
+          type: boolean
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        done:
+          type: integer
+          description: Number of series processed so far.
+        total:
+          type: integer
+          description: Total series in the source (0 until a run completes the fetch).
+        last_result:
+          type: object
+          nullable: true
+          description: The last migration mapping report.
+          additionalProperties: true
