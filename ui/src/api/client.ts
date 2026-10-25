@@ -49,13 +49,20 @@ import type {
   ProfilesResponse,
   QueueFilter,
   QueueHistoryEvent,
+  ImportReport,
+  ImportRequest,
+  RootFolder,
+  RootFolderRequest,
   SearchResult,
   Series,
+  SeriesHistory,
+  SeriesSearchResult,
   SeriesWanted,
   Title,
   TitleWanted,
   Track,
   TrackMonitoredResult,
+  UpdateSeriesRequest,
 } from './types'
 
 export class ApiError extends Error {
@@ -157,6 +164,25 @@ export const client = {
     request<AddedId>('POST', `/tv/${id}/episodes`, req),
   runTvPipeline: (id: number) => request<{ imported: string }>('POST', `/tv/${id}/pipeline`),
   listSeriesWanted: (id: number) => request<SeriesWanted[]>('GET', `/tv/${id}/wanted`),
+  // P2 parity: partial series update (quality profile, series type, season
+  // folder, tags, monitored).
+  updateSeries: (id: number, req: UpdateSeriesRequest) =>
+    request<Series>('PATCH', `/tv/${id}`, req),
+  // P2 parity: start a search for the series' missing monitored episodes.
+  searchMissingEpisodes: (id: number) =>
+    request<SeriesSearchResult>('POST', `/tv/${id}/episodes/search`),
+  // P2 parity: series-level history (server clamps limit to 1..200, default 50).
+  listSeriesHistory: (id: number, limit?: number) =>
+    request<SeriesHistory>('GET', `/tv/${id}/history${limit ? `?limit=${limit}` : ''}`),
+  // P2 parity: library import, phase 1 (scan -> match -> confirm).
+  importLibrary: (req: ImportRequest) => request<ImportReport>('POST', '/tv/import', req),
+
+  // ---- root folders (P2 parity) ----
+  listRootFolders: () => request<RootFolder[]>('GET', '/root-folders'),
+  addRootFolder: (req: RootFolderRequest) => request<AddedId>('POST', '/root-folders', req),
+  updateRootFolder: (id: number, req: RootFolderRequest) =>
+    request<RootFolder>('PUT', `/root-folders/${id}`, req),
+  deleteRootFolder: (id: number) => request<void>('DELETE', `/root-folders/${id}`),
 
   // ---- music ----
   listArtists: (q?: ListQuery) => request<PageArtist>('GET', `/music/artists${buildListQuery(q)}`),

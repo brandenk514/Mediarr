@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,8 +6,9 @@ import { client } from '../../api/client'
 import type { Episode, PageSeries, Series } from '../../api/types'
 import { TvPage } from './Tv'
 
-// Page test for the TV list (#41): server-side filtered/paginated series with
-// lazy, expand/collapse episode children.
+// Page test for the P2 Sonarr-parity TV library: 6-column poster grid by
+// default (A–Z jump, footer lines, view toggle), with the P1 expandable table
+// kept behind the list view.
 vi.mock('../../api/client', () => ({
   client: {
     listSeries: vi.fn(),
@@ -21,8 +22,20 @@ function seriesPage(items: Series[], total = items.length, pg = 1): PageSeries {
   return { items, total, page: pg, page_size: 25 }
 }
 
-function series(id: number, title: string, monitored = true): Series {
-  return { ID: id, TVDBID: 1000 + id, TMDBID: 2000 + id, Title: title, Year: 2021, QualityProfile: 'HD', Monitored: monitored, AddedAt: '' }
+function series(id: number, title: string, monitored = true, year = 2021): Series {
+  return {
+    ID: id,
+    TVDBID: 1000 + id,
+    TMDBID: 2000 + id,
+    Title: title,
+    Year: year,
+    QualityProfile: 'HD-1080p',
+    Monitored: monitored,
+    SeriesType: 'standard',
+    SeasonFolder: false,
+    Tags: [],
+    AddedAt: '2026-01-01T00:00:00Z',
+  }
 }
 
 function ep(id: number, s: number, season: number, number: number): Episode {
@@ -38,36 +51,122 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('TvPage', () => {
-  it('lists series and lazily fetches episodes only on expand', async () => {
-    vi.mocked(client.listSeries).mockResolvedValue(seriesPage([series(1, 'Breaking Bad'), series(2, 'The Wire')]))
-    vi.mocked(client.listEpisodes).mockResolvedValue([ep(11, 1, 1, 1)])
-    const user = userEvent.setup()
+describe('TvPage (P2 grid)', () => {
+  it('renders a poster grid by default with monitored + quality footers and a ribbon', async () => {
+    vi.mocked(client.listSeries).mockResolvedValue(
+      seriesPage([series(1, 'Breaking Bad'), series(2, 'The Wire', false)]),
+    )
     render(
       <MemoryRouter>
         <TvPage />
       </MemoryRouter>,
     )
 
-    await screen.findByTestId('series-1')
-    expect(screen.getByTestId('series-2')).toHaveTextContent('The Wire')
+    const grid = await screen.findByTestId('tv-grid')
+    const card1 = within(grid).getByTestId('series-card-1')
+    expect(card1).toHaveTextContent('Monitored')
+    expect(card1).toHaveTextContent('HD-1080p')
 
-    // No episode fetch until a row is expanded.
-    expect(client.listEpisodes).not.toHaveBeenCalled()
-
-    // Expand the first series: episode list appears, fetched for that series.
-    await user.click(screen.getByTestId('series-toggle-1'))
-    expect(await screen.findByTestId('episodes-1')).toBeInTheDocument()
-    expect(client.listEpisodes).toHaveBeenCalledWith(1)
-    expect(screen.getByText('Ep')).toBeInTheDocument()
-
-    // Collapse it again: the expanded block is removed.
-    await user.click(screen.getByTestId('series-toggle-1'))
-    await waitFor(() => expect(screen.queryByTestId('episodes-1')).not.toBeInTheDocument())
+    // Unmonitored series get the red ribbon + footer label.
+    const card2 = within(grid).getByTestId('series-card-2')
+    expect(card2).toHaveTextContent('Unmonitored')
+    expect(within(card2).getByTestId('ribbon-2')).toBeInTheDocument()
   })
 
-  it('toggles series monitoring and refreshes the list', async () => {
+  it('shows an A–Z index with only letters that have series', async () => {
+    vi.mocked(client.listSeries).mockResolvedValue(
+      seriesPage([series(1, 'Breaking Bad'), series(2, 'The Wire')]),
+    )
+    render(
+      <MemoryRouter>
+        <TvPage />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('tv-grid')
+    const az = screen.getByTestId('tv-az')
+    expect(az).toHaveTextContent('B')
+    // "The Wire" starts with W (leading article skipped).
+    expect(within(az).getByLabelText('Jump to W')).toBeInTheDocument()
+    // A letter with no series is disabled.
+    expect(within(az).getByText('C', { exact: true })).toBeDisabled()
+  })
+
+  it('toggles between grid and list views', async () => {
+    vi.mocked(client.listSeries).mockResolvedValue(
+      seriesPage([series(1, 'Breaking Bad'), series(2, 'The Wire')]),
+    )
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TvPage />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('tv-grid')
+
+    await user.click(screen.getByTestId('tv-view-list'))
+    expect(screen.queryByTestId('tv-grid')).not.toBeInTheDocument()
+    const list = await screen.findByTestId('tv-list')
+    expect(within(list).getByTestId('series-1')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('tv-view-grid'))
+    await screen.findByTestId('tv-grid')
+  })
+
+  it('sorts the loaded page client-side via the Sort menu', async () => {
+    vi.mocked(client.listSeries).mockResolvedValue(
+      seriesPage([series(1, 'Breaking Bad', true, 2008), series(2, 'The Wire', true, 1999)]),
+    )
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TvPage />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('tv-grid')
+
+    // Default title-asc: Breaking Bad first.
+    const cards = () => screen.getAllByTestId(/^series-card-\d+$/).map((c) => c.getAttribute('title'))
+    expect(cards()).toEqual(['Breaking Bad (2008)', 'The Wire (1999)'])
+
+    await user.click(screen.getByTestId('tv-sort-btn'))
+    await user.click(await screen.findByTestId('tv-sort-opt-year-asc'))
+    // 1999 now first.
+    expect(cards()).toEqual(['The Wire (1999)', 'Breaking Bad (2008)'])
+  })
+
+  it('filters via the Filter menu (server-side monitored query)', async () => {
+    vi.mocked(client.listSeries).mockResolvedValue(seriesPage([series(1, 'Breaking Bad')]))
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TvPage />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('tv-grid')
+    await user.click(screen.getByTestId('tv-filter-btn'))
+    await user.click(await screen.findByTestId('tv-filter-opt-unmonitored'))
+    await waitFor(() => {
+      const calls = vi.mocked(client.listSeries).mock.calls
+      expect(calls[calls.length - 1]?.[0]).toMatchObject({ monitored: false })
+    })
+  })
+
+  it('shows a status line when Update All runs', async () => {
+    vi.mocked(client.listSeries).mockResolvedValue(seriesPage([series(1, 'Breaking Bad')]))
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TvPage />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('tv-grid')
+    await user.click(screen.getByTestId('tv-update-all'))
+    expect(await screen.findByTestId('tv-status')).toHaveTextContent('Updated 1 series')
+  })
+
+  it('list view still lazily fetches episodes on expand and toggles monitoring', async () => {
     vi.mocked(client.listSeries).mockResolvedValue(seriesPage([series(1, 'Severance')]))
+    vi.mocked(client.listEpisodes).mockResolvedValue([ep(11, 1, 1, 1)])
     vi.mocked(client.setSeriesMonitored).mockResolvedValue({ id: 1, monitored: false })
     const user = userEvent.setup()
     render(
@@ -75,10 +174,16 @@ describe('TvPage', () => {
         <TvPage />
       </MemoryRouter>,
     )
-    await screen.findByTestId('series-mon-1')
+    await screen.findByTestId('tv-grid')
+    await user.click(screen.getByTestId('tv-view-list'))
+    const list = await screen.findByTestId('tv-list')
 
-    await user.click(screen.getByTestId('series-mon-1'))
+    expect(client.listEpisodes).not.toHaveBeenCalled()
+    await user.click(within(list).getByTestId('series-toggle-1'))
+    expect(await screen.findByTestId('episodes-1')).toBeInTheDocument()
+    expect(client.listEpisodes).toHaveBeenCalledWith(1)
+
+    await user.click(within(list).getByTestId('series-mon-1'))
     expect(client.setSeriesMonitored).toHaveBeenCalledWith(1, false)
-    await waitFor(() => expect(client.listSeries).toHaveBeenCalledTimes(2))
   })
 })

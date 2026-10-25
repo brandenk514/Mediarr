@@ -263,6 +263,31 @@ func (r *memTVRepo) SetSeriesMonitored(ctx context.Context, id int64, monitored 
 	return nil
 }
 
+// UpdateSeries applies a partial series update (P2).
+func (r *memTVRepo) UpdateSeries(ctx context.Context, id int64, p tvdom.SeriesPatch) error {
+	s, ok := r.series[id]
+	if !ok {
+		return tvdom.ErrSeriesNotFound
+	}
+	if p.Monitored != nil {
+		s.Monitored = *p.Monitored
+	}
+	if p.QualityProfile != nil {
+		s.QualityProfile = *p.QualityProfile
+	}
+	if p.SeriesType != nil {
+		s.SeriesType = *p.SeriesType
+	}
+	if p.SeasonFolder != nil {
+		s.SeasonFolder = *p.SeasonFolder
+	}
+	if p.Tags != nil {
+		s.Tags = *p.Tags
+	}
+	r.series[id] = s
+	return nil
+}
+
 func (r *memTVRepo) CreateEpisode(ctx context.Context, e tvdom.Episode) (int64, error) {
 	return 0, nil
 }

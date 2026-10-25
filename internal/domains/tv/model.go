@@ -27,7 +27,21 @@ type Series struct {
 	Year           int
 	QualityProfile string // name of a quality profile (see BuiltInProfiles)
 	Monitored      bool   // series-level monitor toggle
+	SeriesType     string // "standard" (default), "daily", "oneshot"
+	SeasonFolder   bool   // organize files under a per-season folder
+	Tags           []string
 	AddedAt        time.Time
+}
+
+// SeriesPatch is a partial series update: nil fields are left unchanged.
+// Used by the series update endpoint (P2 parity: quality profile, series
+// type, season folder, tags, monitored).
+type SeriesPatch struct {
+	Monitored      *bool
+	QualityProfile *string
+	SeriesType     *string
+	SeasonFolder   *bool
+	Tags           *[]string
 }
 
 // Episode is a single known episode within a series.
@@ -115,6 +129,7 @@ type Repo interface {
 	GetSeries(ctx context.Context, id int64) (*Series, error)
 	ListSeries(ctx context.Context) ([]Series, error)
 	SetSeriesMonitored(ctx context.Context, id int64, monitored bool) error
+	UpdateSeries(ctx context.Context, id int64, p SeriesPatch) error
 
 	// Episodes
 	CreateEpisode(ctx context.Context, e Episode) (int64, error)

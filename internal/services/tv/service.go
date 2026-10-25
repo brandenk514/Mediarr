@@ -9,11 +9,14 @@ package tv
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -79,26 +82,53 @@ func New(deps Deps) *Service {
 	return &Service{deps: deps}
 }
 
+// AddSeriesRequest carries everything needed to add a series: identity
+// (title/year), provider-confirmed ids, and the P2 parity fields (quality
+// profile, series type, season folder, tags).
+type AddSeriesRequest struct {
+	Title          string
+	Year           string
+	QualityProfile string
+	Monitored      bool
+	TVDBID         string // "" = unset
+	TMDBID         string // "" = unset
+	SeriesType     string // "" = default "standard"
+	SeasonFolder   bool
+	Tags           []string
+}
+
 // AddSeries creates a series (if new) and records the add in history. The
 // provider ids (tvdbID/tmdbID, "" = unset) are the provider-confirmed
 // identity of the selected result (M6 #42). The monitored flag sets the
 // series-level monitor toggle (PLAN §4): a monitored series is wanted by
 // default; an unmonitored series is added quietly and is wanted only when a
 // season or episode is explicitly monitored. Returns the series id.
-func (s *Service) AddSeries(ctx context.Context, title, year, qualityProfile string, monitored bool, tvdbID, tmdbID string) (int64, error) {
-	if strings.TrimSpace(title) == "" {
+func (s *Service) AddSeries(ctx context.Context, req AddSeriesRequest) (int64, error) {
+	if strings.TrimSpace(req.Title) == "" {
 		return 0, fmt.Errorf("tv: title is required")
 	}
+	qualityProfile := req.QualityProfile
 	if qualityProfile == "" {
 		qualityProfile = s.deps.DefaultProfile
 	}
+	seriesType := strings.TrimSpace(req.SeriesType)
+	if seriesType == "" {
+		seriesType = "standard"
+	}
+	tags := req.Tags
+	if tags == nil {
+		tags = []string{}
+	}
 	series := dom.Series{
-		TVDBID:         parseProviderID(tvdbID),
-		TMDBID:         parseProviderID(tmdbID),
-		Title:          strings.TrimSpace(title),
-		Year:           parseYear(year),
+		TVDBID:         parseProviderID(req.TVDBID),
+		TMDBID:         parseProviderID(req.TMDBID),
+		Title:          strings.TrimSpace(req.Title),
+		Year:           parseYear(req.Year),
 		QualityProfile: qualityProfile,
-		Monitored:      monitored,
+		Monitored:      req.Monitored,
+		SeriesType:     seriesType,
+		SeasonFolder:   req.SeasonFolder,
+		Tags:           tags,
 	}
 	id, err := s.deps.Repo.CreateSeries(ctx, series)
 	if err != nil {
@@ -214,6 +244,197 @@ func (s *Service) SetSeriesMonitored(ctx context.Context, seriesID int64, monito
 	}
 	s.record(ctx, seriesID, event, "series-level toggle")
 	return nil
+}
+
+// UpdateSeries applies a partial update to a series (P2 parity: quality
+// profile, series type, season folder, tags, monitored). Nil patch fields are
+// left unchanged. A monitored change goes through SetSeriesMonitored so it
+// propagates to the series' episodes, like the dedicated endpoint.
+func (s *Service) UpdateSeries(ctx context.Context, id int64, p dom.SeriesPatch) (*dom.Series, error) {
+	series, err := s.deps.Repo.GetSeries(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if p.Monitored != nil && *p.Monitored != series.Monitored {
+		if err := s.SetSeriesMonitored(ctx, id, *p.Monitored); err != nil {
+			return nil, err
+		}
+	}
+
+	rest := dom.SeriesPatch{
+		QualityProfile: p.QualityProfile,
+		SeriesType:     p.SeriesType,
+		SeasonFolder:   p.SeasonFolder,
+		Tags:           p.Tags,
+	}
+	if patchSet(rest) {
+		if err := s.deps.Repo.UpdateSeries(ctx, id, rest); err != nil {
+			return nil, err
+		}
+		s.record(ctx, id, "series-updated", describePatch(rest))
+	}
+	return s.deps.Repo.GetSeries(ctx, id)
+}
+
+// patchSet reports whether any field of the patch is set.
+func patchSet(p dom.SeriesPatch) bool {
+	return p.QualityProfile != nil || p.SeriesType != nil ||
+		p.SeasonFolder != nil || p.Tags != nil
+}
+
+// describePatch builds a short history detail string for a series patch.
+func describePatch(p dom.SeriesPatch) string {
+	var parts []string
+	if p.QualityProfile != nil {
+		parts = append(parts, "quality_profile="+*p.QualityProfile)
+	}
+	if p.SeriesType != nil {
+		parts = append(parts, "series_type="+*p.SeriesType)
+	}
+	if p.SeasonFolder != nil {
+		parts = append(parts, fmt.Sprintf("season_folder=%t", *p.SeasonFolder))
+	}
+	if p.Tags != nil {
+		parts = append(parts, "tags="+strings.Join(*p.Tags, ","))
+	}
+	if len(parts) == 0 {
+		return "series updated"
+	}
+	return strings.Join(parts, " ")
+}
+
+// SearchMissing triggers a search for the series' missing monitored episodes
+// (P2): every monitored episode without a satisfied file gets (or keeps) a
+// pending wanted row, so the pipeline can service it. It returns how many
+// episodes are now wanted for the search. Satisfied episodes are left alone.
+func (s *Service) SearchMissing(ctx context.Context, seriesID int64) (int, error) {
+	if _, err := s.deps.Repo.GetSeries(ctx, seriesID); err != nil {
+		return 0, err
+	}
+	eps, err := s.deps.Repo.ListEpisodes(ctx, seriesID)
+	if err != nil {
+		return 0, err
+	}
+	searched := 0
+	for _, e := range eps {
+		if !e.Monitored {
+			continue
+		}
+		w, err := s.deps.Repo.GetWanted(ctx, seriesID, e.Season, e.Episode)
+		if err == sql.ErrNoRows {
+			if err := s.deps.Repo.EnsureWanted(ctx, seriesID, e.Season, e.Episode); err != nil {
+				return 0, err
+			}
+			searched++
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		if w == nil || w.Status != dom.WantedSatisfied {
+			searched++ // already pending (or unknown); part of this search
+		}
+	}
+	if searched > 0 {
+		s.record(ctx, seriesID, "search-requested",
+			fmt.Sprintf("%d episode(s) marked for search", searched))
+	}
+	return searched, nil
+}
+
+// ListHistory returns a series' audit history, newest first (P2 parity:
+// series-level history view). limit <= 0 defaults to 50.
+func (s *Service) ListHistory(ctx context.Context, seriesID int64, limit int) ([]dom.HistoryEntry, error) {
+	if _, err := s.deps.Repo.GetSeries(ctx, seriesID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	entries, err := s.deps.Repo.ListHistory(ctx, seriesID, limit)
+	if err != nil {
+		return nil, err
+	}
+	// Newest first regardless of adapter (the postgres repo already orders
+	// this way; this keeps in-memory/test adapters consistent).
+	sort.Slice(entries, func(i, j int) bool {
+		if !entries[i].At.Equal(entries[j].At) {
+			return entries[i].At.After(entries[j].At)
+		}
+		return entries[i].ID > entries[j].ID
+	})
+	return entries, nil
+}
+
+// ScanLibrary scans a root folder for series candidates and matches each
+// against the tracked series (library import, phase 1: scan -> match ->
+// confirm). Each immediate subdirectory of the root is a candidate; video
+// files under it are counted recursively. A nonexistent root is an error.
+func (s *Service) ScanLibrary(ctx context.Context, root string) (*dom.ImportReport, error) {
+	if strings.TrimSpace(root) == "" {
+		return nil, fmt.Errorf("tv: import: root folder path is required")
+	}
+	clean := filepath.Clean(root)
+	entries, err := os.ReadDir(clean)
+	if err != nil {
+		return nil, fmt.Errorf("tv: import: read root folder %q: %w", root, err)
+	}
+	known, err := s.deps.Repo.ListSeries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	report := &dom.ImportReport{Root: clean, Candidates: []dom.ImportCandidate{}}
+	for _, ent := range entries {
+		if !ent.IsDir() {
+			continue
+		}
+		title, year := dom.ParseFolderName(ent.Name())
+		cand := dom.ImportCandidate{
+			Path:  filepath.Join(clean, ent.Name()),
+			Title: title,
+			Year:  year,
+		}
+		cand.Seasons, cand.Files, cand.Size = scanSeriesDir(cand.Path)
+		for _, ks := range known {
+			if dom.MatchesSeries(cand.Title, cand.Year, ks) {
+				cand.Matched = true
+				cand.SeriesID = ks.ID
+				break
+			}
+		}
+		report.Scanned++
+		report.Candidates = append(report.Candidates, cand)
+	}
+	return report, nil
+}
+
+// scanSeriesDir counts "Season NN" subfolders and recursively counts video
+// files (count + total bytes) under a series folder. Read errors are
+// swallowed: a scan must be best-effort, not fail one candidate's folder.
+func scanSeriesDir(dir string) (seasons, files int, size int64) {
+	sub, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, 0, 0
+	}
+	for _, e := range sub {
+		if e.IsDir() && strings.HasPrefix(strings.ToLower(e.Name()), "season ") {
+			seasons++
+		}
+	}
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if dom.IsVideoFile(d.Name()) {
+			files++
+			if info, ierr := d.Info(); ierr == nil {
+				size += info.Size()
+			}
+		}
+		return nil
+	})
+	return seasons, files, size
 }
 
 // SetSeasonMonitored toggles monitoring for a single season (PLAN §4) by

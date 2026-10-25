@@ -1,0 +1,3 @@
+ALTER TABLE tv_series DROP COLUMN IF EXISTS tags;
+ALTER TABLE tv_series DROP COLUMN IF EXISTS season_folder;
+ALTER TABLE tv_series DROP COLUMN IF EXISTS series_type;

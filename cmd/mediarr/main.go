@@ -36,6 +36,7 @@ import (
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
+	rootfolders "github.com/brandenk514/mediarr/internal/services/rootfolders"
 	tvs "github.com/brandenk514/mediarr/internal/services/tv"
 )
 
@@ -356,6 +357,11 @@ func run() error {
 	// running dev server can exercise the full add → want → search → match →
 	// download → import path for series/episodes. A TV media root defaults to
 	// <MediaRoot>/tv so the two domains land in separate trees.
+	// Root-folder registry (P2 parity): on-disk media roots consumed by the
+	// Add-New flow and Library Import.
+	rfRepo := postgres.NewRootFoldersRepo(pg.DB())
+	rfSvc := rootfolders.New(rfRepo)
+	srv.SetRootFolders(&api.RootFolderDeps{Svc: rfSvc})
 	tvFake := indexers.NewFakeIndexer("fake")
 	// Dev-only demo pool (mirrors the movie pool): a few plausible TV release
 	// names so a live "search" returns candidates for a handful of series.
@@ -375,7 +381,7 @@ func run() error {
 		Events:         events,
 		Metrics:        m,
 	})
-	srv.SetTV(&api.TVDeps{Svc: tvSvc})
+	srv.SetTV(&api.TVDeps{Svc: tvSvc, RootFolders: rfSvc})
 	logger.Info("tv pipeline ready",
 		"media_root", tvMediaRoot,
 		"indexers", "fake",

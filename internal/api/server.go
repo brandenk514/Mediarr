@@ -20,21 +20,22 @@ import (
 
 // Server is the HTTP server. It owns the mux and middleware chain.
 type Server struct {
-	mux           *http.ServeMux
-	health        *health.Checker
-	metrics       *metrics.Metrics
-	metricsDeps   *MetricsDeps
-	authDeps      *AuthDeps
-	indexersDeps  *IndexersDeps
-	dashboardDeps *DashboardDeps
-	queueDeps     *QueueDeps
-	settingsDeps  *SettingsDeps
-	eventsDeps    *EventsDeps
-	moviesDeps    *MoviesDeps
-	tvDeps        *TVDeps
-	musicDeps     *MusicDeps
-	booksDeps     *BooksDeps
-	searchDeps    *SearchDeps
+	mux            *http.ServeMux
+	health         *health.Checker
+	metrics        *metrics.Metrics
+	metricsDeps    *MetricsDeps
+	authDeps       *AuthDeps
+	indexersDeps   *IndexersDeps
+	dashboardDeps  *DashboardDeps
+	queueDeps      *QueueDeps
+	settingsDeps   *SettingsDeps
+	eventsDeps     *EventsDeps
+	moviesDeps     *MoviesDeps
+	tvDeps         *TVDeps
+	musicDeps      *MusicDeps
+	booksDeps      *BooksDeps
+	searchDeps     *SearchDeps
+	rootFolderDeps *RootFolderDeps
 }
 
 // NewServer builds a Server with the given readiness checker.

@@ -1561,3 +1561,133 @@ button.danger:hover {
   color: var(--text);
   margin: 0 0 0.4rem;
 }
+
+/* ---- P2: two-pane add (TV) — result rows, tag chips, green add button ---- */
+
+.add-btn-green {
+  background: var(--ok);
+  color: #0d1a10;
+  font-weight: 700;
+  border: none;
+  padding: 0.55rem 1.4rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.add-btn-green:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.tv-result-row {
+  display: flex;
+  gap: 0.7rem;
+  width: 100%;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem;
+  cursor: pointer;
+  color: var(--text);
+}
+.tv-result-row:hover {
+  border-color: var(--accent);
+}
+.tv-result-row.sel {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+.tv-result-poster {
+  flex: 0 0 auto;
+  width: 40px;
+  aspect-ratio: 2 / 3;
+  background: var(--panel-2);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.tv-result-main {
+  min-width: 0;
+  flex: 1;
+}
+.tv-result-main .result-title {
+  display: block;
+  font-weight: 600;
+}
+.tv-result-overview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin-top: 0.25rem;
+  overflow: hidden;
+}
+.tv-result-credit {
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}
+.tag-chip {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+  border-radius: 6px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.75rem;
+}
+.tag-chip button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 0.15rem;
+  margin-left: 0.2rem;
+  font-size: 0.75rem;
+}
+
+/* ---- P2: import wizard steps + candidates table ---- */
+
+.wizard-steps {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.wizard-step {
+  white-space: nowrap;
+}
+.wizard-step.done {
+  color: var(--ok);
+}
+.wizard-step.active {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.import-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.import-table th {
+  text-align: left;
+  color: var(--dim);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.4rem 0.6rem;
+  background: var(--panel-2);
+}
+.import-table td {
+  padding: 0.45rem 0.6rem;
+  border-top: 1px solid var(--border);
+}

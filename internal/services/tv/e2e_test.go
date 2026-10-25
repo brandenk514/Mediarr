@@ -2,6 +2,7 @@ package tv
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -88,6 +89,31 @@ func (r *memRepo) SetSeriesMonitored(ctx context.Context, id int64, monitored bo
 	return nil
 }
 
+// UpdateSeries applies a partial series update (P2).
+func (r *memRepo) UpdateSeries(ctx context.Context, id int64, p dom.SeriesPatch) error {
+	s, ok := r.series[id]
+	if !ok {
+		return dom.ErrSeriesNotFound
+	}
+	if p.Monitored != nil {
+		s.Monitored = *p.Monitored
+	}
+	if p.QualityProfile != nil {
+		s.QualityProfile = *p.QualityProfile
+	}
+	if p.SeriesType != nil {
+		s.SeriesType = *p.SeriesType
+	}
+	if p.SeasonFolder != nil {
+		s.SeasonFolder = *p.SeasonFolder
+	}
+	if p.Tags != nil {
+		s.Tags = *p.Tags
+	}
+	r.series[id] = s
+	return nil
+}
+
 func (r *memRepo) CreateEpisode(ctx context.Context, e dom.Episode) (int64, error) {
 	for _, v := range r.episodes[e.SeriesID] {
 		if v.Season == e.Season && v.Episode == e.Episode {
@@ -137,7 +163,9 @@ func (r *memRepo) GetWanted(ctx context.Context, seriesID int64, season, episode
 	k := wantedKey{seriesID, season, episode}
 	w, ok := r.wanted[k]
 	if !ok {
-		return nil, dom.ErrEpisodeNotFound
+		// Mirror the postgres adapter: a missing wanted row is
+		// sql.ErrNoRows (the service's SearchMissing relies on it).
+		return nil, sql.ErrNoRows
 	}
 	return &w, nil
 }
@@ -270,7 +298,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Add series + a monitored episode (which ensures a pending wanted row).
-	seriesID, err := svc.AddSeries(ctx, "Breaking Bad", "2008", "HD-1080p", true, "", "")
+	seriesID, err := svc.AddSeries(ctx, AddSeriesRequest{Title: "Breaking Bad", Year: "2008", QualityProfile: "HD-1080p", Monitored: true})
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
@@ -343,7 +371,7 @@ func TestPipeline_MultiEpisode(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "The Wire", "2002", "HD-1080p", true, "", "")
+	seriesID, _ := svc.AddSeries(ctx, AddSeriesRequest{Title: "The Wire", Year: "2002", QualityProfile: "HD-1080p", Monitored: true})
 	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "The Details", true); err != nil {
 		t.Fatalf("add e1: %v", err)
 	}
@@ -413,7 +441,7 @@ func TestPipeline_SeasonMonitor_Acceptance(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Add the series unmonitored (no wanted rows yet).
-	seriesID, err := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", false, "", "")
+	seriesID, err := svc.AddSeries(ctx, AddSeriesRequest{Title: "Fringe", Year: "2008", QualityProfile: "HD-1080p", Monitored: false})
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
@@ -501,7 +529,7 @@ func TestPipeline_NoMatch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	seriesID, _ := svc.AddSeries(ctx, "Fringe", "2008", "HD-1080p", true, "", "")
+	seriesID, _ := svc.AddSeries(ctx, AddSeriesRequest{Title: "Fringe", Year: "2008", QualityProfile: "HD-1080p", Monitored: true})
 	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
 
 	_, err := svc.RunPipeline(ctx, seriesID)
