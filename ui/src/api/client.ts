@@ -74,6 +74,7 @@ import type {
   ManualImportReport,
   QueueGrabResult,
   QueueRemoveResult,
+  CalendarEntry,
 } from './types'
 
 export class ApiError extends Error {
@@ -307,6 +308,28 @@ export const client = {
     request<WantedActionResult>('POST', '/wanted/unmonitor', { episodes: items }),
   manualImport: (req: ManualImportRequest) =>
     request<ManualImportReport>('POST', '/import', req),
+
+  // ---- P4: Calendar (upcoming monitored air dates + iCal feed) ----
+  // JSON list of the upcoming monitored TV air dates in [start, end].
+  listCalendar: (f?: { start?: string; end?: string }) => {
+    const params = new URLSearchParams()
+    if (f?.start) params.set('start', f.start)
+    if (f?.end) params.set('end', f.end)
+    const s = params.toString()
+    return request<CalendarEntry[]>('GET', `/calendar${s ? `?${s}` : ''}`)
+  },
+  // iCal feed URL for a plain link / new tab: /calendar.ics carries the app
+  // token as ?token= because a browser navigation can't set the Authorization
+  // header, plus the optional window.
+  calendarICS: (f?: { start?: string; end?: string }) => {
+    const params = new URLSearchParams()
+    if (f?.start) params.set('start', f.start)
+    if (f?.end) params.set('end', f.end)
+    const token = getToken()
+    if (token) params.set('token', token)
+    const s = params.toString()
+    return `/calendar.ics${s ? `?${s}` : ''}`
+  },
 
   // ---- settings (#44) ----
   // Download-client config: the read is a *masked* view (secrets are presence

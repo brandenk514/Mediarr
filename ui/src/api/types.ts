@@ -107,6 +107,9 @@ export type ManualImportReport = components["schemas"]["ManualImportReport"]
 export type QueueGrabResult = components["schemas"]["QueueGrabResult"]
 export type QueueRemoveResult = components["schemas"]["QueueRemoveResult"]
 
+// ---- P4: Calendar (upcoming monitored air dates + iCal feed) ----
+export type CalendarEntry = components["schemas"]["CalendarEntry"]
+
 // Books' domain type is books.Title; the spec names it BookTitle so the
 // document reads clearly at a glance.
 export type Title = components["schemas"]["BookTitle"]

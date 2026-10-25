@@ -40,6 +40,7 @@ type Server struct {
 	blocklistDeps  *BlocklistDeps
 	wantedDeps     *WantedDeps
 	importDeps     *ImportDeps
+	calendarDeps   *CalendarDeps
 }
 
 // NewServer builds a Server with the given readiness checker.
