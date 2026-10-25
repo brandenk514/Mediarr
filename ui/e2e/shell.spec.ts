@@ -58,6 +58,7 @@ const ROUTES: [string, string][] = [
   ['/settings/media-management', 'settings-shell'],
   ['/system/status', 'system-status'],
   ['/tv/import', 'library-import'],
+  ['/dashboard', 'refresh'],
 ]
 
 for (const [route, testId] of ROUTES) {
@@ -86,4 +87,22 @@ test('series detail route renders at /tv/:id', async ({ page }) => {
   await expect(page).toHaveURL(/\/tv\/1$/)
   const settled = page.getByTestId('series-detail').or(page.getByTestId('series-detail-error'))
   await expect(settled).toBeVisible()
+})
+
+// P7 home decision: the default landing is the TV library (the Sonarr users'
+// home); the cross-kind Dashboard is a Mediarr extra reachable from the rail.
+test('landing at / resolves to the TV library', async ({ page }) => {
+  await page.goto('/')
+  await signIn(page)
+  await expect(page).toHaveURL(/\/tv$/)
+  await expect(page.getByTestId('tv-title')).toBeVisible()
+})
+
+test('rail Dashboard item opens the Dashboard', async ({ page }) => {
+  await page.goto('/tv')
+  await signIn(page)
+  await expect(page.getByTestId('rail-dashboard')).toBeVisible()
+  await page.getByTestId('rail-dashboard').click()
+  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page.getByTestId('refresh')).toBeVisible()
 })

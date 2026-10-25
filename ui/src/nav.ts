@@ -91,6 +91,18 @@ export interface SharedSection {
   badge?: number | null
 }
 
+// Mediarr's own extra section (not in Sonarr): the cross-library overview.
+// P7 home decision — the TV library is the default landing; the Dashboard
+// stays reachable from this rail item (and the /dashboard route).
+export const DASHBOARD_SECTION: SharedSection = {
+  id: 'dashboard',
+  label: 'Dashboard',
+  icon: '▦',
+  to: '/dashboard',
+  base: '/dashboard',
+  sub: [],
+}
+
 export const SHARED_SECTIONS: SharedSection[] = [
   { id: 'calendar', label: 'Calendar', icon: '📅', to: '/calendar', base: '/calendar', sub: [] },
   {

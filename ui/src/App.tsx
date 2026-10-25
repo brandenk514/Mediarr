@@ -49,7 +49,11 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<AuthGate />}>
-        <Route path="/" element={<DashboardPage />} />
+        {/* P7 home decision: default landing = the TV library (the Sonarr
+            users' home). The cross-kind Dashboard is a Mediarr extra,
+            reachable from the rail's Dashboard item. */}
+        <Route path="/" element={<Navigate to="/tv" replace />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         {/* Per-kind libraries + Add (four-kind app: TV / Movies / Music / Books). */}
         <Route path="/movies" element={<MoviesPage />} />
         <Route path="/tv" element={<TvPage />} />
