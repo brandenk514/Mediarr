@@ -36,8 +36,6 @@ type LogService struct {
 	mu    sync.RWMutex
 	buf   []LogLine
 	cap   int
-	head  int // next insert index (ring)
-	count int // number of live lines (<= cap)
 	subs  map[chan LogLine]struct{}
 	nowFn func() time.Time
 }

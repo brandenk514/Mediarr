@@ -296,6 +296,8 @@ func writeSSELogFrame(w http.ResponseWriter, flusher http.Flusher, event string,
 		lines = []system.LogLine{}
 	}
 	data, _ := json.Marshal(lines)
-	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+		return // client went away
+	}
 	flusher.Flush()
 }

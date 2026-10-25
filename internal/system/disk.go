@@ -1,6 +1,7 @@
 package system
 
 import (
+	"math"
 	"os"
 	"syscall"
 )
@@ -26,17 +27,42 @@ type SystemDisk struct {
 // touching the real filesystem. The default implementation uses syscall.
 type StatFs func(path string) (total, used, free int64, err error)
 
-// syscallStatfs is the default StatFs (POSIX statfs).
+// fsInt64 clamps a uint64 into int64 (saturating) so the statfs block
+// counters — uint64 on Linux — convert without an integer-overflow risk
+// (gosec G115). A filesystem larger than 9.2 EB would clamp, which is not a
+// realistic input.
+func fsInt64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
+}
+
+// fsUint64 normalizes the statfs block-size field (int64 on Linux) into
+// uint64 for the block math; a non-positive size is treated as zero rather
+// than wrapping.
+func fsUint64(v int64) uint64 {
+	if v < 0 {
+		return 0
+	}
+	return uint64(v)
+}
+
+// syscallStatfs is the default StatFs (POSIX statfs). Block math is done in
+// uint64 and converted once, so the counters can't overflow on the way out.
 func syscallStatfs(path string) (total, used, free int64, err error) {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
 		return 0, 0, 0, err
 	}
-	bsize := int64(st.Bsize)
-	total = int64(st.Blocks) * bsize
-	free = int64(st.Bavail) * bsize
-	used = total - int64(st.Bfree)*bsize
-	return total, used, free, nil
+	bsize := fsUint64(st.Bsize)
+	totalU := st.Blocks * bsize
+	freeU := st.Bavail * bsize
+	usedU := totalU
+	if usedU > st.Bfree*bsize {
+		usedU -= st.Bfree * bsize
+	}
+	return fsInt64(totalU), fsInt64(usedU), fsInt64(freeU), nil
 }
 
 // BuildDisk assembles the disk report for the given configured paths,

@@ -254,9 +254,10 @@ func TestMigrationResumablePartialThenResume(t *testing.T) {
 		if it.Entity != "series" {
 			continue
 		}
-		if it.Action == "skipped" {
+		switch it.Action {
+		case "skipped":
 			skipped++
-		} else if it.Action == "created" {
+		case "created":
 			created++
 		}
 	}
