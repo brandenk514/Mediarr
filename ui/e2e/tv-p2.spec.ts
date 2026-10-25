@@ -162,10 +162,12 @@ test('library import wizard: root step, scan, match, report', async ({ page }) =
   // scanning /media/e2e-import, i.e. the unmapped-path branch).
   const matched = page.getByTestId('import-matched')
   if ((await matched.count()) > 0) {
-    await expect(matched.first()).toContainText('Matched')
+    // The count badge holds just the number; "matched a tracked series" is
+    // the surrounding text (P2 markup, per LibraryImport.test.tsx).
+    await expect(matched.first()).toHaveText(/^\d+$/)
     // Confirm → report with counts.
     await page.getByTestId('import-confirm').click()
     await expect(page.getByTestId('import-report')).toBeVisible()
-    await expect(page.getByTestId('import-step-report')).toHaveClass('active')
+    await expect(page.getByTestId('import-step-report')).toHaveClass(/active/)
   }
 })

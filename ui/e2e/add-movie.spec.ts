@@ -26,9 +26,12 @@ test('add a movie through the form and see it in the grid', async ({ page }) => 
 
   await expect(page).toHaveURL(/\/movies$/)
   await expect(page.getByTestId('movies-grid')).toBeVisible()
-  // The new movie is a poster card in the grid (its title attribute is the
-  // movie title — no year, so no " (year)" suffix).
-  await expect(page.getByTestId('movies-grid').getByText(title)).toBeVisible()
+  // Grid cards carry the title in their tooltip (the P2 grid design shows the
+  // monitored/quality footer, not the title text), so assert on the title
+  // attribute of the new movie's poster card.
+  await expect(
+    page.getByTestId('movies-grid').locator(`button[title="${title}"]`)
+  ).toBeVisible()
 })
 
 test('open a movie from the grid into its detail page', async ({ page }) => {
