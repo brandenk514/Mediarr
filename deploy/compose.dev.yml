@@ -35,7 +35,7 @@ services:
       MEDIARR_DOWNLOADS_DIR: "/downloads"
       MEDIARR_MEDIA_ROOT: "/media/movies"
     ports:
-      - "8081:8080"
+      - "8080:8080"
     read_only: true
     tmpfs:
       - /tmp

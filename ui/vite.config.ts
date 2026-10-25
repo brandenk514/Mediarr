@@ -17,7 +17,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: process.env.MEDIARR_API_URL ?? 'http://localhost:8081',
+        target: process.env.MEDIARR_API_URL ?? 'http://localhost:8080',
         changeOrigin: true,
       },
     },
