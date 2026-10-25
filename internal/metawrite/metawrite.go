@@ -26,7 +26,7 @@ type EpisodeInfo struct {
 // MovieInfo is the movie metadata an NFO is generated from.
 type MovieInfo struct {
 	Title    string
-	Year     int // 0 = omit
+	Year     int    // 0 = omit
 	Overview string // empty = omit
 }
 
@@ -67,7 +67,7 @@ func (w *Writer) writeSidecar(mediaPath, content string) (string, error) {
 		return "", fmt.Errorf("metawrite: media dir missing: %v", err)
 	}
 	path := mediaPath + ".nfo"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // nfo sidecars sit next to media files; must be world-readable for media-server users
 		return "", fmt.Errorf("metawrite: write nfo: %v", err)
 	}
 	return path, nil

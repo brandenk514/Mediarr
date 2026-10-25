@@ -77,6 +77,14 @@ import type {
   CalendarEntry,
   SettingsSection,
   TagUsage,
+  CustomFormatScoreRequest,
+  CustomFormatScoreResult,
+  ConnectTestRequest,
+  ConnectTestResult,
+  MetadataSourceSearchRequest,
+  MetadataSourceSearchResult,
+  ImportRunRequest,
+  ImportRunResult,
 } from './types'
 
 export class ApiError extends Error {
@@ -356,6 +364,17 @@ export const client = {
     request<T>('PUT', `/settings/${section}`, doc),
   // Tag usage view: the series/episodes carrying one tag (tags section).
   getTagUsage: (id: number) => request<TagUsage>('GET', `/settings/tags/${id}/usage`),
+  // P5 action endpoints (the four POSTs beyond the generic section docs).
+  // The P5.7 chain endpoints answer 503 when every configured source fails —
+  // an ApiError with the attempt log in the body.
+  scoreCustomFormats: (req: CustomFormatScoreRequest) =>
+    request<CustomFormatScoreResult>('POST', '/settings/custom-formats/score', req),
+  testConnectNotification: (req: ConnectTestRequest) =>
+    request<ConnectTestResult>('POST', '/settings/connect/test', req),
+  searchMetadataSource: (req: MetadataSourceSearchRequest) =>
+    request<MetadataSourceSearchResult>('POST', '/settings/metadata-source/search', req),
+  runImportListImport: (req: ImportRunRequest) =>
+    request<ImportRunResult>('POST', '/settings/import-lists/import', req),
 
   // ---- add flows (#42) ----
   // Provider search: debounced by the UI; each call is one provider round

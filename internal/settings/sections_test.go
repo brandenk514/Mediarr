@@ -142,9 +142,9 @@ func TestSections_MergeSecrets(t *testing.T) {
 		{ID: 2, Options: NotificationOptions{Token: "other"}},
 	}}
 	incoming := &ConnectSettings{Notifications: []Notification{
-		{ID: 1, Options: NotificationOptions{Token: ""}},      // keep stored
+		{ID: 1, Options: NotificationOptions{Token: ""}},         // keep stored
 		{ID: 2, Options: NotificationOptions{Token: "replaced"}}, // replace
-		{ID: 3, Options: NotificationOptions{Token: ""}},      // new: no stored secret
+		{ID: 3, Options: NotificationOptions{Token: ""}},         // new: no stored secret
 	}}
 	SectionConnect.MergeSecrets(stored, incoming)
 	if incoming.Notifications[0].Options.Token != "stored-token" || !incoming.Notifications[0].Options.TokenSet {

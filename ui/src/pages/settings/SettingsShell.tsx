@@ -8,6 +8,11 @@ import { TagsSection } from './sections/TagsSection'
 import { MediaManagementSection } from './sections/MediaManagementSection'
 import { IndexersSection } from './sections/IndexersSection'
 import { DownloadClientsSection } from './sections/DownloadClientsSection'
+import { CustomFormatsSection } from './sections/CustomFormatsSection'
+import { ConnectSection } from './sections/ConnectSection'
+import { MetadataSection } from './sections/MetadataSection'
+import { MetadataSourceSection } from './sections/MetadataSourceSection'
+import { ImportListsSection } from './sections/ImportListsSection'
 
 // The 13 Sonarr settings sections (the settings IA contract, P1). Each is a
 // route (/settings/:section). P1 established the nav + layout; P5 decomposes
@@ -30,11 +35,9 @@ export const SETTINGS_SECTIONS: { slug: string; label: string }[] = [
   { slug: 'ui', label: 'UI' },
 ]
 
-// renderSection maps a slug to its P5 section component. The sections that
-// ship in later waves (custom-formats, import-lists, connect, metadata,
-// metadata-source) still render the "coming" placeholder until their forms
-// land.
-function renderSection(slug: string, label: string) {
+// renderSection maps a slug to its P5 section component. All 13 sections
+// have forms; the generic ones ride the per-section document endpoints.
+function renderSection(slug: string) {
   switch (slug) {
     case 'media-management':
       return <MediaManagementSection />
@@ -52,11 +55,21 @@ function renderSection(slug: string, label: string) {
       return <IndexersSection />
     case 'download-clients':
       return <DownloadClientsSection />
+    case 'custom-formats':
+      return <CustomFormatsSection />
+    case 'connect':
+      return <ConnectSection />
+    case 'metadata':
+      return <MetadataSection />
+    case 'metadata-source':
+      return <MetadataSourceSection />
+    case 'import-lists':
+      return <ImportListsSection />
     default:
       return (
         <div className="empty-state" data-testid={`settings-empty-${slug}`}>
-          <h3>{label}</h3>
-          <p>This settings section ships with the settings parity build (P5).</p>
+          <h3>Unknown section</h3>
+          <p>This settings section does not exist.</p>
         </div>
       )
   }
@@ -84,7 +97,7 @@ export function SettingsShell() {
       ))}
     >
       <h2 style={{ marginBottom: '0.8rem' }}>{label}</h2>
-      {renderSection(current, label)}
+      {renderSection(current)}
     </SettingsLayout>
   )
 }

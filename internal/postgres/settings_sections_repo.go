@@ -19,11 +19,11 @@ import (
 // connectNotifStored is the on-wire shape of one connect notification: the
 // options token holds hex ciphertext (or "" when unset).
 type connectNotifStored struct {
-	ID      int                    `json:"id"`
-	Name    string                 `json:"name"`
-	Kind    string                 `json:"kind"`
-	Enabled bool                   `json:"enabled"`
-	Options connectOptionsStored   `json:"options"`
+	ID      int                  `json:"id"`
+	Name    string               `json:"name"`
+	Kind    string               `json:"kind"`
+	Enabled bool                 `json:"enabled"`
+	Options connectOptionsStored `json:"options"`
 }
 
 type connectOptionsStored struct {

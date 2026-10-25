@@ -9,19 +9,19 @@ import (
 	"testing"
 
 	"github.com/brandenk514/mediarr/internal/auth"
+	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
+	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/health"
 	"github.com/brandenk514/mediarr/internal/providers"
-	"github.com/brandenk514/mediarr/internal/settings"
-	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	tvsvc "github.com/brandenk514/mediarr/internal/services/tv"
-	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
+	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // fakeTVLib is an in-memory TVImporter for the import-list endpoint tests.
 type fakeTVLib struct {
-	series  []tvdom.Series
-	added   []string
-	addErr  error
+	series []tvdom.Series
+	added  []string
+	addErr error
 }
 
 func (f *fakeTVLib) AddSeries(_ context.Context, req tvsvc.AddSeriesRequest) (int64, error) {
@@ -261,8 +261,8 @@ func TestSearchMetadataSource_FallbackToKeyless(t *testing.T) {
 		t.Fatalf("got %d: %s", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		Source   string `json:"source"`
-		Results  []struct {
+		Source  string `json:"source"`
+		Results []struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`
 		} `json:"results"`

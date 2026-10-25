@@ -39,12 +39,12 @@ func (t *TVmaze) Name() string { return "tvmaze" }
 type tvmazeSearchResponse struct {
 	Shows []struct {
 		Show struct {
-			ID       int      `json:"id"`
-			Name     string   `json:"name"`
-			Premiered string  `json:"premiered"` // "2026-01-01" or ""
-			Genres   []string `json:"genres"`
-			Status   string   `json:"status"`
-			Language string   `json:"language"`
+			ID        int      `json:"id"`
+			Name      string   `json:"name"`
+			Premiered string   `json:"premiered"` // "2026-01-01" or ""
+			Genres    []string `json:"genres"`
+			Status    string   `json:"status"`
+			Language  string   `json:"language"`
 		} `json:"show"`
 	} `json:"shows"`
 }

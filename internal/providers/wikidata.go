@@ -108,8 +108,8 @@ func (w *Wikidata) Search(ctx context.Context, q string) ([]Result, error) {
 
 type wbEntitiesResponse struct {
 	Entities map[string]struct {
-		ID      string `json:"id"` // "Q42"
-		Labels  map[string]struct {
+		ID     string `json:"id"` // "Q42"
+		Labels map[string]struct {
 			Value string `json:"value"`
 		} `json:"labels"`
 	} `json:"entities"`

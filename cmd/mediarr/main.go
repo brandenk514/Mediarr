@@ -34,7 +34,6 @@ import (
 	"github.com/brandenk514/mediarr/internal/providers"
 	"github.com/brandenk514/mediarr/internal/redis"
 	"github.com/brandenk514/mediarr/internal/secrets"
-	"github.com/brandenk514/mediarr/internal/settings"
 	blocklistsvc "github.com/brandenk514/mediarr/internal/services/blocklist"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 	calendarsvc "github.com/brandenk514/mediarr/internal/services/calendar"
@@ -44,6 +43,7 @@ import (
 	rootfolders "github.com/brandenk514/mediarr/internal/services/rootfolders"
 	tvs "github.com/brandenk514/mediarr/internal/services/tv"
 	wantedsvc "github.com/brandenk514/mediarr/internal/services/wanted"
+	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // Build-time stamped values (see -ldflags in Dockerfile / Makefile).
@@ -510,15 +510,15 @@ func run() error {
 	// search (P5.7), and import lists. The keyless adapters (TVmaze,
 	// Wikidata) make a zero-key install fully searchable.
 	srv.SetSettingsP5(&api.SettingsP5Deps{
-		Store: settingsRepo,
+		Store:       settingsRepo,
 		TVDB:        providers.NewTVDB(cfg.Providers.TVDBAPIKey),
 		TMDB:        providers.NewTMDB(cfg.Providers.TMDBAPIKey),
 		TVmaze:      providers.NewTVmaze(),
 		Wikidata:    providers.NewWikidata(),
 		MusicBrainz: providers.NewMusicBrainz(),
 		OpenLibrary: providers.NewOpenLibrary(),
-		TV:     tvSvc,
-		Movies: movieSvc,
+		TV:          tvSvc,
+		Movies:      movieSvc,
 	})
 
 	// P5 metadata file writer: .nfo sidecars are generated on manual

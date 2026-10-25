@@ -116,6 +116,11 @@ describe('SettingsShell', () => {
       ['/settings/tags', 'tags-card'],
       ['/settings/indexers', 'idx-card'],
       ['/settings/download-clients', 'dc-card'],
+      ['/settings/custom-formats', 'cf-card'],
+      ['/settings/connect', 'connect-card'],
+      ['/settings/metadata', 'metadata-card'],
+      ['/settings/metadata-source', 'ms-card'],
+      ['/settings/import-lists', 'import-lists-card'],
     ]
     for (const [path, card] of cases) {
       const { unmount } = renderShell(path)
@@ -124,8 +129,8 @@ describe('SettingsShell', () => {
     }
   })
 
-  it('renders the placeholder for sections that ship in later waves', async () => {
-    renderShell('/settings/connect')
-    expect(await screen.findByTestId('settings-empty-connect')).toBeInTheDocument()
+  it('renders the unknown-section state for a non-section slug', async () => {
+    renderShell('/settings/nope')
+    expect(await screen.findByTestId('settings-empty-nope')).toBeInTheDocument()
   })
 })

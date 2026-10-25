@@ -22,7 +22,7 @@ import (
 // Service programs the wanted repository.
 type Service struct {
 	repo      dom.Repo
-	mediaRoot string // base directory a manual-import file must live under
+	mediaRoot string    // base directory a manual-import file must live under
 	nfo       NFOWriter // optional metadata sidecar writer (P5); nil = no NFOs
 }
 

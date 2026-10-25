@@ -220,10 +220,10 @@ type QualityProfileItem struct {
 // cutoff level (re-download trigger). Delay/release profiles are out of scope
 // for P5 (the plan ships them only if wanted cutoff needs them).
 type QualityProfile struct {
-	ID    int                  `json:"id"`
-	Name  string               `json:"name"`
-	Items []QualityProfileItem `json:"items"`
-	Cutoff int                 `json:"cutoff"`
+	ID     int                  `json:"id"`
+	Name   string               `json:"name"`
+	Items  []QualityProfileItem `json:"items"`
+	Cutoff int                  `json:"cutoff"`
 }
 
 // ProfilesSettings is the quality-profiles document.
@@ -436,7 +436,9 @@ type CustomFormatsSettings struct {
 	Formats []CustomFormat `json:"formats"`
 }
 
-func DefaultCustomFormats() CustomFormatsSettings { return CustomFormatsSettings{Formats: []CustomFormat{}} }
+func DefaultCustomFormats() CustomFormatsSettings {
+	return CustomFormatsSettings{Formats: []CustomFormat{}}
+}
 
 func (c CustomFormatsSettings) Validate() string {
 	ids := map[int]bool{}
@@ -547,9 +549,9 @@ func (c ConnectSettings) Validate() string {
 // writer's options): whether .nfo sidecars and subtitles are written on
 // import/refresh, in which language, and for which kinds.
 type MetadataSettings struct {
-	GenerateNFO       bool          `json:"generate_nfo"`
-	GenerateSubtitles bool          `json:"generate_subtitles"`
-	Language          string        `json:"language"`
+	GenerateNFO       bool            `json:"generate_nfo"`
+	GenerateSubtitles bool            `json:"generate_subtitles"`
+	Language          string          `json:"language"`
 	Kinds             map[string]bool `json:"kinds"`
 }
 

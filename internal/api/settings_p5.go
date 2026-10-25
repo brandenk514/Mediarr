@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/brandenk514/mediarr/internal/notify"
-	"github.com/brandenk514/mediarr/internal/providers"
-	"github.com/brandenk514/mediarr/internal/settings"
 	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
 	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
+	"github.com/brandenk514/mediarr/internal/notify"
+	"github.com/brandenk514/mediarr/internal/providers"
 	tvsvc "github.com/brandenk514/mediarr/internal/services/tv"
+	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // SettingsP5Deps bundles what the P5 wave-2/wave-3 endpoints need on top of
@@ -274,9 +274,9 @@ type providerAttempt struct {
 
 // metadataSourceSearchResult is the response (200 or 503).
 type metadataSourceSearchResult struct {
-	Kind     string         `json:"kind"`
-	Source   string         `json:"source"`
-	Results  []searchResult `json:"results"`
+	Kind     string            `json:"kind"`
+	Source   string            `json:"source"`
+	Results  []searchResult    `json:"results"`
 	Attempts []providerAttempt `json:"attempts"`
 }
 
@@ -530,7 +530,7 @@ func (s *Server) applyImportEntry(r *http.Request, e importListEntry, dryRun boo
 		item.Status, item.Message = "imported", "added to movies"
 		return item
 	default:
-		item.Status, item.Message = "skipped", "unsupported list item kind " + strconv.Quote(e.Kind)
+		item.Status, item.Message = "skipped", "unsupported list item kind "+strconv.Quote(e.Kind)
 		return item
 	}
 }
