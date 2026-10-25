@@ -96,7 +96,7 @@ func newWantedTestServer(t *testing.T) (*Server, *memWantedRepo, string) {
 
 	s := NewServer(health.NewChecker(nil, nil))
 	s.SetAuth(&AuthDeps{Repo: store})
-	svc := wsvc.New(repo)
+	svc := wsvc.New(repo, os.TempDir())
 	s.SetWanted(&WantedDeps{Svc: svc})
 	s.SetImport(&ImportDeps{Wanted: svc})
 	return s, repo, pair.Raw

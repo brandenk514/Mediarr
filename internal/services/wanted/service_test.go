@@ -135,7 +135,7 @@ func baseProfiles() map[int64]string {
 }
 
 func TestListMissingPaging(t *testing.T) {
-	s := New(&fakeRepo{rows: baseRows(), profiles: baseProfiles()})
+	s := New(&fakeRepo{rows: baseRows(), profiles: baseProfiles()}, "")
 	p, err := s.List(context.Background(), dom.TabMissing, "", 1, 2)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -153,7 +153,7 @@ func TestListMissingPaging(t *testing.T) {
 }
 
 func TestListMissingPageBounds(t *testing.T) {
-	s := New(&fakeRepo{rows: baseRows(), profiles: baseProfiles()})
+	s := New(&fakeRepo{rows: baseRows(), profiles: baseProfiles()}, "")
 	// Page past the end -> empty items but correct total.
 	p, err := s.List(context.Background(), dom.TabMissing, "", 9, 10)
 	if err != nil {
@@ -174,7 +174,7 @@ func TestListCutoffTab(t *testing.T) {
 	// is the lowest item = 1080p. So Gamma 1x1 (720p) is below cutoff, while
 	// 1x2 (1080p) is exactly at it and not flagged.
 	profiles := map[int64]string{1: "HD-1080p", 2: "HD-1080p", 3: "UHD-2160p"}
-	s := New(&fakeRepo{rows: baseRows(), profiles: profiles})
+	s := New(&fakeRepo{rows: baseRows(), profiles: profiles}, "")
 	p, err := s.List(context.Background(), dom.TabCutoff, "", 1, 10)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -191,7 +191,7 @@ func TestListCutoffTab(t *testing.T) {
 }
 
 func TestListUnknownTab(t *testing.T) {
-	s := New(&fakeRepo{})
+	s := New(&fakeRepo{}, "")
 	_, err := s.List(context.Background(), dom.Tab("bogus"), "", 1, 10)
 	if !errors.Is(err, dom.ErrUnknownTab) {
 		t.Fatalf("err = %v, want ErrUnknownTab", err)
@@ -200,7 +200,7 @@ func TestListUnknownTab(t *testing.T) {
 
 func TestSearchAll(t *testing.T) {
 	repo := &fakeRepo{rows: baseRows(), profiles: baseProfiles()}
-	s := New(repo)
+	s := New(repo, "")
 	n, err := s.SearchAll(context.Background(), dom.TabMissing)
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -234,7 +234,7 @@ func TestUnmonitor(t *testing.T) {
 			(sxe{2, 1, 1}): true,
 		},
 	}
-	s := New(repo)
+	s := New(repo, "")
 	n, err := s.Unmonitor(context.Background(), []dom.EpisodeRef{
 		{SeriesID: 1, Season: 1, Episode: 1},
 		{SeriesID: 9, Season: 1, Episode: 1}, // unknown -> not counted
@@ -262,7 +262,7 @@ func TestManualImportHappyPath(t *testing.T) {
 		epMonitored: map[sxe]bool{(sxe{3, 1, 1}): true},
 		series:      map[int64]*dom.SeriesRef{3: {ID: 3, Title: "Gamma", QualityProfile: "HD-1080p"}},
 	}
-	s := New(repo)
+	s := New(repo, dir)
 	rep, err := s.ManualImport(context.Background(), dom.ManualImport{
 		Kind: "tv", SeriesID: 3, Season: 1, Episode: 1, FilePath: file,
 	})
@@ -296,7 +296,7 @@ func TestManualImportValidation(t *testing.T) {
 		epMonitored: map[sxe]bool{(sxe{3, 1, 1}): true},
 		series:      map[int64]*dom.SeriesRef{3: {ID: 3, Title: "Gamma"}},
 	}
-	s := New(repo)
+	s := New(repo, dir)
 
 	cases := []struct {
 		name string
@@ -307,6 +307,8 @@ func TestManualImportValidation(t *testing.T) {
 		{"bad episode", dom.ManualImport{Kind: "tv", SeriesID: 3, Season: 0, Episode: 1, FilePath: file}, dom.ErrInvalidEpisode},
 		{"empty path", dom.ManualImport{Kind: "tv", SeriesID: 3, Season: 1, Episode: 1}, dom.ErrEmptyPath},
 		{"missing file", dom.ManualImport{Kind: "tv", SeriesID: 3, Season: 1, Episode: 1, FilePath: filepath.Join(dir, "nope.mkv")}, dom.ErrFileNotFound},
+		{"outside root", dom.ManualImport{Kind: "tv", SeriesID: 3, Season: 1, Episode: 1, FilePath: "/etc/passwd"}, dom.ErrPathOutsideRoot},
+		{"traversal escape", dom.ManualImport{Kind: "tv", SeriesID: 3, Season: 1, Episode: 1, FilePath: filepath.Join(dir, "..", "..", "escape.mkv")}, dom.ErrPathOutsideRoot},
 		{"unknown series", dom.ManualImport{Kind: "tv", SeriesID: 99, Season: 1, Episode: 1, FilePath: file}, dom.ErrSeriesNotFound},
 		{"unknown episode", dom.ManualImport{Kind: "tv", SeriesID: 3, Season: 2, Episode: 9, FilePath: file}, dom.ErrEpisodeNotFound},
 	}

@@ -32,6 +32,9 @@ var (
 	ErrEpisodeNotFound = errors.New("wanted: episode not found")
 	// ErrFileNotFound is a manual import whose file does not exist.
 	ErrFileNotFound = errors.New("wanted: file not found")
+	// ErrPathOutsideRoot is a manual import whose file path is outside the
+	// media root.
+	ErrPathOutsideRoot = errors.New("wanted: file path is outside the media root")
 	// ErrInvalidEpisode is a manual import with a non-positive season/episode.
 	ErrInvalidEpisode = errors.New("wanted: season and episode must be positive")
 	// ErrEmptyPath is a manual import with no file path.

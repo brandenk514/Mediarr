@@ -405,7 +405,7 @@ func run() error {
 	srv.SetHistory(&api.HistoryDeps{Svc: historysvc.New(postgres.NewHistoryRepo(pg.DB()))})
 	srv.SetBlocklist(&api.BlocklistDeps{Svc: blocklistsvc.New(postgres.NewBlocklistRepo(pg.DB()))})
 	wantedRepo := postgres.NewWantedRepo(pg.DB())
-	wantedSvc := wantedsvc.New(wantedRepo)
+	wantedSvc := wantedsvc.New(wantedRepo, tvMediaRoot)
 	srv.SetWanted(&api.WantedDeps{Svc: wantedSvc})
 	srv.SetImport(&api.ImportDeps{Wanted: wantedSvc})
 
