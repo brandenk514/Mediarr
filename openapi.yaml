@@ -68,6 +68,8 @@ tags:
     description: Global wanted episodes — Missing + Cutoff Unmet (Wanted page).
   - name: import
     description: Manual import of a wanted episode from a local file.
+  - name: calendar
+    description: Upcoming monitored air dates (Calendar page + iCal feed).
   - name: search
     description: Provider search for the add flows + quality profiles.
   - name: events
@@ -2327,6 +2329,83 @@ paths:
                 type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/v1/calendar:
+    get:
+      tags: [calendar]
+      summary: Upcoming monitored air dates in [start, end] (Calendar page).
+      description: Monitored episodes whose provider air date falls within the
+        window and is in the future (today or later). A missing or invalid
+        start/end falls back to today .. today+30d. An empty window returns [].
+      operationId: listCalendar
+      security: [bearerAuth: []]
+      parameters:
+        - name: start
+          in: query
+          required: false
+          description: Window start (RFC3339). Defaults to today (start of day).
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          required: false
+          description: Window end (RFC3339). Defaults to start + 30 days.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: The upcoming calendar entries for the window.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CalendarEntry'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /calendar.ics:
+    get:
+      tags: [calendar]
+      summary: iCal feed of the upcoming monitored air dates.
+      description: RFC 5545 iCal document (a VCALENDAR wrapper with a VEVENT
+        per episode) for importing into Google/Apple Calendar. Auth via the
+        app's bearer token, sent either as a standard Authorization header or a
+        ?token= query param (the latter so a plain calendar-client / <a> link
+        works).
+      operationId: calendarFeed
+      security: [bearerAuth: []]
+      parameters:
+        - name: token
+          in: query
+          required: false
+          description: Bearer token (alternative to the Authorization header).
+          schema:
+            type: string
+        - name: start
+          in: query
+          required: false
+          description: Window start (RFC3339). Defaults to today.
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          required: false
+          description: Window end (RFC3339). Defaults to start + 30 days.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: The iCal feed (RFC 5545).
+          content:
+            text/calendar:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
 components:
   securitySchemes:
     bearerAuth:
@@ -3474,6 +3553,40 @@ components:
           type: integer
         pageSize:
           type: integer
+    CalendarEntry:
+      type: object
+      required: [kind, series_id, series_title, season, episode, episode_title, sxe, air_start, air_end]
+      properties:
+        kind:
+          type: string
+          enum: [tv]
+        series_id:
+          type: integer
+          format: int64
+        series_title:
+          type: string
+        season:
+          type: integer
+        episode:
+          type: integer
+        episode_title:
+          type: string
+        sxe:
+          type: string
+          description: Absolute SxE, e.g. "S1E05".
+        air_date:
+          type: string
+          format: date
+          nullable: true
+          description: The (date-only) air date from provider metadata.
+        air_start:
+          type: string
+          format: date-time
+          description: Derived air start (air date at the default air time).
+        air_end:
+          type: string
+          format: date-time
+          description: Derived air end (air start + the default runtime).
     WantedSearchRequest:
       type: object
       properties:

@@ -1295,6 +1295,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Upcoming monitored air dates in [start, end] (Calendar page).
+         * @description Monitored episodes whose provider air date falls within the window and is in the future (today or later). A missing or invalid start/end falls back to today .. today+30d. An empty window returns [].
+         */
+        get: operations["listCalendar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar.ics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * iCal feed of the upcoming monitored air dates.
+         * @description RFC 5545 iCal document (a VCALENDAR wrapper with a VEVENT per episode) for importing into Google/Apple Calendar. Auth via the app's bearer token, sent either as a standard Authorization header or a ?token= query param (the latter so a plain calendar-client / <a> link works).
+         */
+        get: operations["calendarFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1881,6 +1921,33 @@ export interface components {
             total: number;
             page: number;
             pageSize: number;
+        };
+        CalendarEntry: {
+            /** @enum {string} */
+            kind: "tv";
+            /** Format: int64 */
+            series_id: number;
+            series_title: string;
+            season: number;
+            episode: number;
+            episode_title: string;
+            /** @description Absolute SxE, e.g. "S1E05". */
+            sxe: string;
+            /**
+             * Format: date
+             * @description The (date-only) air date from provider metadata.
+             */
+            air_date?: string | null;
+            /**
+             * Format: date-time
+             * @description Derived air start (air date at the default air time).
+             */
+            air_start: string;
+            /**
+             * Format: date-time
+             * @description Derived air end (air start + the default runtime).
+             */
+            air_end: string;
         };
         WantedSearchRequest: {
             /** @default missing */
@@ -4687,6 +4754,62 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listCalendar: {
+        parameters: {
+            query?: {
+                /** @description Window start (RFC3339). Defaults to today (start of day). */
+                start?: string;
+                /** @description Window end (RFC3339). Defaults to start + 30 days. */
+                end?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The upcoming calendar entries for the window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    calendarFeed: {
+        parameters: {
+            query?: {
+                /** @description Bearer token (alternative to the Authorization header). */
+                token?: string;
+                /** @description Window start (RFC3339). Defaults to today. */
+                start?: string;
+                /** @description Window end (RFC3339). Defaults to start + 30 days. */
+                end?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The iCal feed (RFC 5545). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/calendar": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
         };
     };
 }

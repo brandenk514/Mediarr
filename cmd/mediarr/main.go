@@ -35,6 +35,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/secrets"
 	blocklistsvc "github.com/brandenk514/mediarr/internal/services/blocklist"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
+	calendarsvc "github.com/brandenk514/mediarr/internal/services/calendar"
 	historysvc "github.com/brandenk514/mediarr/internal/services/historyfeed"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
@@ -408,6 +409,11 @@ func run() error {
 	wantedSvc := wantedsvc.New(wantedRepo, tvMediaRoot)
 	srv.SetWanted(&api.WantedDeps{Svc: wantedSvc})
 	srv.SetImport(&api.ImportDeps{Wanted: wantedSvc})
+
+	// P4: Calendar — upcoming monitored TV air dates (calendar page + iCal feed).
+	calendarRepo := postgres.NewCalendarRepo(pg.DB())
+	calendarSvc := calendarsvc.New(calendarRepo)
+	srv.SetCalendar(&api.CalendarDeps{Svc: calendarSvc})
 
 	// --- Music pipeline --------------------------------------------
 	// M3: wire the music pipeline end-to-end, mirroring the TV pipeline. The
