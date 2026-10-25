@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,6 +26,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/api"
 	"github.com/brandenk514/mediarr/internal/auth"
 	"github.com/brandenk514/mediarr/internal/config"
+	tvd "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/health"
 	"github.com/brandenk514/mediarr/internal/indexers"
@@ -44,6 +46,7 @@ import (
 	tvs "github.com/brandenk514/mediarr/internal/services/tv"
 	wantedsvc "github.com/brandenk514/mediarr/internal/services/wanted"
 	"github.com/brandenk514/mediarr/internal/settings"
+	"github.com/brandenk514/mediarr/internal/system"
 )
 
 // Build-time stamped values (see -ldflags in Dockerfile / Makefile).
@@ -58,13 +61,18 @@ func main() {
 		os.Exit(healthcheck())
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	// P6: the Log Files page (System > Log Files) shows the real application
+	// logs: the default JSON handler is wrapped in a slog bridge that mirrors
+	// every record into the system log ring buffer.
+	logSvc := system.NewLogService(1000)
+	logger := slog.New(system.NewSlogBridge(
+		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		logSvc,
+	))
 	slog.SetDefault(logger)
 	health.SetVersion(version, commit, buildTime)
 
-	if err := run(); err != nil {
+	if err := run(logSvc); err != nil {
 		logger.Error("fatal", "error", err)
 		os.Exit(1)
 	}
@@ -110,7 +118,7 @@ func healthcheck() int {
 	return 0
 }
 
-func run() error {
+func run(logSvc *system.LogService) error {
 	cfg, err := config.LoadFromOS()
 	if err != nil {
 		return err
@@ -120,6 +128,9 @@ func run() error {
 		"addr", cfg.HTTPAddr,
 		"postgres_host", hostOf(string(cfg.Postgres)),
 	)
+
+	// P6: the process start time for the About uptime readout.
+	startedAt := time.Now()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -205,8 +216,45 @@ func run() error {
 	// supports on-demand probes. A non-positive interval runs a single
 	// initial sweep and stops (on-demand tests still work); otherwise it runs
 	// until the process context is cancelled.
+	//
+	// P6: the sweep is driven by the System task registry instead of its own
+	// goroutine, so the Tasks page can observe it (one loop, live running /
+	// last-run state) without reinventing the worker.
 	healthWorker := indexers.NewHealthWorker(indexerRepo, registry, registry.Deps, cfg.IndexerHealthInterval, logger)
-	go func() { _ = healthWorker.Run(ctx) }()
+	taskRegistry := system.NewTaskRegistry()
+	taskRegistry.Register(system.TaskSpec{
+		Name:        "indexer_health",
+		Description: "Probe every enabled indexer and record the rollup",
+		Kind:        system.TaskScheduled,
+		Interval:    cfg.IndexerHealthInterval,
+		Enabled:     true,
+		Run: func(ctx context.Context) error {
+			if err := healthWorker.TestAll(ctx); err != nil {
+				logger.Warn("indexer health sweep failed", "error", err)
+				return err
+			}
+			return nil
+		},
+	})
+	// The PLAN.md §3 worker roster: the rest are planned (listed for the
+	// Tasks page inventory; not yet implemented as supervised loops).
+	for _, t := range []system.TaskSpec{
+		{Name: "wanted_scan", Description: "Wanted/monitor scan (periodic + event-driven)", Kind: system.TaskPlanned},
+		{Name: "indexer_search_refresh", Description: "Indexer search + result refresh", Kind: system.TaskPlanned},
+		{Name: "download_queue_watch", Description: "Download queue watch → import trigger", Kind: system.TaskPlanned},
+		{Name: "import", Description: "Import (parse client state, rename, move, metadata)", Kind: system.TaskPlanned},
+		{Name: "metadata_refresh", Description: "Metadata refresh (per-item + global schedule)", Kind: system.TaskPlanned},
+		{Name: "housekeeping", Description: "Housekeeping (history purge, cache eviction, temp cleanup)", Kind: system.TaskPlanned},
+	} {
+		taskRegistry.Register(t)
+	}
+	if cfg.IndexerHealthInterval > 0 {
+		// Drives the initial sweep + the periodic ticks (matches Run).
+		taskRegistry.Start(ctx, "indexer_health")
+	} else {
+		// Single initial sweep, matching the previous Run behavior.
+		go func() { _ = healthWorker.TestAll(ctx) }()
+	}
 
 	const resultTTL = 10 * time.Minute
 
@@ -383,8 +431,9 @@ func run() error {
 	tvFake.AddRelease(indexers.SearchResult{Title: "The.Wire.S01E01E02.1080p.WEB.x264", SizeBytes: 3_300_000_000})
 
 	tvMediaRoot := tvMediaRoot(cfg.MediaRoot)
+	tvRepo := postgres.NewTVRepo(pg.DB())
 	tvSvc := tvs.New(tvs.Deps{
-		Repo:           postgres.NewTVRepo(pg.DB()),
+		Repo:           tvRepo,
 		Indexers:       indexersFor(tvFake),
 		Client:         dlClient,
 		MediaRoot:      tvMediaRoot,
@@ -410,7 +459,8 @@ func run() error {
 	// Unmonitor Selected, Manual Import) operate on the TV tables, so the
 	// wanted service is wired here, after the TV pipeline, sharing the
 	// TV repo for reads.
-	srv.SetHistory(&api.HistoryDeps{Svc: historysvc.New(postgres.NewHistoryRepo(pg.DB()))})
+	historyFeedSvc := historysvc.New(postgres.NewHistoryRepo(pg.DB()))
+	srv.SetHistory(&api.HistoryDeps{Svc: historyFeedSvc})
 	srv.SetBlocklist(&api.BlocklistDeps{Svc: blocklistsvc.New(postgres.NewBlocklistRepo(pg.DB()))})
 	wantedRepo := postgres.NewWantedRepo(pg.DB())
 	wantedSvc := wantedsvc.New(wantedRepo, tvMediaRoot)
@@ -521,6 +571,138 @@ func run() error {
 		Movies:      movieSvc,
 	})
 
+	// P6 (System): the System area — structured health, the worker-inventory
+	// task registry, disk usage for the configured roots, the About report,
+	// backup export/import, the event log, the changelog, the streaming log
+	// viewer, and the Sonarr drop-in migration.
+	{
+		probes := []system.Probe{
+			{Name: "postgres", Ping: func(ctx context.Context) error { return pg.Ping(ctx) }, WikiLink: "docs/sonarr-parity-plan.md#p6"},
+			{Name: "redis", Ping: func(ctx context.Context) error { return cache.Ping(ctx) }, WikiLink: "docs/sonarr-parity-plan.md#p6"},
+			{Name: "media_root", WikiLink: "docs/sonarr-parity-plan.md#p6", Static: func() (bool, string) {
+				if _, err := os.Stat(cfg.MediaRoot); err != nil {
+					return false, "media root " + cfg.MediaRoot + " is missing or unreadable"
+				}
+				return true, cfg.MediaRoot
+			}},
+			{Name: "downloads_dir", WikiLink: "docs/sonarr-parity-plan.md#p6", Static: func() (bool, string) {
+				if _, err := os.Stat(cfg.DownloadsDir); err != nil {
+					return false, "downloads dir " + cfg.DownloadsDir + " is missing or unreadable"
+				}
+				return true, cfg.DownloadsDir
+			}},
+			{Name: "encryption_key", WikiLink: "docs/sonarr-parity-plan.md#p6", Static: func() (bool, string) {
+				if cfg.EncryptionKey == "" {
+					return false, "no at-rest encryption key (indexer/API secrets stored in plaintext)"
+				}
+				return true, "AES-256-GCM key configured"
+			}},
+			{Name: "tmdb", Soft: true, Static: func() (bool, string) {
+				if cfg.Providers.TMDBAPIKey == "" {
+					return false, "TMDB API key not set (search uses keyless fallbacks)"
+				}
+				return true, "TMDB API key set"
+			}},
+			{Name: "tvdb", Soft: true, Static: func() (bool, string) {
+				if cfg.Providers.TVDBAPIKey == "" {
+					return false, "TVDB API key not set (search uses keyless fallbacks)"
+				}
+				return true, "TVDB API key set"
+			}},
+		}
+		mode := os.Getenv("MEDIARR_MODE")
+		if mode == "" {
+			mode = "production"
+		}
+		// P6 Wave 3: the Sonarr drop-in migration stores. The target maps the
+		// six entity classes onto the real Mediarr stores: profiles / tags /
+		// download client over the settings repo, indexers over the indexer
+		// repo, series + episodes over the TV repo. The source is the live
+		// Sonarr v3 API (admin-configured URL + API key).
+		migrationIndexers := &migrationIndexerStore{repo: indexerRepo}
+		migrationTV := &migrationTVStore{repo: tvRepo}
+
+		// P6 Wave 2: the System depth services. Backup exports/imports the
+		// configuration over the settings repo (queue / series snapshots are
+		// optional attachments; the series snapshot can be imported back
+		// idempotently). The Events page is the global history feed, the
+		// Updates page the release changelog, and Log Files the log service
+		// bridged into the app logger in main().
+		backupSvc := &system.BackupService{
+			Store:   settingsRepo,
+			Version: version,
+			QueueSnap: func(ctx context.Context) (json.RawMessage, error) {
+				items, err := queueRepo.List(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return json.Marshal(items)
+			},
+			SeriesSnap: func(ctx context.Context) (json.RawMessage, error) {
+				series, err := tvRepo.ListSeries(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return json.Marshal(series)
+			},
+			SeriesImport: func(ctx context.Context, raw json.RawMessage) (int, error) {
+				var series []tvd.Series
+				if err := json.Unmarshal(raw, &series); err != nil {
+					return 0, err
+				}
+				n := 0
+				for _, sr := range series {
+					if sr.Title == "" {
+						continue
+					}
+					if _, found := migrationTV.FindSeries(ctx, sr.TVDBID, sr.Title, sr.Year); found {
+						continue
+					}
+					if _, err := migrationTV.AddSeries(ctx, system.SeriesRef{
+						Title:          sr.Title,
+						Year:           sr.Year,
+						TVDBID:         sr.TVDBID,
+						QualityProfile: sr.QualityProfile,
+						Monitored:      sr.Monitored,
+						SeasonFolder:   sr.SeasonFolder,
+						Tags:           sr.Tags,
+					}); err != nil {
+						return n, err
+					}
+					n++
+				}
+				return n, nil
+			},
+		}
+		// P6 Wave 3: the migrator (source factory = the live Sonarr v3
+		// client, target = the real Mediarr import sink).
+		migrator := system.NewMigrator(system.NewPostgresTarget(settingsRepo, migrationIndexers, migrationTV))
+
+		srv.SetSystem(&api.SystemDeps{
+			Health:       system.NewHealth(probes),
+			Tasks:        taskRegistry,
+			About:        system.AboutDeps{Version: version, Commit: commit, BuildTime: buildTime, Mode: mode, StartedAt: startedAt},
+			MediaRoot:    cfg.MediaRoot,
+			DownloadsDir: cfg.DownloadsDir,
+			Backup:       backupSvc,
+			Events:       historyFeedSvc,
+			Changelog:    system.NewChangelogService(version),
+			Logs:         logSvc,
+			Migration:    migrator,
+			RootFolderPaths: func() []string {
+				roots, err := rfSvc.List()
+				if err != nil {
+					return nil
+				}
+				paths := make([]string, 0, len(roots))
+				for _, r := range roots {
+					paths = append(paths, r.Path)
+				}
+				return paths
+			},
+		})
+	}
+
 	// P5 metadata file writer: .nfo sidecars are generated on manual
 	// import, gated by the metadata section's generate_nfo (a corrupt or
 	// missing document keeps the default: NFOs on for tv).
@@ -543,6 +725,88 @@ func run() error {
 		time.Duration(cfg.WriteTimeout)*time.Second,
 		time.Duration(cfg.ShutdownTimeout)*time.Second,
 	)
+}
+
+// migrationIndexerStore adapts the Postgres indexer repo to the migration
+// target's indexer seam (system.IndexerStore).
+type migrationIndexerStore struct {
+	repo *postgres.IndexersRepo
+}
+
+func (s *migrationIndexerStore) FindIndexer(ctx context.Context, name string) (int64, bool) {
+	def, err := s.repo.GetByName(ctx, name)
+	if err != nil {
+		return 0, false
+	}
+	return def.ID, true
+}
+
+func (s *migrationIndexerStore) CreateIndexer(ctx context.Context, name, kind, baseURL, apiKey string, enabled bool) (int64, error) {
+	return s.repo.Create(ctx, indexers.Definition{
+		Name: name, Kind: kind, BaseURL: baseURL, APIKey: apiKey, Enabled: enabled,
+	})
+}
+
+// migrationTVStore adapts the Postgres TV repo to the migration target's TV
+// seam (system.TVStore). FindSeries matches by TVDB id (when set) or
+// title+year, which is the identity the migration uses for idempotency.
+type migrationTVStore struct {
+	repo *postgres.TVRepo
+}
+
+func (s *migrationTVStore) FindSeries(ctx context.Context, tvdbID int, title string, year int) (int64, bool) {
+	all, err := s.repo.ListSeries(ctx)
+	if err != nil {
+		return 0, false
+	}
+	for _, sr := range all {
+		if tvdbID > 0 && sr.TVDBID == tvdbID {
+			return sr.ID, true
+		}
+		if sr.Title == title && sr.Year == year {
+			return sr.ID, true
+		}
+	}
+	return 0, false
+}
+
+func (s *migrationTVStore) AddSeries(ctx context.Context, ref system.SeriesRef) (int64, error) {
+	return s.repo.CreateSeries(ctx, tvd.Series{
+		TVDBID:         ref.TVDBID,
+		Title:          ref.Title,
+		Year:           ref.Year,
+		QualityProfile: ref.QualityProfile,
+		Monitored:      ref.Monitored,
+		SeasonFolder:   ref.SeasonFolder,
+		Tags:           ref.Tags,
+		AddedAt:        time.Now(),
+	})
+}
+
+// EpisodeKeys returns the "S<season>xE<episode>" keys of the series' known
+// episodes (the same key format the migration target probes).
+func (s *migrationTVStore) EpisodeKeys(ctx context.Context, seriesID int64) (map[string]bool, error) {
+	eps, err := s.repo.ListEpisodes(ctx, seriesID)
+	if err != nil {
+		return nil, err
+	}
+	keys := make(map[string]bool, len(eps))
+	for _, e := range eps {
+		keys[fmt.Sprintf("S%dxE%d", e.Season, e.Episode)] = true
+	}
+	return keys, nil
+}
+
+func (s *migrationTVStore) AddEpisode(ctx context.Context, seriesID int64, season, episode int, title string, airDate *time.Time, monitored bool) (int64, error) {
+	return s.repo.CreateEpisode(ctx, tvd.Episode{
+		SeriesID:  seriesID,
+		Season:    season,
+		Episode:   episode,
+		Title:     title,
+		AirDate:   airDate,
+		Monitored: monitored,
+		AddedAt:   time.Now(),
+	})
 }
 
 // hostOf extracts the host portion of a DSN for logging (never logs creds).

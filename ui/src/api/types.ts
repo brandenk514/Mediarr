@@ -147,6 +147,27 @@ export type ImportRunRequest = components["schemas"]["ImportRunRequest"]
 export type ImportRunItem = components["schemas"]["ImportRunItem"]
 export type ImportRunResult = components["schemas"]["ImportRunResult"]
 
+// ---- P6: System area (Status / Tasks / Backup / Updates / Events / Logs / migration) ----
+export type HealthCheck = components["schemas"]["HealthCheck"]
+export type SystemHealth = components["schemas"]["SystemHealth"]
+export type TaskInfo = components["schemas"]["TaskInfo"]
+export type SystemTasks = components["schemas"]["SystemTasks"]
+export type DiskRoot = components["schemas"]["DiskRoot"]
+export type SystemDisk = components["schemas"]["SystemDisk"]
+export type SystemAbout = components["schemas"]["SystemAbout"]
+export type BackupDocument = components["schemas"]["BackupDocument"]
+export type BackupImportRequest = components["schemas"]["BackupImportRequest"]
+export type BackupImportResult = components["schemas"]["BackupImportResult"]
+export type SystemEvents = components["schemas"]["SystemEvents"]
+export type SystemUpdates = components["schemas"]["SystemUpdates"]
+export type ChangelogEntry = components["schemas"]["ChangelogEntry"]
+export type MigrationItem = components["schemas"]["MigrationItem"]
+export type MigrationCounts = components["schemas"]["MigrationCounts"]
+export type MigrationResult = components["schemas"]["MigrationResult"]
+export type MigrationInclude = components["schemas"]["MigrationInclude"]
+export type MigrationRequest = components["schemas"]["MigrationRequest"]
+export type MigrationStatus = components["schemas"]["MigrationStatus"]
+
 // Books' domain type is books.Title; the spec names it BookTitle so the
 // document reads clearly at a glance.
 export type Title = components["schemas"]["BookTitle"]

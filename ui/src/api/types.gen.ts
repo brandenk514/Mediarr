@@ -1485,6 +1485,233 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Structured health checks for the Status page.
+         * @description The structured health table behind System > Status: one row per check
+         *     with a human message, a severity (ok | warning | error) and a wiki
+         *     link. The top-level ok/warning/error counts feed the System nav badge
+         *     (the number of non-ok checks).
+         */
+        get: operations["getSystemHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Running and scheduled background tasks (the worker inventory).
+         * @description The task inventory behind System > Tasks. Every supervised worker
+         *     (PLAN.md §3) is exposed here with its schedule, last-run state and
+         *     running flag, plus the planned-but-not-yet-implemented workers.
+         */
+        get: operations["getSystemTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/disk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Disk space for the configured media roots.
+         * @description Disk usage for the configured media roots (System > Status > Disk
+         *     Space): the shared media root, the downloads dir and any registered
+         *     root folders, each with total/used/free bytes and a usage percentage.
+         */
+        get: operations["getSystemDisk"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/about": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Build info, run mode and uptime (System > Status > About).
+         * @description Version, commit, build time, Go version, run mode and process uptime for the About card.
+         */
+        get: operations["getSystemAbout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the configuration as a JSON backup document.
+         * @description Exports the settings (download client, library overrides and every
+         *     settings section) as a self-contained JSON backup document. The
+         *     include_queue / include_series query params add optional queue and
+         *     series snapshots.
+         */
+        get: operations["getSystemBackup"];
+        put?: never;
+        /**
+         * Import a configuration backup document.
+         * @description Imports a backup document produced by GET /api/v1/system/backup,
+         *     writing the settings back (and, when present and requested, the queue
+         *     and series snapshots). Idempotent: re-importing the same document
+         *     converges to the same state.
+         */
+        post: operations["putSystemBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The event log (the history source) for System > Events.
+         * @description Reads the global history feed — the same source the Activity > History
+         *     page uses — so the Events page can show every lifecycle event with a
+         *     date / event-type filter.
+         */
+        get: operations["getSystemEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The changelog (System > Updates).
+         * @description The release changelog with the current running version highlighted.
+         */
+        get: operations["getSystemUpdates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Streaming log viewer (System > Log Files) over SSE.
+         * @description A Server-Sent-Events stream of recent application log lines. The first
+         *     frame is a `level`-tagged backlog of the ring buffer, then live lines
+         *     are pushed as they occur (flushed per event). Content-Type is
+         *     text/event-stream, not JSON.
+         */
+        get: operations["getSystemLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/migration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run the Sonarr drop-in migration.
+         * @description The drop-in moment: pulls a live Sonarr instance (series +
+         *     seasons/episodes + quality profiles + tags + indexers + download
+         *     client) via its v3 API and imports it into Mediarr, returning a
+         *     mapping report. dry_run reports what would be imported without
+         *     writing; the run is idempotent (re-runnable, no duplicates) and
+         *     resumable (a partial run can be continued).
+         */
+        post: operations["runMigration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/migration/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Migration progress and last result.
+         * @description Current migration status (idle / running / completed / partial / failed) with a progress counter and the last mapping report.
+         */
+        get: operations["getMigrationStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2587,6 +2814,219 @@ export interface components {
             dry_run: boolean;
             total: number;
             items: components["schemas"]["ImportRunItem"][];
+        };
+        /** @description One row in the System > Status health table. */
+        HealthCheck: {
+            /** @description Stable check id (postgres, redis, media_root, ...). */
+            check: string;
+            /** @description Human-readable status for the check. */
+            message: string;
+            /** @enum {string} */
+            severity: "ok" | "warning" | "error";
+            /** @description Docs link for this check; empty when none. */
+            wiki_link: string;
+        };
+        SystemHealth: {
+            checks: components["schemas"]["HealthCheck"][];
+            /** @description Count of ok checks. */
+            ok: number;
+            /** @description Count of warning checks. */
+            warning: number;
+            /** @description Count of error checks. */
+            error: number;
+        };
+        /** @description One background task in the worker inventory. */
+        TaskInfo: {
+            name: string;
+            description: string;
+            /**
+             * @description scheduled = periodic worker; on-demand = manual probe; planned = in the PLAN.md §3 inventory but not yet implemented.
+             * @enum {string}
+             */
+            kind: "scheduled" | "on-demand" | "planned";
+            /** @description Human schedule for scheduled tasks; empty otherwise. */
+            interval?: string;
+            /**
+             * Format: date-time
+             * @description When the task last ran; null when it never has.
+             */
+            last_run?: string | null;
+            /** @description How long the last run took (e.g. 1.2s). */
+            last_duration?: string;
+            /** @description Error message from the last run; empty when clean. */
+            last_error?: string;
+            /** @description True while the task is currently executing. */
+            running: boolean;
+            /** @description False for planned tasks that are not yet active. */
+            enabled: boolean;
+        };
+        SystemTasks: {
+            tasks: components["schemas"]["TaskInfo"][];
+            /** @description Number of tasks currently executing. */
+            running: number;
+            /** @description Number of active scheduled (periodic) tasks. */
+            scheduled: number;
+        };
+        DiskRoot: {
+            path: string;
+            /** @description False when the path is not present (usage fields are 0). */
+            exists: boolean;
+            /** Format: int64 */
+            total_bytes: number;
+            /** Format: int64 */
+            used_bytes: number;
+            /** Format: int64 */
+            free_bytes: number;
+            /**
+             * Format: double
+             * @description used/total as a fraction 0..1; 0 when the path is absent.
+             */
+            usage_pct: number;
+        };
+        SystemDisk: {
+            roots: components["schemas"]["DiskRoot"][];
+            /** @description The configured shared media root. */
+            media_root: string;
+            /** @description The configured downloads dir. */
+            downloads_dir: string;
+        };
+        SystemAbout: {
+            version: string;
+            commit: string;
+            build_time: string;
+            go_version: string;
+            /** @description Run mode (production | development). */
+            mode: string;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: int64 */
+            uptime_seconds: number;
+            /** @description Human uptime (e.g. 3h 12m). */
+            uptime?: string;
+        };
+        /** @description One settings section document in a backup. */
+        BackupSection: {
+            /** @description The section slug (e.g. import-lists, tags). */
+            section: string;
+            /** @description The raw section JSON, encoded as a JSON string. */
+            document: string;
+        };
+        BackupSettings: {
+            download_client: components["schemas"]["DownloadClientView"];
+            libraries: components["schemas"]["LibraryOverrides"];
+            sections: components["schemas"]["BackupSection"][];
+        };
+        /** @description A self-contained configuration backup. */
+        BackupDocument: {
+            /** @description The mediarr build that exported this backup. */
+            version: string;
+            /** Format: date-time */
+            exported_at: string;
+            settings: components["schemas"]["BackupSettings"];
+            /** @description Optional queue snapshot; present only when include_queue. */
+            queue?: components["schemas"]["QueueViewItem"][] | null;
+            /** @description Optional series snapshot; present only when include_series. */
+            series?: components["schemas"]["Series"][] | null;
+        };
+        BackupImportRequest: {
+            document: components["schemas"]["BackupDocument"];
+            /** @description Import the queue snapshot (if present in the document). */
+            include_queue: boolean;
+            /** @description Import the series snapshot (if present in the document). */
+            include_series: boolean;
+        };
+        BackupImportResult: {
+            imported: boolean;
+            /** @description Number of settings documents written. */
+            settings_imported: number;
+            queue_imported: number;
+            series_imported: number;
+            message?: string;
+        };
+        /** @description The event log (the history source). */
+        SystemEvents: {
+            events: components["schemas"]["GlobalHistoryItem"][];
+        };
+        ChangelogEntry: {
+            version: string;
+            /** Format: date */
+            date: string;
+            entries: string[];
+        };
+        SystemUpdates: {
+            /** @description The running version (highlighted by the UI). */
+            current: string;
+            changelog: components["schemas"]["ChangelogEntry"][];
+        };
+        /** @description One migrated entity in the mapping report. */
+        MigrationItem: {
+            /** @enum {string} */
+            entity: "quality_profile" | "tag" | "indexer" | "download_client" | "series" | "episode";
+            /** @description Stable source key (Sonarr id or slug). */
+            external_id: string;
+            source_title?: string;
+            /** @enum {string} */
+            action: "created" | "exists" | "updated" | "skipped" | "error" | "dry-run";
+            /**
+             * Format: int64
+             * @description The Mediarr id the source mapped to (0 when not created).
+             */
+            target_id?: number;
+            message?: string;
+        };
+        MigrationCounts: {
+            total: number;
+            created: number;
+            existing: number;
+            skipped: number;
+            errors: number;
+        };
+        /** @description The mapping report for a migration run. */
+        MigrationResult: {
+            dry_run: boolean;
+            resume: boolean;
+            source_url?: string;
+            counts: components["schemas"]["MigrationCounts"];
+            items: components["schemas"]["MigrationItem"][];
+            /** @description True when a partial run can be continued with resume. */
+            resumable: boolean;
+        };
+        /** @description Which entity classes to migrate; omitted fields default to true. */
+        MigrationInclude: {
+            series?: boolean;
+            episodes?: boolean;
+            quality_profiles?: boolean;
+            tags?: boolean;
+            indexers?: boolean;
+            download_client?: boolean;
+        };
+        MigrationRequest: {
+            /** @description Base URL of the Sonarr instance (e.g. http://sonarr.local:8989). */
+            source_url: string;
+            /** @description Sonarr API key (sent as X-Api-Key). */
+            api_key?: string;
+            /** @description Report only; add nothing. */
+            dry_run: boolean;
+            /** @description Resume a previously partial run (skips already-migrated series). */
+            resume?: boolean;
+            include?: components["schemas"]["MigrationInclude"];
+        };
+        MigrationStatus: {
+            /** @enum {string} */
+            status: "idle" | "running" | "completed" | "partial" | "failed";
+            running: boolean;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** @description Number of series processed so far. */
+            done: number;
+            /** @description Total series in the source (0 until a run completes the fetch). */
+            total: number;
+            /** @description The last migration mapping report. */
+            last_result?: {
+                [key: string]: unknown;
+            } | null;
         };
     };
     responses: {
@@ -5401,6 +5841,271 @@ export interface operations {
                 };
                 content: {
                     "text/calendar": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getSystemHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The health table. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemHealth"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getSystemTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task inventory. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemTasks"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getSystemDisk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The disk usage report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDisk"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getSystemAbout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The about report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemAbout"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getSystemBackup: {
+        parameters: {
+            query?: {
+                /** @description Include a queue snapshot. */
+                include_queue?: boolean;
+                /** @description Include a series snapshot. */
+                include_series?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The backup document (downloaded by the UI). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupDocument"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    putSystemBackup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The import report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupImportResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getSystemEvents: {
+        parameters: {
+            query?: {
+                /** @description Inclusive lower bound on the event time (RFC3339). */
+                since?: string;
+                /** @description Exact (case-insensitive) event-type match. */
+                event?: string;
+                /** @description Max rows (clamped to 1..200). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The event log, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemEvents"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getSystemUpdates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The changelog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemUpdates"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getSystemLogs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The SSE log stream. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    runMigration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MigrationRequest"];
+            };
+        };
+        responses: {
+            /** @description The mapping report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+            502: components["responses"]["BadGateway"];
+        };
+    };
+    getMigrationStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The migration status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationStatus"];
                 };
             };
             401: components["responses"]["Unauthorized"];

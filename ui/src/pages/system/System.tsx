@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink, useParams } from 'react-router-dom'
+import { ApiError, client } from '../../api/client'
+import type { DiskRoot, SystemAbout, SystemDisk, SystemHealth, SystemTasks, TaskInfo } from '../../api/types'
+import { BackupPanel } from './BackupPanel'
+import { EventsPanel } from './EventsPanel'
+import { LogsPanel } from './LogsPanel'
+import { MigrationPanel } from './MigrationPanel'
+import { UpdatesPanel } from './UpdatesPanel'
 
-type SystemPage = 'status' | 'tasks' | 'backup' | 'updates' | 'events' | 'logs'
+type SystemPage = 'status' | 'tasks' | 'backup' | 'updates' | 'events' | 'logs' | 'import'
 
 const PAGES: { slug: SystemPage; label: string }[] = [
   { slug: 'status', label: 'Status' },
@@ -10,24 +17,13 @@ const PAGES: { slug: SystemPage; label: string }[] = [
   { slug: 'updates', label: 'Updates' },
   { slug: 'events', label: 'Events' },
   { slug: 'logs', label: 'Log Files' },
+  { slug: 'import', label: 'Sonarr Import' },
 ]
 
-interface Healthz {
-  version?: string
-  commit?: string
-  go_version?: string
-  started_at?: string
-}
-
-interface ReadyCheck {
-  name: string
-  ok: boolean
-  latency?: string
-}
-
-// System is the system area (route established in P1). P1 wires the Status
-// page from the public /version, /healthz and /readyz endpoints (no backend
-// change); Tasks / Backup / Updates / Events / Log Files ship in P6.
+// System is the system area (route established in P1). P6 wires every
+// sub-page to the structured /api/v1/system/* endpoints: Status (health
+// table + disk space + About), Tasks (the worker inventory), Backup,
+// Updates, Events and Log Files, plus the Sonarr drop-in migration.
 export function SystemPage() {
   const { page = 'status' } = useParams<{ page: string }>()
   return <SystemShell page={page as SystemPage} />
@@ -51,40 +47,43 @@ function SystemShell({ page = 'status' }: { page?: SystemPage }) {
         ))}
       </nav>
       <div style={{ minWidth: 0 }}>
-        {current === 'status' ? <StatusPanel /> : <OtherSystemPanel slug={current} label={PAGES.find((p) => p.slug === current)!.label} />}
+        {current === 'status' && <StatusPanel />}
+        {current === 'tasks' && <TasksPanel />}
+        {current === 'backup' && <BackupPanel />}
+        {current === 'updates' && <UpdatesPanel />}
+        {current === 'events' && <EventsPanel />}
+        {current === 'logs' && <LogsPanel />}
+        {current === 'import' && <MigrationPanel />}
       </div>
     </div>
   )
 }
 
-function OtherSystemPanel({ slug, label }: { slug: SystemPage; label: string }) {
-  return (
-    <div className="empty-state" data-testid={`system-empty-${slug}`}>
-      <h3>{label}</h3>
-      <p>{label} lands with the System + migration build (P6).</p>
-    </div>
-  )
+// errMsg renders an error string, preferring the backend's message for a
+// 401 (auth expired) and falling back to a generic line otherwise.
+function errMsg(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) return e.message
+  if (e instanceof Error) return e.message
+  return fallback
 }
 
+// ---- Status: health table + disk space + About (P6 structured endpoints) ----
+
 function StatusPanel() {
-  const [version, setVersion] = useState('')
-  const [health, setHealth] = useState<Healthz | null>(null)
-  const [checks, setChecks] = useState<ReadyCheck[]>([])
+  const [health, setHealth] = useState<SystemHealth | null>(null)
+  const [disk, setDisk] = useState<SystemDisk | null>(null)
+  const [about, setAbout] = useState<SystemAbout | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const [v, h, r] = await Promise.all([
-        fetch('/version').then((x) => x.json()).catch(() => ({ version: '' })),
-        fetch('/healthz').then((x) => x.json()).catch(() => null),
-        fetch('/readyz').then((x) => x.json()).catch(() => null),
-      ])
-      setVersion((v as { version?: string }).version ?? '')
-      setHealth(h as Healthz)
-      setChecks(((r as { checks?: ReadyCheck[] } | null)?.checks ?? []))
+      const [h, d, a] = await Promise.all([client.getSystemHealth(), client.getSystemDisk(), client.getSystemAbout()])
+      setHealth(h)
+      setDisk(d)
+      setAbout(a)
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load status')
+      setError(errMsg(e, 'failed to load system status'))
     }
   }, [])
 
@@ -94,8 +93,142 @@ function StatusPanel() {
 
   if (error && !health) {
     return (
-      <div className="card" data-testid="system-status-error">
-        <h2>Status unavailable</h2>
+      <div data-testid="system-status">
+        <div className="card" data-testid="system-status-error">
+          <h2>Status unavailable</h2>
+          <p className="error">{error}</p>
+          <button onClick={() => void load()}>Retry</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div data-testid="system-status">
+      {health && (
+        <div className="card" data-testid="system-health-table">
+          <h3 style={{ margin: '0 0 0.5rem' }}>Health</h3>
+          {health.checks.length === 0 ? (
+            <p className="dim">No health checks reported.</p>
+          ) : (
+            <div className="list-table">
+              <div className="lt-head">
+                <span>Check</span>
+                <span>Message</span>
+                <span>Severity</span>
+                <span>Docs</span>
+              </div>
+              {health.checks.map((c) => (
+                <div className="lt-row" key={c.check} data-testid={`health-row-${c.check}`}>
+                  <span>{c.check}</span>
+                  <span className="lt-dim">{c.message}</span>
+                  <span className={`pill health-${c.severity}`}>{c.severity}</span>
+                  <span>
+                    {c.wiki_link ? (
+                      <a href={c.wiki_link} target="_blank" rel="noreferrer" data-testid={`health-link-${c.check}`}>
+                        docs
+                      </a>
+                    ) : (
+                      <span className="lt-dim">—</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {disk && (
+        <div className="card" style={{ marginTop: '1rem' }} data-testid="system-disk">
+          <h3 style={{ margin: '0 0 0.5rem' }}>Disk Space</h3>
+          {disk.roots.length === 0 ? (
+            <p className="dim">No media roots configured.</p>
+          ) : (
+            <div className="list-table">
+              <div className="lt-head">
+                <span>Path</span>
+                <span>Used / Total</span>
+                <span>Usage</span>
+              </div>
+              {disk.roots.map((r: DiskRoot) => (
+                <DiskRow key={r.path} r={r} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {about && (
+        <div className="card" style={{ marginTop: '1rem' }} data-testid="system-about">
+          <h3 style={{ margin: '0 0 0.5rem' }}>About</h3>
+          <dl className="about-grid">
+            <AboutRow label="Version" value={about.version} />
+            <AboutRow label="Commit" value={about.commit} />
+            <AboutRow label="Build time" value={about.build_time} />
+            <AboutRow label="Go" value={about.go_version} />
+            <AboutRow label="Mode" value={about.mode} />
+            <AboutRow label="Started" value={formatDateTime(about.started_at)} />
+            <AboutRow label="Uptime" value={about.uptime} />
+          </dl>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DiskRow({ r }: { r: DiskRoot }) {
+  const pct = Math.round(r.usage_pct * 100)
+  return (
+    <div className="lt-row" data-testid={`disk-row-${r.path.replace(/[^a-z0-9]/gi, '')}`}>
+      <span title={r.path}>{r.path}</span>
+      <span className="lt-dim">
+        {r.exists ? `${humanBytes(r.used_bytes)} / ${humanBytes(r.total_bytes)}` : 'not present'}
+      </span>
+      <span>
+        {r.exists ? (
+          <span className="bar" data-testid={`disk-bar-${r.path.replace(/[^a-z0-9]/gi, '')}`}>
+            <span className="bar-fill" style={{ width: `${pct}%` }} />
+            <span className="bar-label">{pct}%</span>
+          </span>
+        ) : (
+          <span className="lt-dim">—</span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+function AboutRow({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="about-row">
+      <dt className="lt-dim">{label}</dt>
+      <dd>{value || '—'}</dd>
+    </div>
+  )
+}
+
+// ---- Tasks: the worker inventory (running + scheduled + planned) ----
+
+function TasksPanel() {
+  const [tasks, setTasks] = useState<SystemTasks | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      setTasks(await client.getSystemTasks())
+      setError(null)
+    } catch (e) {
+      setError(errMsg(e, 'failed to load tasks'))
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (error && !tasks) {
+    return (
+      <div className="card" data-testid="system-tasks-error">
+        <h2>Tasks unavailable</h2>
         <p className="error">{error}</p>
         <button onClick={() => void load()}>Retry</button>
       </div>
@@ -103,37 +236,66 @@ function StatusPanel() {
   }
 
   return (
-    <div data-testid="system-status">
-      <div className="card" style={{ marginBottom: '1rem' }}>
-        <h3 style={{ margin: '0 0 0.5rem' }}>About</h3>
-        <p className="dim small" style={{ margin: 0 }}>
-          mediarr {version || (health?.version ?? '')} · {health?.go_version ?? ''}
-          {health?.commit ? ` · ${health.commit}` : ''}
-        </p>
-      </div>
-      <div className="card" data-testid="system-health-table">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Health</h3>
-        {checks.length === 0 ? (
-          <p className="dim">No health checks reported.</p>
-        ) : (
-          <div className="list-table">
-            <div className="lt-head">
-              <span>Check</span>
-              <span>Status</span>
-              <span>Latency</span>
-            </div>
-            {checks.map((c) => (
-              <div className="lt-row" key={c.name}>
-                <span>{c.name}</span>
-                <span className={`pill ${c.ok ? 'pill-ok' : 'pill-err'}`}>{c.ok ? 'ok' : 'unavailable'}</span>
-                <span className="lt-dim">{c.latency ?? '—'}</span>
-              </div>
-            ))}
-          </div>
+    <div className="card" data-testid="system-tasks">
+      <h3 style={{ margin: '0 0 0.5rem' }}>
+        Tasks
+        {tasks && (
+          <span className="dim small">
+            {' '}
+            · {tasks.running} running · {tasks.scheduled} scheduled
+          </span>
         )}
-      </div>
+      </h3>
+      {!tasks || tasks.tasks.length === 0 ? (
+        <p className="dim">No tasks registered.</p>
+      ) : (
+        <div className="list-table">
+          <div className="lt-head">
+            <span>Task</span>
+            <span>Kind</span>
+            <span>Schedule</span>
+            <span>Last run</span>
+            <span>State</span>
+          </div>
+          {tasks.tasks.map((t: TaskInfo) => (
+            <TaskRow key={t.name} t={t} />
+          ))}
+        </div>
+      )}
     </div>
   )
+}
+
+function TaskRow({ t }: { t: TaskInfo }) {
+  const state = t.running ? 'running' : t.last_error ? 'error' : t.last_run ? 'idle' : 'planned'
+  return (
+    <div className="lt-row" data-testid={`task-row-${t.name}`}>
+      <span title={t.description}>{t.name}</span>
+      <span className={`pill task-${t.kind}`}>{t.kind}</span>
+      <span className="lt-dim">{t.interval || '—'}</span>
+      <span className="lt-dim">{t.last_run ? `${formatDateTime(t.last_run)}${t.last_duration ? ` · ${t.last_duration}` : ''}` : '—'}</span>
+      <span>
+        <span className={`pill task-state-${state}`}>{state}</span>
+        {t.last_error ? <span className="lt-dim" title={t.last_error}> ⚠</span> : null}
+      </span>
+    </div>
+  )
+}
+
+// ---- formatting helpers ----
+
+function humanBytes(n: number): string {
+  if (!n || n <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log2(n) / 10))
+  return `${(n / 2 ** (10 * i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+function formatDateTime(iso: string): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString()
 }
 
 export { PAGES as SYSTEM_PAGES }

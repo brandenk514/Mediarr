@@ -85,6 +85,19 @@ import type {
   MetadataSourceSearchResult,
   ImportRunRequest,
   ImportRunResult,
+  // P6: System area
+  SystemHealth,
+  SystemTasks,
+  SystemDisk,
+  SystemAbout,
+  BackupDocument,
+  BackupImportRequest,
+  BackupImportResult,
+  SystemEvents,
+  SystemUpdates,
+  MigrationRequest,
+  MigrationResult,
+  MigrationStatus,
 } from './types'
 
 export class ApiError extends Error {
@@ -376,6 +389,35 @@ export const client = {
   runImportListImport: (req: ImportRunRequest) =>
     request<ImportRunResult>('POST', '/settings/import-lists/import', req),
 
+  // ---- P6: System area (Status / Tasks / Backup / Updates / Events / Logs / migration) ----
+  getSystemHealth: () => request<SystemHealth>('GET', '/system/health'),
+  getSystemTasks: () => request<SystemTasks>('GET', '/system/tasks'),
+  getSystemDisk: () => request<SystemDisk>('GET', '/system/disk'),
+  getSystemAbout: () => request<SystemAbout>('GET', '/system/about'),
+  // Backup export: include_queue / include_series are optional snapshots.
+  getSystemBackup: (f?: { includeQueue?: boolean; includeSeries?: boolean }) => {
+    const params = new URLSearchParams()
+    if (f?.includeQueue) params.set('include_queue', 'true')
+    if (f?.includeSeries) params.set('include_series', 'true')
+    const s = params.toString()
+    return request<BackupDocument>('GET', `/system/backup${s ? `?${s}` : ''}`)
+  },
+  putSystemBackup: (req: BackupImportRequest) =>
+    request<BackupImportResult>('POST', '/system/backup', req),
+  // Events: the history source feed (date / event-type filter).
+  getSystemEvents: (f?: { since?: string; event?: string; limit?: number }) => {
+    const params = new URLSearchParams()
+    if (f?.since) params.set('since', f.since)
+    if (f?.event) params.set('event', f.event)
+    if (f?.limit) params.set('limit', String(f.limit))
+    const s = params.toString()
+    return request<SystemEvents>('GET', `/system/events${s ? `?${s}` : ''}`)
+  },
+  getSystemUpdates: () => request<SystemUpdates>('GET', '/system/updates'),
+  // Sonarr drop-in migration.
+  runMigration: (req: MigrationRequest) => request<MigrationResult>('POST', '/system/migration', req),
+  getMigrationStatus: () => request<MigrationStatus>('GET', '/system/migration/status'),
+
   // ---- add flows (#42) ----
   // Provider search: debounced by the UI; each call is one provider round
   // trip. The endpoints answer 503 when the provider isn't configured — the
@@ -399,6 +441,82 @@ export const client = {
 }
 
 export type Api = typeof client
+
+// SystemLogLine is one line in the System > Log Files SSE stream. It mirrors
+// the Go system.LogLine JSON shape; the OpenAPI op serves text/event-stream
+// (not a JSON schema), so this is a local wire type rather than a generated
+// one.
+export type SystemLogLine = {
+  time: string
+  level: string
+  message: string
+}
+
+// LogStreamStatus reports the log-stream phase to the viewer.
+export type LogStreamStatus = { state: 'connecting' | 'open' | 'error' | 'closed'; error?: string }
+
+// openSystemLogsStream opens the /api/v1/system/logs SSE stream. Browsers
+// cannot set the Authorization header on an EventSource, so this uses fetch +
+// ReadableStream with the token in the header (as every other call). onLines
+// receives each frame's line batch (the backlog first, then live lines);
+// onStatus reports the phase. Returns a close function; call it on unmount.
+export function openSystemLogsStream(
+  onLines: (lines: SystemLogLine[]) => void,
+  onStatus: (s: LogStreamStatus) => void,
+): () => void {
+  const controller = new AbortController()
+  let closed = false
+
+  const headers: Record<string, string> = { Accept: 'text/event-stream' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  onStatus({ state: 'connecting' })
+
+  fetch(`${API}/system/logs`, { headers, signal: controller.signal })
+    .then(async (res) => {
+      if (!res.ok || !res.body) {
+        throw new Error(`log stream failed (${res.status})`)
+      }
+      onStatus({ state: 'open' })
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        // SSE frames are separated by a blank line.
+        let idx
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, idx)
+          buf = buf.slice(idx + 2)
+          const data = frame
+            .split('\n')
+            .filter((l) => l.startsWith('data: '))
+            .map((l) => l.slice(6))
+            .join('\n')
+          if (!data) continue
+          try {
+            onLines(JSON.parse(data) as SystemLogLine[])
+          } catch {
+            // A malformed frame must not kill the stream.
+          }
+        }
+      }
+    })
+    .catch((e: unknown) => {
+      if (!closed) onStatus({ state: 'error', error: e instanceof Error ? e.message : String(e) })
+    })
+    .finally(() => {
+      if (!closed) onStatus({ state: 'closed' })
+    })
+
+  return () => {
+    closed = true
+    controller.abort()
+  }
+}
 
 // connectEvents opens the /api/v1/events WebSocket (#40: "WebSocket
 // subscription for live queue/history updates"). Browsers cannot set the

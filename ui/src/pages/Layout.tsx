@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { client } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { KINDS, SHARED_SECTIONS, kindById, type KindId, type SharedSection } from '../nav'
 
@@ -107,12 +108,39 @@ function TopBar({
   )
 }
 
+// useSystemBadge polls the structured health endpoint and returns the number
+// of non-ok checks (warning + error) — the orange System nav badge (plan P6:
+// "System (with orange count badge)"). It returns 0 when the endpoint is
+// unavailable (e.g. a P1-only dev stack answers 404) so no badge is shown.
+function useSystemBadge(): number {
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    let live = true
+    client
+      .getSystemHealth()
+      .then((h) => {
+        if (!live) return
+        const nonOk = (h.warning ?? 0) + (h.error ?? 0)
+        setCount(nonOk > 0 ? nonOk : 0)
+      })
+      .catch(() => {
+        if (live) setCount(0)
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+  return count
+}
+export { useSystemBadge }
+
 // ---- left rail ----
 
-function Rail() {
+export function Rail() {
   const { pathname } = useLocation()
   const kind = kindFromPath(pathname)
   const meta = kindById(kind)
+  const systemBadge = useSystemBadge()
 
   return (
     <nav className="rail" aria-label="Primary">
@@ -145,10 +173,13 @@ function Rail() {
         ]}
       />
 
-      {/* Shared sections: Calendar, Activity, Wanted, Settings, System. */}
-      {SHARED_SECTIONS.map((s) => (
-        <SharedRailSection key={s.id} section={s} pathname={pathname} />
-      ))}
+      {/* Shared sections: Calendar, Activity, Wanted, Settings, System. The
+          System section carries the live health-count badge. */}
+      {SHARED_SECTIONS.map((s) => {
+        const section: SharedSection =
+          s.id === 'system' ? { ...s, badge: systemBadge } : s
+        return <SharedRailSection key={s.id} section={section} pathname={pathname} />
+      })}
     </nav>
   )
 }
