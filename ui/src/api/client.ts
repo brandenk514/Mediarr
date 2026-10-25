@@ -85,6 +85,19 @@ import type {
   MetadataSourceSearchResult,
   ImportRunRequest,
   ImportRunResult,
+  // P6: System area
+  SystemHealth,
+  SystemTasks,
+  SystemDisk,
+  SystemAbout,
+  BackupDocument,
+  BackupImportRequest,
+  BackupImportResult,
+  SystemEvents,
+  SystemUpdates,
+  MigrationRequest,
+  MigrationResult,
+  MigrationStatus,
 } from './types'
 
 export class ApiError extends Error {
@@ -375,6 +388,35 @@ export const client = {
     request<MetadataSourceSearchResult>('POST', '/settings/metadata-source/search', req),
   runImportListImport: (req: ImportRunRequest) =>
     request<ImportRunResult>('POST', '/settings/import-lists/import', req),
+
+  // ---- P6: System area (Status / Tasks / Backup / Updates / Events / Logs / migration) ----
+  getSystemHealth: () => request<SystemHealth>('GET', '/system/health'),
+  getSystemTasks: () => request<SystemTasks>('GET', '/system/tasks'),
+  getSystemDisk: () => request<SystemDisk>('GET', '/system/disk'),
+  getSystemAbout: () => request<SystemAbout>('GET', '/system/about'),
+  // Backup export: include_queue / include_series are optional snapshots.
+  getSystemBackup: (f?: { includeQueue?: boolean; includeSeries?: boolean }) => {
+    const params = new URLSearchParams()
+    if (f?.includeQueue) params.set('include_queue', 'true')
+    if (f?.includeSeries) params.set('include_series', 'true')
+    const s = params.toString()
+    return request<BackupDocument>('GET', `/system/backup${s ? `?${s}` : ''}`)
+  },
+  putSystemBackup: (req: BackupImportRequest) =>
+    request<BackupImportResult>('POST', '/system/backup', req),
+  // Events: the history source feed (date / event-type filter).
+  getSystemEvents: (f?: { since?: string; event?: string; limit?: number }) => {
+    const params = new URLSearchParams()
+    if (f?.since) params.set('since', f.since)
+    if (f?.event) params.set('event', f.event)
+    if (f?.limit) params.set('limit', String(f.limit))
+    const s = params.toString()
+    return request<SystemEvents>('GET', `/system/events${s ? `?${s}` : ''}`)
+  },
+  getSystemUpdates: () => request<SystemUpdates>('GET', '/system/updates'),
+  // Sonarr drop-in migration.
+  runMigration: (req: MigrationRequest) => request<MigrationResult>('POST', '/system/migration', req),
+  getMigrationStatus: () => request<MigrationStatus>('GET', '/system/migration/status'),
 
   // ---- add flows (#42) ----
   // Provider search: debounced by the UI; each call is one provider round

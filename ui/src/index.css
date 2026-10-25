@@ -313,6 +313,100 @@ button.ghost:hover {
   color: var(--dim);
 }
 
+/* ---- P6: System area (Status / Tasks / Backup / Events / Updates / Logs) ---- */
+
+/* Health severity pills */
+.health-ok {
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
+  color: var(--ok);
+}
+.health-warning {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+.health-error {
+  background: color-mix(in srgb, var(--err) 20%, transparent);
+  color: var(--err);
+}
+
+/* Task kind + state pills */
+.task-scheduled,
+.task-on-demand {
+  background: var(--panel-2);
+  color: var(--dim);
+}
+.task-planned {
+  background: var(--panel-2);
+  color: var(--dim);
+  border: 1px dashed var(--line);
+}
+.task-state-running {
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
+  color: var(--ok);
+}
+.task-state-idle {
+  background: var(--panel-2);
+  color: var(--dim);
+}
+.task-state-error {
+  background: color-mix(in srgb, var(--err) 20%, transparent);
+  color: var(--err);
+}
+.task-state-planned {
+  background: var(--panel-2);
+  color: var(--dim);
+  border: 1px dashed var(--line);
+}
+
+/* Usage bar (disk space) */
+.bar {
+  position: relative;
+  display: inline-block;
+  width: 140px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+  vertical-align: middle;
+}
+.bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+  transition: width 180ms ease;
+}
+.bar-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* About definition grid */
+.about-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem 1.5rem;
+  margin: 0;
+}
+.about-row {
+  display: flex;
+  flex-direction: column;
+}
+.about-row dt {
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+.about-row dd {
+  margin: 0;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
 /* ---- feeds ---- */
 
 .feed {

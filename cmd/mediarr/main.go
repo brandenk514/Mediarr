@@ -44,6 +44,7 @@ import (
 	tvs "github.com/brandenk514/mediarr/internal/services/tv"
 	wantedsvc "github.com/brandenk514/mediarr/internal/services/wanted"
 	"github.com/brandenk514/mediarr/internal/settings"
+	"github.com/brandenk514/mediarr/internal/system"
 )
 
 // Build-time stamped values (see -ldflags in Dockerfile / Makefile).
@@ -120,6 +121,9 @@ func run() error {
 		"addr", cfg.HTTPAddr,
 		"postgres_host", hostOf(string(cfg.Postgres)),
 	)
+
+	// P6: the process start time for the About uptime readout.
+	startedAt := time.Now()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -205,8 +209,45 @@ func run() error {
 	// supports on-demand probes. A non-positive interval runs a single
 	// initial sweep and stops (on-demand tests still work); otherwise it runs
 	// until the process context is cancelled.
+	//
+	// P6: the sweep is driven by the System task registry instead of its own
+	// goroutine, so the Tasks page can observe it (one loop, live running /
+	// last-run state) without reinventing the worker.
 	healthWorker := indexers.NewHealthWorker(indexerRepo, registry, registry.Deps, cfg.IndexerHealthInterval, logger)
-	go func() { _ = healthWorker.Run(ctx) }()
+	taskRegistry := system.NewTaskRegistry()
+	taskRegistry.Register(system.TaskSpec{
+		Name:        "indexer_health",
+		Description: "Probe every enabled indexer and record the rollup",
+		Kind:        system.TaskScheduled,
+		Interval:    cfg.IndexerHealthInterval,
+		Enabled:     true,
+		Run: func(ctx context.Context) error {
+			if err := healthWorker.TestAll(ctx); err != nil {
+				logger.Warn("indexer health sweep failed", "error", err)
+				return err
+			}
+			return nil
+		},
+	})
+	// The PLAN.md §3 worker roster: the rest are planned (listed for the
+	// Tasks page inventory; not yet implemented as supervised loops).
+	for _, t := range []system.TaskSpec{
+		{Name: "wanted_scan", Description: "Wanted/monitor scan (periodic + event-driven)", Kind: system.TaskPlanned},
+		{Name: "indexer_search_refresh", Description: "Indexer search + result refresh", Kind: system.TaskPlanned},
+		{Name: "download_queue_watch", Description: "Download queue watch → import trigger", Kind: system.TaskPlanned},
+		{Name: "import", Description: "Import (parse client state, rename, move, metadata)", Kind: system.TaskPlanned},
+		{Name: "metadata_refresh", Description: "Metadata refresh (per-item + global schedule)", Kind: system.TaskPlanned},
+		{Name: "housekeeping", Description: "Housekeeping (history purge, cache eviction, temp cleanup)", Kind: system.TaskPlanned},
+	} {
+		taskRegistry.Register(t)
+	}
+	if cfg.IndexerHealthInterval > 0 {
+		// Drives the initial sweep + the periodic ticks (matches Run).
+		taskRegistry.Start(ctx, "indexer_health")
+	} else {
+		// Single initial sweep, matching the previous Run behavior.
+		go func() { _ = healthWorker.TestAll(ctx) }()
+	}
 
 	const resultTTL = 10 * time.Minute
 
@@ -520,6 +561,69 @@ func run() error {
 		TV:          tvSvc,
 		Movies:      movieSvc,
 	})
+
+	// P6 (System): the System area — structured health, the worker-inventory
+	// task registry, disk usage for the configured roots, the About report,
+	// backup export/import, the event log, the changelog, the streaming log
+	// viewer, and the Sonarr drop-in migration.
+	{
+		probes := []system.Probe{
+			{Name: "postgres", Ping: func(ctx context.Context) error { return pg.Ping(ctx) }, WikiLink: "docs/sonarr-parity-plan.md#p6"},
+			{Name: "redis", Ping: func(ctx context.Context) error { return cache.Ping(ctx) }, WikiLink: "docs/sonarr-parity-plan.md#p6"},
+			{Name: "media_root", WikiLink: "docs/sonarr-parity-plan.md#p6", Static: func() (bool, string) {
+				if _, err := os.Stat(cfg.MediaRoot); err != nil {
+					return false, "media root " + cfg.MediaRoot + " is missing or unreadable"
+				}
+				return true, cfg.MediaRoot
+			}},
+			{Name: "downloads_dir", WikiLink: "docs/sonarr-parity-plan.md#p6", Static: func() (bool, string) {
+				if _, err := os.Stat(cfg.DownloadsDir); err != nil {
+					return false, "downloads dir " + cfg.DownloadsDir + " is missing or unreadable"
+				}
+				return true, cfg.DownloadsDir
+			}},
+			{Name: "encryption_key", WikiLink: "docs/sonarr-parity-plan.md#p6", Static: func() (bool, string) {
+				if cfg.EncryptionKey == "" {
+					return false, "no at-rest encryption key (indexer/API secrets stored in plaintext)"
+				}
+				return true, "AES-256-GCM key configured"
+			}},
+			{Name: "tmdb", Soft: true, Static: func() (bool, string) {
+				if cfg.Providers.TMDBAPIKey == "" {
+					return false, "TMDB API key not set (search uses keyless fallbacks)"
+				}
+				return true, "TMDB API key set"
+			}},
+			{Name: "tvdb", Soft: true, Static: func() (bool, string) {
+				if cfg.Providers.TVDBAPIKey == "" {
+					return false, "TVDB API key not set (search uses keyless fallbacks)"
+				}
+				return true, "TVDB API key set"
+			}},
+		}
+		mode := os.Getenv("MEDIARR_MODE")
+		if mode == "" {
+			mode = "production"
+		}
+		srv.SetSystem(&api.SystemDeps{
+			Health:       system.NewHealth(probes),
+			Tasks:        taskRegistry,
+			About:        system.AboutDeps{Version: version, Commit: commit, BuildTime: buildTime, Mode: mode, StartedAt: startedAt},
+			MediaRoot:    cfg.MediaRoot,
+			DownloadsDir: cfg.DownloadsDir,
+			RootFolderPaths: func() []string {
+				roots, err := rfSvc.List()
+				if err != nil {
+					return nil
+				}
+				paths := make([]string, 0, len(roots))
+				for _, r := range roots {
+					paths = append(paths, r.Path)
+				}
+				return paths
+			},
+		})
+	}
 
 	// P5 metadata file writer: .nfo sidecars are generated on manual
 	// import, gated by the metadata section's generate_nfo (a corrupt or

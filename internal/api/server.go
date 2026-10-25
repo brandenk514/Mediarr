@@ -43,6 +43,7 @@ type Server struct {
 	wantedDeps          *WantedDeps
 	importDeps          *ImportDeps
 	calendarDeps        *CalendarDeps
+	systemDeps          *SystemDeps
 }
 
 // NewServer builds a Server with the given readiness checker.
