@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -59,13 +60,18 @@ func main() {
 		os.Exit(healthcheck())
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	// P6: the Log Files page (System > Log Files) shows the real application
+	// logs: the default JSON handler is wrapped in a slog bridge that mirrors
+	// every record into the system log ring buffer.
+	logSvc := system.NewLogService(1000)
+	logger := slog.New(system.NewSlogBridge(
+		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		logSvc,
+	))
 	slog.SetDefault(logger)
 	health.SetVersion(version, commit, buildTime)
 
-	if err := run(); err != nil {
+	if err := run(logSvc); err != nil {
 		logger.Error("fatal", "error", err)
 		os.Exit(1)
 	}
@@ -111,7 +117,7 @@ func healthcheck() int {
 	return 0
 }
 
-func run() error {
+func run(logSvc *system.LogService) error {
 	cfg, err := config.LoadFromOS()
 	if err != nil {
 		return err
@@ -424,8 +430,9 @@ func run() error {
 	tvFake.AddRelease(indexers.SearchResult{Title: "The.Wire.S01E01E02.1080p.WEB.x264", SizeBytes: 3_300_000_000})
 
 	tvMediaRoot := tvMediaRoot(cfg.MediaRoot)
+	tvRepo := postgres.NewTVRepo(pg.DB())
 	tvSvc := tvs.New(tvs.Deps{
-		Repo:           postgres.NewTVRepo(pg.DB()),
+		Repo:           tvRepo,
 		Indexers:       indexersFor(tvFake),
 		Client:         dlClient,
 		MediaRoot:      tvMediaRoot,
@@ -451,7 +458,8 @@ func run() error {
 	// Unmonitor Selected, Manual Import) operate on the TV tables, so the
 	// wanted service is wired here, after the TV pipeline, sharing the
 	// TV repo for reads.
-	srv.SetHistory(&api.HistoryDeps{Svc: historysvc.New(postgres.NewHistoryRepo(pg.DB()))})
+	historyFeedSvc := historysvc.New(postgres.NewHistoryRepo(pg.DB()))
+	srv.SetHistory(&api.HistoryDeps{Svc: historyFeedSvc})
 	srv.SetBlocklist(&api.BlocklistDeps{Svc: blocklistsvc.New(postgres.NewBlocklistRepo(pg.DB()))})
 	wantedRepo := postgres.NewWantedRepo(pg.DB())
 	wantedSvc := wantedsvc.New(wantedRepo, tvMediaRoot)
@@ -605,12 +613,40 @@ func run() error {
 		if mode == "" {
 			mode = "production"
 		}
+		// P6 Wave 2: the System depth services. Backup exports/imports the
+		// configuration over the settings repo (queue / series snapshots are
+		// optional attachments). The Events page is the global history feed,
+		// the Updates page the release changelog, and Log Files the log
+		// service bridged into the app logger in main().
+		backupSvc := &system.BackupService{
+			Store:   settingsRepo,
+			Version: version,
+			QueueSnap: func(ctx context.Context) (json.RawMessage, error) {
+				items, err := queueRepo.List(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return json.Marshal(items)
+			},
+			SeriesSnap: func(ctx context.Context) (json.RawMessage, error) {
+				series, err := tvRepo.ListSeries(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return json.Marshal(series)
+			},
+		}
+
 		srv.SetSystem(&api.SystemDeps{
 			Health:       system.NewHealth(probes),
 			Tasks:        taskRegistry,
 			About:        system.AboutDeps{Version: version, Commit: commit, BuildTime: buildTime, Mode: mode, StartedAt: startedAt},
 			MediaRoot:    cfg.MediaRoot,
 			DownloadsDir: cfg.DownloadsDir,
+			Backup:       backupSvc,
+			Events:       historyFeedSvc,
+			Changelog:    system.NewChangelogService(version),
+			Logs:         logSvc,
 			RootFolderPaths: func() []string {
 				roots, err := rfSvc.List()
 				if err != nil {
