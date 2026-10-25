@@ -1,14 +1,25 @@
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --panel-2: #1e222b;
+  /* Sonarr-parity palette (P1): dark theme, teal accent, slate rail, charcoal
+     content, light card footers, red/orange status signals. */
+  --bg: #0f1216;        /* page background (charcoal) */
+  --content: #12161d;   /* content pane (charcoal, slightly lighter than page) */
+  --panel: #1b2129;     /* panels / cards (charcoal) */
+  --panel-2: #222a34;   /* raised panels, hover rows */
+  --rail: #141920;      /* left rail (slate) */
+  --rail-2: #1b222c;    /* rail hover */
+  --rail-active: #212b36; /* rail active row */
+  --topbar: #115e59;    /* top bar (Sonarr teal, deep) */
+  --topbar-2: #0f524d;  /* top bar hover / search hover */
   --text: #e6e8ee;
   --dim: #8b91a0;
-  --accent: #4f8cff;
+  --accent: #14b8a6;    /* teal accent: buttons, active states, focus */
+  --accent-2: #0d9488;  /* teal hover */
   --ok: #3fb950;
-  --warn: #d29922;
-  --err: #f85149;
-  --border: #2a2f3a;
+  --warn: #e08214;      /* orange */
+  --err: #f85149;       /* red */
+  --border: #2a313c;
+  --foot-bg: #e9edf2;   /* light card footer (grid cards) */
+  --foot-text: #2b313b; /* dark text on the light footer */
   font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -828,4 +839,725 @@ button.danger {
 
 button.danger:hover {
   border-color: var(--danger, #e5484d);
+}
+
+/* =========================================================================
+   Sonarr shell & design system (P1)
+   ========================================================================= */
+
+/* The app is a column: full-width teal top bar, then a row of (slate rail +
+   charcoal content). Replaces the old top-nav Layout. */
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ---- top bar (full-width, teal accent, ~60px) ---- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  height: 60px;
+  padding: 0 1.1rem;
+  background: var(--topbar);
+  color: #eafffb;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.28);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.brand:hover {
+  color: #fff;
+}
+
+.topbar-search {
+  flex: 1;
+  max-width: 520px;
+}
+
+.topbar-search input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  padding: 0.5rem 0.15rem;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.topbar-search input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.topbar-search input:focus {
+  outline: none;
+  border-bottom-color: #fff;
+}
+
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.topbar-icon {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 1.05rem;
+  cursor: pointer;
+  padding: 0.35rem 0.5rem;
+  margin: 0;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.topbar-icon:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.topbar-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+/* ---- body: rail + content ---- */
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Left rail (slate, ~210px) with section sub-navigation. */
+.rail {
+  width: 212px;
+  flex-shrink: 0;
+  background: var(--rail);
+  border-right: 1px solid var(--border);
+  padding: 0.8rem 0.6rem 1.4rem;
+  overflow-y: auto;
+}
+
+.rail-kind {
+  margin: 0 0.3rem 0.7rem;
+}
+
+.rail-kind .segmented {
+  width: 100%;
+}
+
+.rail-kind .seg {
+  flex: 1;
+  text-align: center;
+}
+
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 0.92rem;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  margin: 0 0 0.1rem;
+}
+
+.rail-item:hover {
+  background: var(--rail-2);
+  color: var(--text);
+}
+
+.rail-item.active {
+  background: var(--rail-active);
+  color: #fff;
+}
+
+.rail-item.active .rail-icon {
+  color: var(--accent);
+}
+
+.rail-item.active .rail-label {
+  color: #fff;
+}
+
+.rail-icon {
+  width: 18px;
+  text-align: center;
+  color: var(--dim);
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.rail-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-caret {
+  font-size: 0.7rem;
+  color: var(--dim);
+  transition: transform 0.12s ease;
+}
+
+.rail-caret.open {
+  transform: rotate(90deg);
+}
+
+.rail-badge {
+  background: var(--warn);
+  color: #1a1a1a;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+  min-width: 1.05rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.rail-sub {
+  padding-left: 0.9rem;
+  margin-top: 0.1rem;
+  margin-bottom: 0.2rem;
+}
+
+.rail-sub .rail-item {
+  padding: 0.38rem 0.6rem;
+  font-size: 0.86rem;
+}
+
+/* ---- content pane ---- */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  background: var(--content);
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  padding: 1.2rem 1.4rem 2rem;
+  flex: 1;
+}
+
+/* Page header row used by list/detail pages (title + right-side controls). */
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+.page-head h2 {
+  margin: 0;
+}
+
+/* ---- toolbar (icon-over-label, divider groups) ---- */
+
+.toolbar {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  margin: 0 0 1rem;
+}
+
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: stretch;
+}
+
+.toolbar-right {
+  margin-left: auto;
+}
+
+.tb-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
+  min-width: 66px;
+  padding: 0.5rem 0.7rem;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 0.74rem;
+  margin: 0;
+}
+
+.tb-group:first-child .tb-btn:first-child {
+  border-left: none;
+}
+
+.tb-btn:hover:not(.tb-disabled) {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.tb-btn .tb-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.tb-btn.tb-disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+/* A vertical divider separating toolbar groups. */
+.tb-sep {
+  width: 1px;
+  background: var(--border);
+  margin: 0.4rem 0;
+}
+
+/* ---- view toggle (grid / list) ---- */
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  align-self: center;
+}
+
+.view-toggle button {
+  background: transparent;
+  color: var(--dim);
+  border: none;
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.view-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.view-toggle button.active {
+  background: var(--accent);
+  color: #04241f;
+}
+
+/* ---- dropdown menu (Sort / Filter) ---- */
+
+.menu {
+  position: relative;
+  align-self: center;
+}
+
+.menu-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--dim);
+  border-radius: 6px;
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.menu-btn:hover {
+  color: var(--text);
+  border-color: var(--dim);
+}
+
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 170px;
+  z-index: 40;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.menu-panel button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  margin: 0;
+  padding: 0.42rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.menu-panel button:hover {
+  background: var(--panel-2);
+}
+
+.menu-panel button.sel {
+  color: var(--accent);
+}
+
+.menu-panel .menu-title {
+  padding: 0.3rem 0.6rem 0.2rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+}
+
+/* ---- badges ---- */
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--panel-2);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.badge-teal {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+.badge-ok {
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  color: var(--ok);
+}
+
+.badge-warn {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+}
+
+.badge-err {
+  background: color-mix(in srgb, var(--err) 22%, transparent);
+  color: var(--err);
+}
+
+.badge-row {
+  display: inline-flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+/* ---- modal ---- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  width: 100%;
+  max-width: 520px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.modal-head {
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-head h3 {
+  margin: 0;
+}
+
+.modal-head .modal-x {
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  font-size: 1.1rem;
+  cursor: pointer;
+  margin: 0;
+  padding: 0.1rem 0.4rem;
+}
+
+.modal-body {
+  padding: 1.2rem;
+}
+
+.modal-foot {
+  padding: 0.9rem 1.2rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.modal-foot button {
+  margin: 0;
+}
+
+/* ---- settings section layout + unsaved-changes bar ---- */
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  gap: 1.2rem;
+  align-items: start;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 1.2rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.4rem;
+}
+
+.settings-nav button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--dim);
+  border: none;
+  margin: 0 0 0.1rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.settings-nav button:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.settings-nav button.active {
+  background: var(--rail-active);
+  color: #fff;
+}
+
+.settings-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.2rem;
+  min-width: 0;
+}
+
+.unsaved-bar {
+  position: sticky;
+  bottom: 0;
+  background: var(--warn);
+  color: #1a1a1a;
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 8px 8px 0 0;
+  font-weight: 600;
+}
+
+.unsaved-bar button {
+  margin: 0;
+  background: rgba(0, 0, 0, 0.18);
+  color: #1a1a1a;
+}
+
+/* ---- A–Z jump index (right edge) ---- */
+
+.az-jump {
+  position: fixed;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  z-index: 20;
+}
+
+.az-jump button {
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  font-size: 0.7rem;
+  padding: 0.05rem 0.3rem;
+  cursor: pointer;
+  margin: 0;
+  border-radius: 3px;
+  line-height: 1.2;
+}
+
+.az-jump button:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.az-jump button.has {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ---- poster grid card (library grid; footers are light) ---- */
+
+.poster-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+@media (max-width: 1400px) {
+  .poster-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .poster-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .poster-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.poster-card {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.poster {
+  aspect-ratio: 2 / 3;
+  background: var(--panel-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 2rem;
+}
+
+.poster-foot {
+  background: var(--foot-bg);
+  color: var(--foot-text);
+  padding: 0.4rem 0.5rem;
+  text-align: center;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.poster-foot .pf-mon {
+  font-weight: 600;
+  display: block;
+}
+
+.poster-foot .pf-q {
+  color: #4a5560;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ribbon {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--err);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 0 0 6px 0;
+  z-index: 2;
+}
+
+/* Two-pane page (Add New: results left, form right). */
+.two-pane {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 1.2rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .two-pane {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Empty-state placeholder for scaffolded pages. */
+.empty-state {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  color: var(--dim);
+}
+
+.empty-state h3 {
+  color: var(--text);
+  margin: 0 0 0.4rem;
 }
