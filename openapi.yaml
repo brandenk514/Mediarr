@@ -287,6 +287,29 @@ paths:
                 $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/movies/{id}/wanted:
+    get:
+      tags: [movies]
+      summary: Get a movie's wanted (release) state.
+      operationId: getMovieWanted
+      description: The single wanted row for a movie — its release lifecycle (P7 detail page).
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The wanted row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MovieWanted"
+        "204":
+          description: The movie exists but has no wanted row yet.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/tv:
     get:
       tags: [tv]
@@ -3493,6 +3516,24 @@ components:
     WantedStatus:
       type: string
       enum: [pending, satisfied]
+    MovieWanted:
+      type: object
+      required: [MovieID, Status, ReleaseTitle, CreatedAt, SatisfiedAt]
+      properties:
+        MovieID:
+          type: integer
+          format: int64
+        Status:
+          $ref: "#/components/schemas/WantedStatus"
+        ReleaseTitle:
+          type: string
+        CreatedAt:
+          type: string
+          format: date-time
+        SatisfiedAt:
+          type: string
+          format: date-time
+          nullable: true
     SeriesWanted:
       type: object
       required: [SeriesID, Season, Episode, Status, ReleaseTitle, CreatedAt, SatisfiedAt, Quality]

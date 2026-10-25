@@ -40,6 +40,7 @@ import type {
   MonitoredResult,
   Movie,
   MediaKind,
+  MovieWanted,
   PageArtist,
   PageAuthor,
   PageMovie,
@@ -179,6 +180,8 @@ export const client = {
   // ---- movies ----
   listMovies: (q?: ListQuery) => request<PageMovie>('GET', `/movies${buildListQuery(q)}`),
   getMovie: (id: number) => request<Movie>('GET', `/movies/${id}`),
+  // null = the movie exists but has no wanted row yet (204).
+  getMovieWanted: (id: number) => request<MovieWanted | null>('GET', `/movies/${id}/wanted`),
   addMovie: (req: AddMovieRequest) => request<AddedId>('POST', '/movies', req),
   setMovieMonitored: (id: number, monitored: boolean) =>
     request<MonitoredResult>('PUT', `/movies/${id}`, { monitored }),

@@ -21,6 +21,7 @@ func (s *Server) SetMovies(deps *MoviesDeps) {
 	s.register("GET /api/v1/movies", s.requireAuth(s.ListMovies))
 	s.register("GET /api/v1/movies/{id}", s.requireAuth(s.GetMovie))
 	s.register("PUT /api/v1/movies/{id}", s.requireAuth(s.SetMovieMonitored))
+	s.register("GET /api/v1/movies/{id}/wanted", s.requireAuth(s.GetMovieWanted))
 	s.register("POST /api/v1/movies/{id}/pipeline", s.requireAuth(s.RunMoviePipeline))
 }
 
@@ -104,6 +105,30 @@ func (s *Server) GetMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, m)
+}
+
+// GetMovieWanted handles GET /api/v1/movies/{id}/wanted (P7): the movie's
+// wanted (release) state for the detail page. 404 when the movie does not
+// exist, 204 when it exists but has no wanted row yet.
+func (s *Server) GetMovieWanted(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	wd, err := s.moviesDeps.Svc.GetWanted(r.Context(), id)
+	if err != nil {
+		if err == moviesvc.ErrMovieNotFound {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if wd == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, http.StatusOK, wd)
 }
 
 // RunMoviePipeline handles POST /api/v1/movies/{id}/pipeline.

@@ -8,7 +8,9 @@ package movies
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -143,6 +145,24 @@ func (s *Service) SetMovieMonitored(ctx context.Context, id int64, monitored boo
 // GetMovie loads a movie (used by GET /api/v1/movies/{id}).
 func (s *Service) GetMovie(ctx context.Context, id int64) (*dom.Movie, error) {
 	return s.deps.Repo.GetMovie(ctx, id)
+}
+
+// GetWanted loads a movie's wanted (release) row (used by
+// GET /api/v1/movies/{id}/wanted, P7 detail page). It returns
+// ErrMovieNotFound when the movie does not exist, and (nil, nil) when the
+// movie exists but has no wanted row yet — the API maps that to 204.
+func (s *Service) GetWanted(ctx context.Context, movieID int64) (*dom.Wanted, error) {
+	if _, err := s.deps.Repo.GetMovie(ctx, movieID); err != nil {
+		return nil, err
+	}
+	w, err := s.deps.Repo.GetWanted(ctx, movieID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return w, nil
 }
 
 // RunPipeline drives the full pipeline for one movie: search indexers, match

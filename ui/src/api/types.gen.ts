@@ -150,6 +150,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/movies/{id}/wanted": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a movie's wanted (release) state.
+         * @description The single wanted row for a movie — its release lifecycle (P7 detail page).
+         */
+        get: operations["getMovieWanted"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tv": {
         parameters: {
             query?: never;
@@ -1987,6 +2007,16 @@ export interface components {
         };
         /** @enum {string} */
         WantedStatus: "pending" | "satisfied";
+        MovieWanted: {
+            /** Format: int64 */
+            MovieID: number;
+            Status: components["schemas"]["WantedStatus"];
+            ReleaseTitle: string;
+            /** Format: date-time */
+            CreatedAt: string;
+            /** Format: date-time */
+            SatisfiedAt: string | null;
+        };
         SeriesWanted: {
             /** Format: int64 */
             SeriesID: number;
@@ -3387,6 +3417,38 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["Internal"];
+        };
+    };
+    getMovieWanted: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The wanted row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovieWanted"];
+                };
+            };
+            /** @description The movie exists but has no wanted row yet. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["Internal"];
         };
     };
