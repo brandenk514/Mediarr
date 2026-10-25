@@ -12,11 +12,21 @@ import { TvAddPage } from './pages/add/TvAdd'
 import { ArtistAddPage } from './pages/add/ArtistAdd'
 import { BookAddPage } from './pages/add/BookAdd'
 import { QueuePage } from './pages/queue/Queue'
-import { SettingsPage } from './pages/settings/Settings'
+import { SettingsShell } from './pages/settings/SettingsShell'
+import { SeriesDetailPage } from './pages/tv/SeriesDetail'
+import { LibraryImportPage } from './pages/tv/LibraryImport'
+import { CalendarPage } from './pages/Calendar'
+import { HistoryPage } from './pages/activity/History'
+import { BlocklistPage } from './pages/activity/Blocklist'
+import { WantedPage } from './pages/wanted/Wanted'
+import { SystemPage } from './pages/system/System'
 
 // App is the route table. /login is public; everything else requires a valid
-// in-memory token (see AuthProvider). The authenticated routes share the Layout
-// shell via a nested route element with an <Outlet/>.
+// in-memory token (see AuthProvider). The authenticated routes share the
+// Sonarr-parity Layout shell (top bar + left rail) via a nested route element
+// with an <Outlet/>. Route paths follow the Sonarr IA (docs/sonarr-parity-plan.md):
+// per-kind library + add + deep routes, then shared Calendar / Activity /
+// Wanted / Settings / System areas.
 function AuthGate() {
   const { me, ready } = useAuth()
   const location = useLocation()
@@ -40,6 +50,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<AuthGate />}>
         <Route path="/" element={<DashboardPage />} />
+        {/* Per-kind libraries + Add (four-kind app: TV / Movies / Music / Books). */}
         <Route path="/movies" element={<MoviesPage />} />
         <Route path="/tv" element={<TvPage />} />
         <Route path="/music" element={<MusicPage />} />
@@ -48,8 +59,25 @@ export default function App() {
         <Route path="/tv/add" element={<TvAddPage />} />
         <Route path="/music/add" element={<ArtistAddPage />} />
         <Route path="/books/add" element={<BookAddPage />} />
+        {/* TV deep routes (static paths rank above /tv/:id). */}
+        <Route path="/tv/import" element={<LibraryImportPage />} />
+        <Route path="/tv/:id" element={<SeriesDetailPage />} />
+        {/* Shared: Calendar. */}
+        <Route path="/calendar" element={<CalendarPage />} />
+        {/* Shared: Activity. /queue is kept (existing e2e) alongside /activity/queue. */}
         <Route path="/queue" element={<QueuePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/activity/queue" element={<QueuePage />} />
+        <Route path="/activity/history" element={<HistoryPage />} />
+        <Route path="/activity/blocklist" element={<BlocklistPage />} />
+        {/* Shared: Wanted. */}
+        <Route path="/wanted/missing" element={<WantedPage tab="missing" />} />
+        <Route path="/wanted/cutoff" element={<WantedPage tab="cutoff" />} />
+        {/* Settings IA (13 sections; default section is media-management). */}
+        <Route path="/settings" element={<Navigate to="/settings/media-management" replace />} />
+        <Route path="/settings/:section" element={<SettingsShell />} />
+        {/* System (status / tasks / backup / updates / events / logs). */}
+        <Route path="/system" element={<Navigate to="/system/status" replace />} />
+        <Route path="/system/:page" element={<SystemPage />} />
       </Route>
     </Routes>
   )
