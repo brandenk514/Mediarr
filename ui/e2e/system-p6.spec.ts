@@ -71,7 +71,7 @@ const SUBPAGES: {
   error: string
   probe: (page: Page) => Promise<boolean>
 }[] = [
-  { slug: 'status', card: 'system-status', error: 'system-status-error', probe: (p) => probeGet(p, '/api/v1/system/health') },
+  { slug: 'status', card: 'system-health-table', error: 'system-status-error', probe: (p) => probeGet(p, '/api/v1/system/health') },
   { slug: 'tasks', card: 'system-tasks', error: 'system-tasks-error', probe: (p) => probeGet(p, '/api/v1/system/tasks') },
   { slug: 'backup', card: 'system-backup', error: 'system-backup-error', probe: (p) => probeGet(p, '/api/v1/system/backup') },
   { slug: 'updates', card: 'system-updates', error: 'system-updates-error', probe: (p) => probeGet(p, '/api/v1/system/updates') },

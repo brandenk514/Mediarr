@@ -93,10 +93,12 @@ function StatusPanel() {
 
   if (error && !health) {
     return (
-      <div className="card" data-testid="system-status-error">
-        <h2>Status unavailable</h2>
-        <p className="error">{error}</p>
-        <button onClick={() => void load()}>Retry</button>
+      <div data-testid="system-status">
+        <div className="card" data-testid="system-status-error">
+          <h2>Status unavailable</h2>
+          <p className="error">{error}</p>
+          <button onClick={() => void load()}>Retry</button>
+        </div>
       </div>
     )
   }
