@@ -63,6 +63,17 @@ import type {
   Track,
   TrackMonitoredResult,
   UpdateSeriesRequest,
+  GlobalHistoryItem,
+  BlocklistEntry,
+  BlocklistRequest,
+  WantedTab,
+  PageWantedItem,
+  WantedEpisodeRef,
+  WantedActionResult,
+  ManualImportRequest,
+  ManualImportReport,
+  QueueGrabResult,
+  QueueRemoveResult,
 } from './types'
 
 export class ApiError extends Error {
@@ -255,6 +266,47 @@ export const client = {
       'GET',
       `/queue/${kind}/${parentId}/history${limit ? `?limit=${limit}` : ''}`,
     ),
+  // P3 queue actions: grab / remove a parent's jobs (Activity > Queue).
+  grabQueue: (kind: MediaKind, parentId: number) =>
+    request<QueueGrabResult>('POST', `/queue/${kind}/${parentId}/grab`),
+  removeQueue: (kind: MediaKind, parentId: number) =>
+    request<QueueRemoveResult>('DELETE', `/queue/${kind}/${parentId}`),
+
+  // ---- P3: Activity + Wanted ----
+  // Global event feed across all libraries (Activity > History).
+  listGlobalHistory: (f?: { since?: string; event?: string; limit?: number }) => {
+    const params = new URLSearchParams()
+    if (f?.since) params.set('since', f.since)
+    if (f?.event) params.set('event', f.event)
+    if (f?.limit) params.set('limit', String(f.limit))
+    const s = params.toString()
+    return request<GlobalHistoryItem[]>('GET', `/history${s ? `?${s}` : ''}`)
+  },
+  // Blocklist (Activity > Blocklist).
+  listBlocklist: (f?: { kind?: MediaKind; parentId?: number }) => {
+    const params = new URLSearchParams()
+    if (f?.kind) params.set('kind', f.kind)
+    if (f?.parentId) params.set('parent_id', String(f.parentId))
+    const s = params.toString()
+    return request<BlocklistEntry[]>('GET', `/blocklist${s ? `?${s}` : ''}`)
+  },
+  addBlocklist: (req: BlocklistRequest) => request<AddedId>('POST', '/blocklist', req),
+  unblockRelease: (id: number) => request<void>('DELETE', `/blocklist/${id}`),
+  // Global Wanted (Missing / Cutoff Unmet) with server-side pagination.
+  listWanted: (f?: { tab?: WantedTab; q?: string; page?: number; pageSize?: number }) => {
+    const params = new URLSearchParams()
+    if (f?.tab) params.set('tab', f.tab)
+    if (f?.q) params.set('search', f.q)
+    if (f?.page) params.set('page', String(f.page))
+    if (f?.pageSize) params.set('pageSize', String(f.pageSize))
+    const s = params.toString()
+    return request<PageWantedItem>('GET', `/wanted${s ? `?${s}` : ''}`)
+  },
+  searchWanted: (tab: WantedTab) => request<WantedActionResult>('POST', '/wanted/search', { tab }),
+  unmonitorWanted: (items: WantedEpisodeRef[]) =>
+    request<WantedActionResult>('POST', '/wanted/unmonitor', { episodes: items }),
+  manualImport: (req: ManualImportRequest) =>
+    request<ManualImportReport>('POST', '/import', req),
 
   // ---- settings (#44) ----
   // Download-client config: the read is a *masked* view (secrets are presence

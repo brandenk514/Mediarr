@@ -179,10 +179,10 @@ func nullSafeTags(tags []string) []string {
 func (r *TVRepo) CreateEpisode(ctx context.Context, e tv.Episode) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
-		INSERT INTO tv_episodes (series_id, season, episode, title, monitored)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO tv_episodes (series_id, season, episode, title, air_date, monitored)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id`,
-		e.SeriesID, e.Season, e.Episode, e.Title, e.Monitored,
+		e.SeriesID, e.Season, e.Episode, e.Title, e.AirDate, e.Monitored,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("tv: create episode: %w", err)
@@ -193,12 +193,12 @@ func (r *TVRepo) CreateEpisode(ctx context.Context, e tv.Episode) (int64, error)
 // GetEpisode loads a single episode by (series, season, episode).
 func (r *TVRepo) GetEpisode(ctx context.Context, seriesID int64, season, episode int) (*tv.Episode, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, series_id, season, episode, title, monitored, added_at
+		SELECT id, series_id, season, episode, title, air_date, monitored, added_at
 		FROM tv_episodes WHERE series_id = $1 AND season = $2 AND episode = $3`,
 		seriesID, season, episode)
 	e := &tv.Episode{}
 	err := row.Scan(&e.ID, &e.SeriesID, &e.Season, &e.Episode, &e.Title,
-		&e.Monitored, &e.AddedAt)
+		&e.AirDate, &e.Monitored, &e.AddedAt)
 	if err == sql.ErrNoRows {
 		return nil, tv.ErrEpisodeNotFound
 	}
@@ -211,7 +211,7 @@ func (r *TVRepo) GetEpisode(ctx context.Context, seriesID int64, season, episode
 // ListEpisodes returns all episodes for a series, ordered by season then episode.
 func (r *TVRepo) ListEpisodes(ctx context.Context, seriesID int64) ([]tv.Episode, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, series_id, season, episode, title, monitored, added_at
+		SELECT id, series_id, season, episode, title, air_date, monitored, added_at
 		FROM tv_episodes WHERE series_id = $1
 		ORDER BY season, episode`, seriesID)
 	if err != nil {
@@ -222,7 +222,7 @@ func (r *TVRepo) ListEpisodes(ctx context.Context, seriesID int64) ([]tv.Episode
 	for rows.Next() {
 		var e tv.Episode
 		if err := rows.Scan(&e.ID, &e.SeriesID, &e.Season, &e.Episode, &e.Title,
-			&e.Monitored, &e.AddedAt); err != nil {
+			&e.AirDate, &e.Monitored, &e.AddedAt); err != nil {
 			return nil, fmt.Errorf("tv: scan episode: %w", err)
 		}
 		out = append(out, e)
@@ -264,12 +264,12 @@ func (r *TVRepo) EnsureWanted(ctx context.Context, seriesID int64, season, episo
 // GetWanted loads a single episode's wanted row.
 func (r *TVRepo) GetWanted(ctx context.Context, seriesID int64, season, episode int) (*tv.Wanted, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT series_id, season, episode, status, release_title, created_at, satisfied_at
+		SELECT series_id, season, episode, status, release_title, quality, created_at, satisfied_at
 		FROM tv_wanted WHERE series_id = $1 AND season = $2 AND episode = $3`,
 		seriesID, season, episode)
 	w := &tv.Wanted{}
 	err := row.Scan(&w.SeriesID, &w.Season, &w.Episode, &w.Status,
-		&w.ReleaseTitle, &w.CreatedAt, &w.SatisfiedAt)
+		&w.ReleaseTitle, &w.Quality, &w.CreatedAt, &w.SatisfiedAt)
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
 	}
@@ -282,7 +282,7 @@ func (r *TVRepo) GetWanted(ctx context.Context, seriesID int64, season, episode 
 // ListWanted returns all wanted rows for a series, ordered by season then episode.
 func (r *TVRepo) ListWanted(ctx context.Context, seriesID int64) ([]tv.Wanted, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT series_id, season, episode, status, release_title, created_at, satisfied_at
+		SELECT series_id, season, episode, status, release_title, quality, created_at, satisfied_at
 		FROM tv_wanted WHERE series_id = $1
 		ORDER BY season, episode`, seriesID)
 	if err != nil {
@@ -293,7 +293,7 @@ func (r *TVRepo) ListWanted(ctx context.Context, seriesID int64) ([]tv.Wanted, e
 	for rows.Next() {
 		var w tv.Wanted
 		if err := rows.Scan(&w.SeriesID, &w.Season, &w.Episode, &w.Status,
-			&w.ReleaseTitle, &w.CreatedAt, &w.SatisfiedAt); err != nil {
+			&w.ReleaseTitle, &w.Quality, &w.CreatedAt, &w.SatisfiedAt); err != nil {
 			return nil, fmt.Errorf("tv: scan wanted: %w", err)
 		}
 		out = append(out, w)
@@ -302,13 +302,13 @@ func (r *TVRepo) ListWanted(ctx context.Context, seriesID int64) ([]tv.Wanted, e
 }
 
 // MarkWantedSatisfied flips an episode's wanted row to satisfied and records
-// the release that satisfied it.
-func (r *TVRepo) MarkWantedSatisfied(ctx context.Context, seriesID int64, season, episode int, releaseTitle string) error {
+// the release that satisfied it (and the release's quality label).
+func (r *TVRepo) MarkWantedSatisfied(ctx context.Context, seriesID int64, season, episode int, releaseTitle, quality string) error {
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE tv_wanted
-		SET status = 'satisfied', release_title = $4, satisfied_at = now()
+		SET status = 'satisfied', release_title = $4, quality = $5, satisfied_at = now()
 		WHERE series_id = $1 AND season = $2 AND episode = $3`,
-		seriesID, season, episode, releaseTitle)
+		seriesID, season, episode, releaseTitle, quality)
 	if err != nil {
 		return fmt.Errorf("tv: satisfy wanted: %w", err)
 	}

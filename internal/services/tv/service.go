@@ -151,12 +151,13 @@ func parseProviderID(s string) int {
 // AddEpisode creates a known episode within a series (if new) and, when the
 // episode is monitored, ensures a pending wanted row for it. Returns the
 // episode id.
-func (s *Service) AddEpisode(ctx context.Context, seriesID int64, season, episode int, title string, monitored bool) (int64, error) {
+func (s *Service) AddEpisode(ctx context.Context, seriesID int64, season, episode int, title string, airDate *time.Time, monitored bool) (int64, error) {
 	e := dom.Episode{
 		SeriesID:  seriesID,
 		Season:    season,
 		Episode:   episode,
 		Title:     title,
+		AirDate:   airDate,
 		Monitored: monitored,
 	}
 	id, err := s.deps.Repo.CreateEpisode(ctx, e)
@@ -644,7 +645,7 @@ func (s *Service) serviceEpisodes(ctx context.Context, series *dom.Series, cands
 
 		// Satisfy every covered episode.
 		for _, w := range covered {
-			if err := s.deps.Repo.MarkWantedSatisfied(ctx, series.ID, w.Season, w.Episode, rel.Title); err != nil {
+			if err := s.deps.Repo.MarkWantedSatisfied(ctx, series.ID, w.Season, w.Episode, rel.Title, rel.Quality.QualityName); err != nil {
 				s.record(ctx, series.ID, "satisfy-failed", err.Error())
 				continue
 			}

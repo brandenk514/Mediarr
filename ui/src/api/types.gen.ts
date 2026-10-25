@@ -925,6 +925,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/queue/{kind}/{parent}/grab": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Grab a parent's queued jobs (P3 queue actions).
+         * @description Promotes every queued job for the parent to downloading (the client
+         *     hand-off). Jobs already downloading are left alone; complete/failed
+         *     jobs are not re-grabbable. Returns how many jobs moved.
+         */
+        post: operations["grabQueue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/queue/{kind}/{parent}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a parent's queue jobs (P3 queue actions).
+         * @description Deletes every queue job for the parent, in any state.
+         */
+        delete: operations["removeQueue"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Global event feed across all libraries (P3 Activity > History).
+         * @description Every lifecycle event (added / monitored / searched / download /
+         *     import / ...) across all four kinds, newest first, with the media
+         *     kind + parent id so the UI can deep-link. Filterable by date
+         *     (since, inclusive) and event type (exact match). An empty feed is
+         *     a 200 with [].
+         */
+        get: operations["listGlobalHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/blocklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List blocked releases (P3 Activity > Blocklist).
+         * @description Every blocked (rejected) release, newest first. Filterable by media
+         *     kind (?kind=) and by the media item it belongs to (?parent_id=).
+         *     An empty blocklist is a 200 with [].
+         */
+        get: operations["listBlocklist"];
+        put?: never;
+        /**
+         * Block a release (P3 Activity > Blocklist).
+         * @description Records a rejected release. kind must be a valid media kind and
+         *     release_title must be non-empty; both are 400 otherwise.
+         */
+        post: operations["addBlocklist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/blocklist/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Unblock a blocked release (P3 Activity > Blocklist). */
+        delete: operations["unblockRelease"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wanted": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Global wanted episodes — Missing or Cutoff Unmet (P3).
+         * @description Server-side filtered + paginated list of the TV episodes the
+         *     libraries want. tab=missing (default) = monitored episodes with no
+         *     file; tab=cutoff = episodes whose current file quality is below the
+         *     series' cutoff. Cutoff defaults to the lowest quality item of the
+         *     series' quality profile (full profile-driven cutoff config lands in
+         *     P5). An empty page is items: [].
+         */
+        get: operations["listWanted"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wanted/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search All — fan out a search for the tab's wanted episodes (P3).
+         * @description For every episode in the tab (default missing), ensures a pending
+         *     wanted row (re-requesting the search for cutoff-unmet episodes),
+         *     and records a search-requested history entry per affected series.
+         *     Returns how many episodes are now wanted for the search.
+         */
+        post: operations["searchWanted"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wanted/unmonitor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unmonitor a batch of wanted episodes (P3).
+         * @description Turns monitoring off for each (series, season, episode) — the same
+         *     effect as toggling each episode individually. Unknown episodes are
+         *     skipped; the count is how many were actually toggled.
+         */
+        post: operations["unmonitorWanted"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Manually import a wanted episode from a local file (P3).
+         * @description Phase-1 manual import: the file must exist on the server, the series
+         *     and episode must exist (404 otherwise). It records a manual-import
+         *     history event and satisfies the episode's wanted row (the file is
+         *     considered in place; physical copying/organization lands with the
+         *     media-management work). Other kinds are 400 in this phase (TV only).
+         */
+        post: operations["manualImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search/movies": {
         parameters: {
             query?: never;
@@ -1343,6 +1547,11 @@ export interface components {
             Season: number;
             Episode: number;
             Title: string;
+            /**
+             * Format: date
+             * @description First air date (UTC); null when unknown.
+             */
+            AirDate?: string | null;
             Monitored: boolean;
             /** Format: date-time */
             AddedAt: string;
@@ -1351,6 +1560,11 @@ export interface components {
             season: number;
             episode: number;
             title?: string;
+            /**
+             * Format: date
+             * @description First air date (YYYY-MM-DD); optional.
+             */
+            air_date?: string | null;
             /** @description Omitted = monitored (default). */
             monitored?: boolean;
         };
@@ -1367,6 +1581,8 @@ export interface components {
             CreatedAt: string;
             /** Format: date-time */
             SatisfiedAt: string | null;
+            /** @description Quality of the satisfying release ("" until satisfied). */
+            Quality: string;
         };
         Artist: {
             /** Format: int64 */
@@ -1587,6 +1803,8 @@ export interface components {
             indexer: string;
             state: components["schemas"]["QueueState"];
             progress: number;
+            /** @description The download client the job is in (or "" if none). */
+            download_client: string;
             /** Format: date-time */
             updated_at: string;
         };
@@ -1595,6 +1813,117 @@ export interface components {
             detail: string;
             /** Format: date-time */
             at: string;
+        };
+        /** @description One event in the global Activity > History feed. */
+        GlobalHistoryItem: {
+            kind: components["schemas"]["MediaKind"];
+            /**
+             * Format: int64
+             * @description The media item id (movie/series/album/author).
+             */
+            parent_id: number;
+            /** @description Display name of the media item. */
+            name: string;
+            /** @description Event type (added / monitored / search-requested / imported / ...). */
+            event: string;
+            detail: string;
+            /** Format: date-time */
+            at: string;
+        };
+        /** @description A blocked (rejected) release in Activity > Blocklist. */
+        BlocklistEntry: {
+            /** Format: int64 */
+            id: number;
+            kind: components["schemas"]["MediaKind"];
+            /**
+             * Format: int64
+             * @description The media item id the release belonged to.
+             */
+            parent_id: number;
+            /** @description Display name of the media item. */
+            parent_name: string;
+            release_title: string;
+            indexer: string;
+            reason: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        BlocklistRequest: {
+            kind: components["schemas"]["MediaKind"];
+            /** Format: int64 */
+            parent_id?: number;
+            release_title: string;
+            indexer?: string;
+            reason?: string;
+        };
+        /**
+         * @description missing = monitored, no file; cutoff = file below the series cutoff.
+         * @enum {string}
+         */
+        WantedTab: "missing" | "cutoff";
+        /** @description One episode in the global Wanted table (a row is always TV). */
+        WantedItem: {
+            /** @enum {string} */
+            kind: "tv";
+            /** Format: int64 */
+            series_id: number;
+            series_title: string;
+            season: number;
+            episode: number;
+            episode_title: string;
+            /** Format: date */
+            air_date: string | null;
+            /** @description Why the episode is wanted (missing: or cutoff: prefix + detail). */
+            status: string;
+        };
+        PageWantedItem: {
+            items: components["schemas"]["WantedItem"][];
+            total: number;
+            page: number;
+            pageSize: number;
+        };
+        WantedSearchRequest: {
+            /** @default missing */
+            tab: components["schemas"]["WantedTab"];
+        };
+        WantedEpisodeRef: {
+            /** Format: int64 */
+            series_id: number;
+            season: number;
+            episode: number;
+        };
+        WantedUnmonitorRequest: {
+            episodes: components["schemas"]["WantedEpisodeRef"][];
+        };
+        /** @description Result of a Search All (searched) or Unmonitor (unmonitored) action. */
+        WantedActionResult: {
+            /** @description How many episodes were sent to search (Search All). */
+            searched?: number;
+            /** @description How many episodes had monitoring turned off (Unmonitor). */
+            unmonitored?: number;
+        };
+        ManualImportRequest: {
+            kind: components["schemas"]["MediaKind"];
+            /** Format: int64 */
+            series_id: number;
+            season: number;
+            episode: number;
+            /** @description Server-side path of the episode file to import. */
+            file_path: string;
+            /** @description Optional release name recorded in history. */
+            release_title?: string;
+        };
+        ManualImportReport: {
+            imported: boolean;
+            message: string;
+        };
+        QueueGrabResult: {
+            /** @description How many queued jobs moved to downloading. */
+            grabbed: number;
+        };
+        QueueRemoveResult: {
+            /** @description How many queue jobs were removed. */
+            removed: number;
         };
         Indexer: {
             /** Format: int64 */
@@ -3830,6 +4159,291 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    grabQueue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: components["schemas"]["MediaKind"];
+                /** @description The parent id (movie/series/album/author id). */
+                parent: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many queued jobs moved to downloading. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueGrabResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    removeQueue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: components["schemas"]["MediaKind"];
+                /** @description The parent id (movie/series/album/author id). */
+                parent: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many queue jobs were removed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueRemoveResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listGlobalHistory: {
+        parameters: {
+            query?: {
+                /** @description Inclusive lower bound (RFC 3339) on the event time. */
+                since?: string;
+                /** @description Restrict to one event type (exact match, case-insensitive). */
+                event?: string;
+                /** @description Max events (default 50, clamped to 1..200). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The matching events, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlobalHistoryItem"][];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listBlocklist: {
+        parameters: {
+            query?: {
+                /** @description Restrict to one media kind. */
+                kind?: components["schemas"]["MediaKind"];
+                /** @description Restrict to one media item (movie/series/album/author id). */
+                parent_id?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The blocked releases, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlocklistEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    addBlocklist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BlocklistRequest"];
+            };
+        };
+        responses: {
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddedId"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    unblockRelease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unblocked (no body). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listWanted: {
+        parameters: {
+            query?: {
+                /** @description Which wanted set to list. */
+                tab?: components["schemas"]["WantedTab"];
+                /** @description Case-insensitive substring match on the series title. */
+                search?: string;
+                /** @description Page number (default 1). */
+                page?: number;
+                /** @description Page size (default 10, max 500). */
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of wanted episodes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageWantedItem"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    searchWanted: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WantedSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description How many episodes are now wanted for the search. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WantedActionResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    unmonitorWanted: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WantedUnmonitorRequest"];
+            };
+        };
+        responses: {
+            /** @description How many episodes were unmonitored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WantedActionResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    manualImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The import report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualImportReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description The file does not exist on the server. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["Internal"];
         };
     };

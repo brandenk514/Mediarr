@@ -32,22 +32,38 @@ const defaultHistoryLimit = 50
 // pages it in memory via queue.Apply (mirrors the per-kind list endpoints).
 const queueListSQL = `
 SELECT 'movie'::text AS kind, q.movie_id, m.title,
-       q.release_title, q.indexer, q.state, q.progress, q.updated_at
+       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at
 FROM queue q JOIN movies m ON m.id = q.movie_id
 UNION ALL
 SELECT 'tv', q.series_id, s.title,
-       q.release_title, q.indexer, q.state, q.progress, q.updated_at
+       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at
 FROM tv_queue q JOIN tv_series s ON s.id = q.series_id
 UNION ALL
 SELECT 'music', q.artist_id, a.name,
-       q.release_title, q.indexer, q.state, q.progress, q.updated_at
+       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at
 FROM music_queue q JOIN music_artists a ON a.id = q.artist_id
 UNION ALL
 SELECT 'book', q.author_id, au.name,
-       q.release_title, q.indexer, q.state, q.progress, q.updated_at
+       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at
 FROM book_queue q JOIN book_authors au ON au.id = q.author_id
 ORDER BY updated_at DESC
 `
+
+// grabSQLs / removeSQLs are the P3 per-parent queue actions, one symmetric
+// statement per kind (the four queue tables share the parent column shape).
+var grabSQLs = map[queue.Kind]string{
+	queue.KindMovie: "UPDATE queue SET state = 'downloading', updated_at = now() WHERE movie_id = $1 AND state = 'queued'",
+	queue.KindTV:    "UPDATE tv_queue SET state = 'downloading', updated_at = now() WHERE series_id = $1 AND state = 'queued'",
+	queue.KindMusic: "UPDATE music_queue SET state = 'downloading', updated_at = now() WHERE artist_id = $1 AND state = 'queued'",
+	queue.KindBook:  "UPDATE book_queue SET state = 'downloading', updated_at = now() WHERE author_id = $1 AND state = 'queued'",
+}
+
+var removeSQLs = map[queue.Kind]string{
+	queue.KindMovie: "DELETE FROM queue WHERE movie_id = $1",
+	queue.KindTV:    "DELETE FROM tv_queue WHERE series_id = $1",
+	queue.KindMusic: "DELETE FROM music_queue WHERE artist_id = $1",
+	queue.KindBook:  "DELETE FROM book_queue WHERE author_id = $1",
+}
 
 // historySQLs maps a kind to its parent-scoped history query. Each selects the
 // (event, detail, at) triple for one parent id, newest first, capped by LIMIT.
@@ -70,27 +86,29 @@ func (r *QueueRepo) List(ctx context.Context) ([]queue.Item, error) {
 	var out []queue.Item
 	for rows.Next() {
 		var (
-			kind      string
-			parentID  int64
-			parent    string
-			release   string
-			indexer   string
-			state     string
-			progress  int
-			updatedAt time.Time
+			kind         string
+			parentID     int64
+			parent       string
+			release      string
+			indexer      string
+			state        string
+			progress     int
+			downloadClnt string
+			updatedAt    time.Time
 		)
-		if err := rows.Scan(&kind, &parentID, &parent, &release, &indexer, &state, &progress, &updatedAt); err != nil {
+		if err := rows.Scan(&kind, &parentID, &parent, &release, &indexer, &state, &progress, &downloadClnt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("queue: scan item: %w", err)
 		}
 		out = append(out, queue.Item{
-			Kind:         queue.Kind(kind),
-			ParentID:     parentID,
-			ParentName:   parent,
-			ReleaseTitle: release,
-			Indexer:      indexer,
-			State:        state,
-			Progress:     progress,
-			UpdatedAt:    updatedAt,
+			Kind:           queue.Kind(kind),
+			ParentID:       parentID,
+			ParentName:     parent,
+			ReleaseTitle:   release,
+			Indexer:        indexer,
+			State:          state,
+			Progress:       progress,
+			DownloadClient: downloadClnt,
+			UpdatedAt:      updatedAt,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -100,6 +118,42 @@ func (r *QueueRepo) List(ctx context.Context) ([]queue.Item, error) {
 		out = []queue.Item{}
 	}
 	return out, nil
+}
+
+// Grab implements queue.Repo: promotes every queued job for the parent to
+// downloading (the client hand-off) and returns how many jobs moved.
+func (r *QueueRepo) Grab(ctx context.Context, kind queue.Kind, parentID int64) (int, error) {
+	q, ok := grabSQLs[kind]
+	if !ok {
+		return 0, fmt.Errorf("queue: unknown kind %q", kind)
+	}
+	res, err := r.db.ExecContext(ctx, q, parentID)
+	if err != nil {
+		return 0, fmt.Errorf("queue: grab: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("queue: grab rows affected: %w", err)
+	}
+	return int(n), nil
+}
+
+// Remove implements queue.Repo: deletes every job for the parent, in any
+// state, and returns how many were removed.
+func (r *QueueRepo) Remove(ctx context.Context, kind queue.Kind, parentID int64) (int, error) {
+	q, ok := removeSQLs[kind]
+	if !ok {
+		return 0, fmt.Errorf("queue: unknown kind %q", kind)
+	}
+	res, err := r.db.ExecContext(ctx, q, parentID)
+	if err != nil {
+		return 0, fmt.Errorf("queue: remove: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("queue: remove rows affected: %w", err)
+	}
+	return int(n), nil
 }
 
 // History implements queue.Repo: the lifecycle events for one parent, newest

@@ -21,7 +21,7 @@ const STATES: QueueState[] = ['queued', 'downloading', 'complete', 'failed']
 // leaking a bogus class.
 function historyPillClass(event: string): string {
   const e = event.toLowerCase()
-  if (e.includes('import') || e === 'complete' || e.includes('download') && !e.includes('downloading')) {
+  if (e.includes('import') || e === 'complete' || (e.includes('download') && !e.includes('downloading'))) {
     return 'pill-ok'
   }
   if (e.includes('fail') || e === 'error') return 'pill-err'
@@ -32,8 +32,8 @@ function historyPillClass(event: string): string {
 // QueuePage is the dedicated queue view (#43): the *full* download/import
 // queue across all four kinds — filtered (kind, state, search) and paginated
 // server-side — with a live WebSocket link that re-reads the list when the
-// pipelines push queue.updated frames, and a per-row history drill-down that
-// expands a job's lifecycle events for its parent.
+// pipelines push queue.updated frames, a per-row history drill-down, and (P3)
+// row selection with Grab Selected / Remove Selected actions + a client column.
 export function QueuePage() {
   const [data, setData] = useState<PageQueueItem | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -54,6 +54,10 @@ export function QueuePage() {
   const [history, setHistory] = useState<QueueHistoryEvent[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
+
+  // P3: row selection for the Grab/Remove Selected actions.
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [queueAction, setQueueAction] = useState<'grab' | 'remove' | null>(null)
 
   const loadQueue = useCallback(async () => {
     const id = ++reqId.current
@@ -128,7 +132,8 @@ export function QueuePage() {
     let cancelled = false
     setHistoryLoading(true)
     setHistoryError(null)
-    client.queueHistory(k as MediaKind, parentId, 50)
+    client
+      .queueHistory(k as MediaKind, parentId, 50)
       .then((ev) => {
         if (!cancelled) setHistory(ev)
       })
@@ -146,6 +151,51 @@ export function QueuePage() {
   function toggleHistory(item: QueueViewItem) {
     const key = `${item.kind}:${item.parent_id}`
     setExpanded((prev) => (prev === key ? null : key))
+  }
+
+  function keyOf(item: QueueViewItem): string {
+    return `${item.kind}:${item.parent_id}`
+  }
+  function toggleSelect(item: QueueViewItem) {
+    const k = keyOf(item)
+    setSelected((prev) => {
+      const n = new Set(prev)
+      if (n.has(k)) n.delete(k)
+      else n.add(k)
+      return n
+    })
+  }
+  function toggleSelectAll() {
+    if (!data) return
+    setSelected((prev) => {
+      const all = data.items.length > 0 && data.items.every((i) => prev.has(keyOf(i)))
+      const n = new Set(prev)
+      for (const i of data.items) {
+        if (all) n.delete(keyOf(i))
+        else n.add(keyOf(i))
+      }
+      return n
+    })
+  }
+  // Grab or remove every job for each selected parent, then reload the list.
+  async function runQueueAction(action: 'grab' | 'remove') {
+    if (selected.size === 0) return
+    setQueueAction(action)
+    try {
+      for (const k of selected) {
+        const [kindStr, idStr] = k.split(':')
+        const parentId = Number(idStr)
+        if (!kindStr || !parentId || Number.isNaN(parentId)) continue
+        if (action === 'grab') await client.grabQueue(kindStr as MediaKind, parentId)
+        else await client.removeQueue(kindStr as MediaKind, parentId)
+      }
+      setSelected(new Set())
+      await loadQueue()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'queue action failed')
+    } finally {
+      setQueueAction(null)
+    }
   }
 
   if (error && !data) {
@@ -183,6 +233,22 @@ export function QueuePage() {
             data-testid="queue-refresh"
           >
             Refresh
+          </button>
+          <button
+            className="ghost"
+            onClick={() => void runQueueAction('grab')}
+            disabled={selected.size === 0 || queueAction !== null}
+            data-testid="queue-grab"
+          >
+            {queueAction === 'grab' ? 'Grabbing…' : 'Grab Selected'}
+          </button>
+          <button
+            className="ghost"
+            onClick={() => void runQueueAction('remove')}
+            disabled={selected.size === 0 || queueAction !== null}
+            data-testid="queue-remove"
+          >
+            {queueAction === 'remove' ? 'Removing…' : 'Remove Selected'}
           </button>
         </div>
       </div>
@@ -258,9 +324,17 @@ export function QueuePage() {
 
       <div className="list-table" data-testid="queue-table">
         <div className="lt-head">
+          <input
+            type="checkbox"
+            aria-label="Select all jobs"
+            data-testid="queue-select-all"
+            checked={data !== null && data.items.length > 0 && data.items.every((i) => selected.has(`${i.kind}:${i.parent_id}`))}
+            onChange={() => toggleSelectAll()}
+          />
           <span>Release</span>
           <span>Media</span>
           <span>Indexer</span>
+          <span>Client</span>
           <span>State</span>
           <span>Updated</span>
         </div>
@@ -268,7 +342,7 @@ export function QueuePage() {
           <p className="dim">Loading queue…</p>
         ) : data && data.items.length === 0 ? (
           <p className="dim" data-testid="queue-empty">
-            No queue jobs match.
+            Queue is empty.
           </p>
         ) : (
           data?.items.map((item) => {
@@ -278,6 +352,13 @@ export function QueuePage() {
             return (
               <div key={`${item.release_title}-${item.parent_id}-${item.state}`} data-testid={`queue-row-${item.kind}-${item.parent_id}`}>
                 <div className="lt-row">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${item.release_title}`}
+                    checked={selected.has(key)}
+                    onChange={() => toggleSelect(item)}
+                    data-testid={`queue-check-${item.kind}-${item.parent_id}`}
+                  />
                   <button
                     type="button"
                     className="lt-name lt-expand"
@@ -293,6 +374,9 @@ export function QueuePage() {
                     {pct ? ` · ${pct}` : ''}
                   </span>
                   <span className="lt-dim">{item.indexer || '—'}</span>
+                  <span className="lt-dim" data-testid={`queue-client-${item.kind}-${item.parent_id}`}>
+                    {item.download_client || '—'}
+                  </span>
                   <span className={`pill pill-${item.state}`}>{item.state}</span>
                   <span className="lt-dim">{timeAgo(item.updated_at)}</span>
                 </div>

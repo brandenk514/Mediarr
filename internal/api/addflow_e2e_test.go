@@ -316,7 +316,7 @@ func (r *memTVRepo) ListWanted(ctx context.Context, seriesID int64) ([]tvdom.Wan
 	return nil, nil
 }
 
-func (r *memTVRepo) MarkWantedSatisfied(ctx context.Context, seriesID int64, season, episode int, releaseTitle string) error {
+func (r *memTVRepo) MarkWantedSatisfied(ctx context.Context, seriesID int64, season, episode int, releaseTitle, quality string) error {
 	return nil
 }
 

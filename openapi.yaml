@@ -60,6 +60,14 @@ tags:
     description: Cross-library overview.
   - name: queue
     description: Full download/import queue and per-parent history.
+  - name: history
+    description: Global event feed across all libraries (Activity > History).
+  - name: blocklist
+    description: Blocked/rejected releases (Activity > Blocklist).
+  - name: wanted
+    description: Global wanted episodes — Missing + Cutoff Unmet (Wanted page).
+  - name: import
+    description: Manual import of a wanted episode from a local file.
   - name: search
     description: Provider search for the add flows + quality profiles.
   - name: events
@@ -1753,6 +1761,350 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/queue/{kind}/{parent}/grab:
+    post:
+      tags: [queue]
+      summary: Grab a parent's queued jobs (P3 queue actions).
+      description: |
+        Promotes every queued job for the parent to downloading (the client
+        hand-off). Jobs already downloading are left alone; complete/failed
+        jobs are not re-grabbable. Returns how many jobs moved.
+      operationId: grabQueue
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/MediaKind"
+        - name: parent
+          in: path
+          required: true
+          description: The parent id (movie/series/album/author id).
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: How many queued jobs moved to downloading.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueueGrabResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/queue/{kind}/{parent}:
+    delete:
+      tags: [queue]
+      summary: Remove a parent's queue jobs (P3 queue actions).
+      description: Deletes every queue job for the parent, in any state.
+      operationId: removeQueue
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/MediaKind"
+        - name: parent
+          in: path
+          required: true
+          description: The parent id (movie/series/album/author id).
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: How many queue jobs were removed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueueRemoveResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/history:
+    get:
+      tags: [history]
+      summary: Global event feed across all libraries (P3 Activity > History).
+      description: |
+        Every lifecycle event (added / monitored / searched / download /
+        import / ...) across all four kinds, newest first, with the media
+        kind + parent id so the UI can deep-link. Filterable by date
+        (since, inclusive) and event type (exact match). An empty feed is
+        a 200 with [].
+      operationId: listGlobalHistory
+      parameters:
+        - name: since
+          in: query
+          description: Inclusive lower bound (RFC 3339) on the event time.
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: event
+          in: query
+          description: Restrict to one event type (exact match, case-insensitive).
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Max events (default 50, clamped to 1..200).
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: The matching events, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GlobalHistoryItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/blocklist:
+    get:
+      tags: [blocklist]
+      summary: List blocked releases (P3 Activity > Blocklist).
+      description: |
+        Every blocked (rejected) release, newest first. Filterable by media
+        kind (?kind=) and by the media item it belongs to (?parent_id=).
+        An empty blocklist is a 200 with [].
+      operationId: listBlocklist
+      parameters:
+        - name: kind
+          in: query
+          description: Restrict to one media kind.
+          required: false
+          schema:
+            $ref: "#/components/schemas/MediaKind"
+        - name: parent_id
+          in: query
+          description: Restrict to one media item (movie/series/album/author id).
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        "200":
+          description: The blocked releases, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BlocklistEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [blocklist]
+      summary: Block a release (P3 Activity > Blocklist).
+      description: |
+        Records a rejected release. kind must be a valid media kind and
+        release_title must be non-empty; both are 400 otherwise.
+      operationId: addBlocklist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlocklistRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/blocklist/{id}:
+    delete:
+      tags: [blocklist]
+      summary: Unblock a blocked release (P3 Activity > Blocklist).
+      operationId: unblockRelease
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "204":
+          description: Unblocked (no body).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/wanted:
+    get:
+      tags: [wanted]
+      summary: Global wanted episodes — Missing or Cutoff Unmet (P3).
+      description: |
+        Server-side filtered + paginated list of the TV episodes the
+        libraries want. tab=missing (default) = monitored episodes with no
+        file; tab=cutoff = episodes whose current file quality is below the
+        series' cutoff. Cutoff defaults to the lowest quality item of the
+        series' quality profile (full profile-driven cutoff config lands in
+        P5). An empty page is items: [].
+      operationId: listWanted
+      parameters:
+        - name: tab
+          in: query
+          description: Which wanted set to list.
+          required: false
+          schema:
+            $ref: "#/components/schemas/WantedTab"
+        - name: search
+          in: query
+          description: Case-insensitive substring match on the series title.
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number (default 1).
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          description: Page size (default 10, max 500).
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: One page of wanted episodes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageWantedItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/wanted/search:
+    post:
+      tags: [wanted]
+      summary: Search All — fan out a search for the tab's wanted episodes (P3).
+      description: |
+        For every episode in the tab (default missing), ensures a pending
+        wanted row (re-requesting the search for cutoff-unmet episodes),
+        and records a search-requested history entry per affected series.
+        Returns how many episodes are now wanted for the search.
+      operationId: searchWanted
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WantedSearchRequest"
+      responses:
+        "200":
+          description: How many episodes are now wanted for the search.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WantedActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/wanted/unmonitor:
+    post:
+      tags: [wanted]
+      summary: Unmonitor a batch of wanted episodes (P3).
+      description: |
+        Turns monitoring off for each (series, season, episode) — the same
+        effect as toggling each episode individually. Unknown episodes are
+        skipped; the count is how many were actually toggled.
+      operationId: unmonitorWanted
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WantedUnmonitorRequest"
+      responses:
+        "200":
+          description: How many episodes were unmonitored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WantedActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/import:
+    post:
+      tags: [import]
+      summary: Manually import a wanted episode from a local file (P3).
+      description: |
+        Phase-1 manual import: the file must exist on the server, the series
+        and episode must exist (404 otherwise). It records a manual-import
+        history event and satisfies the episode's wanted row (the file is
+        considered in place; physical copying/organization lands with the
+        media-management work). Other kinds are 400 in this phase (TV only).
+      operationId: manualImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualImportRequest"
+      responses:
+        "200":
+          description: The import report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualImportReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: The file does not exist on the server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/search/movies:
     get:
       tags: [search]
@@ -2550,6 +2902,11 @@ components:
           type: integer
         Title:
           type: string
+        AirDate:
+          type: string
+          format: date
+          nullable: true
+          description: First air date (UTC); null when unknown.
         Monitored:
           type: boolean
         AddedAt:
@@ -2567,6 +2924,11 @@ components:
           minimum: 1
         title:
           type: string
+        air_date:
+          type: string
+          format: date
+          nullable: true
+          description: First air date (YYYY-MM-DD); optional.
         monitored:
           type: boolean
           description: Omitted = monitored (default).
@@ -2575,7 +2937,7 @@ components:
       enum: [pending, satisfied]
     SeriesWanted:
       type: object
-      required: [SeriesID, Season, Episode, Status, ReleaseTitle, CreatedAt, SatisfiedAt]
+      required: [SeriesID, Season, Episode, Status, ReleaseTitle, CreatedAt, SatisfiedAt, Quality]
       properties:
         SeriesID:
           type: integer
@@ -2595,6 +2957,9 @@ components:
           type: string
           format: date-time
           nullable: true
+        Quality:
+          type: string
+          description: Quality of the satisfying release ("" until satisfied).
     Artist:
       type: object
       required: [ID, MBID, Name, Monitored, AddedAt]
@@ -2968,7 +3333,7 @@ components:
           format: date-time
     QueueViewItem:
       type: object
-      required: [kind, parent_id, parent_name, release_title, indexer, state, progress, updated_at]
+      required: [kind, parent_id, parent_name, release_title, indexer, state, progress, download_client, updated_at]
       properties:
         kind:
           $ref: "#/components/schemas/MediaKind"
@@ -2985,6 +3350,9 @@ components:
           $ref: "#/components/schemas/QueueState"
         progress:
           type: integer
+        download_client:
+          type: string
+          description: The download client the job is in (or "" if none).
         updated_at:
           type: string
           format: date-time
@@ -2999,6 +3367,189 @@ components:
         at:
           type: string
           format: date-time
+    GlobalHistoryItem:
+      type: object
+      required: [kind, parent_id, name, event, detail, at]
+      description: One event in the global Activity > History feed.
+      properties:
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        parent_id:
+          type: integer
+          format: int64
+          description: The media item id (movie/series/album/author).
+        name:
+          type: string
+          description: Display name of the media item.
+        event:
+          type: string
+          description: Event type (added / monitored / search-requested / imported / ...).
+        detail:
+          type: string
+        at:
+          type: string
+          format: date-time
+    BlocklistEntry:
+      type: object
+      required: [id, kind, parent_id, parent_name, release_title, indexer, reason, created_at]
+      description: A blocked (rejected) release in Activity > Blocklist.
+      properties:
+        id:
+          type: integer
+          format: int64
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        parent_id:
+          type: integer
+          format: int64
+          description: The media item id the release belonged to.
+        parent_name:
+          type: string
+          description: Display name of the media item.
+        release_title:
+          type: string
+        indexer:
+          type: string
+        reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    BlocklistRequest:
+      type: object
+      required: [kind, release_title]
+      properties:
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        parent_id:
+          type: integer
+          format: int64
+        release_title:
+          type: string
+        indexer:
+          type: string
+        reason:
+          type: string
+    WantedTab:
+      type: string
+      enum: [missing, cutoff]
+      description: missing = monitored, no file; cutoff = file below the series cutoff.
+    WantedItem:
+      type: object
+      required: [kind, series_id, series_title, season, episode, episode_title, air_date, status]
+      description: One episode in the global Wanted table (a row is always TV).
+      properties:
+        kind:
+          type: string
+          enum: [tv]
+        series_id:
+          type: integer
+          format: int64
+        series_title:
+          type: string
+        season:
+          type: integer
+        episode:
+          type: integer
+        episode_title:
+          type: string
+        air_date:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+          description: 'Why the episode is wanted (missing: or cutoff: prefix + detail).'
+    PageWantedItem:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WantedItem"
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+    WantedSearchRequest:
+      type: object
+      properties:
+        tab:
+          default: missing
+          $ref: "#/components/schemas/WantedTab"
+    WantedEpisodeRef:
+      type: object
+      required: [series_id, season, episode]
+      properties:
+        series_id:
+          type: integer
+          format: int64
+        season:
+          type: integer
+        episode:
+          type: integer
+    WantedUnmonitorRequest:
+      type: object
+      required: [episodes]
+      properties:
+        episodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/WantedEpisodeRef"
+    WantedActionResult:
+      type: object
+      description: Result of a Search All (searched) or Unmonitor (unmonitored) action.
+      properties:
+        searched:
+          type: integer
+          description: How many episodes were sent to search (Search All).
+        unmonitored:
+          type: integer
+          description: How many episodes had monitoring turned off (Unmonitor).
+    ManualImportRequest:
+      type: object
+      required: [kind, series_id, season, episode, file_path]
+      properties:
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        series_id:
+          type: integer
+          format: int64
+        season:
+          type: integer
+        episode:
+          type: integer
+        file_path:
+          type: string
+          description: Server-side path of the episode file to import.
+        release_title:
+          type: string
+          description: Optional release name recorded in history.
+    ManualImportReport:
+      type: object
+      required: [imported, message]
+      properties:
+        imported:
+          type: boolean
+        message:
+          type: string
+    QueueGrabResult:
+      type: object
+      required: [grabbed]
+      properties:
+        grabbed:
+          type: integer
+          description: How many queued jobs moved to downloading.
+    QueueRemoveResult:
+      type: object
+      required: [removed]
+      properties:
+        removed:
+          type: integer
+          description: How many queue jobs were removed.
     Indexer:
       type: object
       required: [id, name, kind, base_url, enabled, has_api_key, last_test]

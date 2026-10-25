@@ -180,7 +180,7 @@ func (r *memRepo) ListWanted(ctx context.Context, seriesID int64) ([]dom.Wanted,
 	return out, nil
 }
 
-func (r *memRepo) MarkWantedSatisfied(ctx context.Context, seriesID int64, season, episode int, releaseTitle string) error {
+func (r *memRepo) MarkWantedSatisfied(ctx context.Context, seriesID int64, season, episode int, releaseTitle, quality string) error {
 	k := wantedKey{seriesID, season, episode}
 	w, ok := r.wanted[k]
 	if !ok {
@@ -189,6 +189,7 @@ func (r *memRepo) MarkWantedSatisfied(ctx context.Context, seriesID int64, seaso
 	now := time.Now()
 	w.Status = dom.WantedSatisfied
 	w.ReleaseTitle = releaseTitle
+	w.Quality = quality
 	w.SatisfiedAt = &now
 	r.wanted[k] = w
 	return nil
@@ -302,7 +303,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
-	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "Piloto", true); err != nil {
+	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "Piloto", nil, true); err != nil {
 		t.Fatalf("add episode: %v", err)
 	}
 	w, err := repo.GetWanted(ctx, seriesID, 1, 1)
@@ -372,10 +373,10 @@ func TestPipeline_MultiEpisode(t *testing.T) {
 	ctx := context.Background()
 
 	seriesID, _ := svc.AddSeries(ctx, AddSeriesRequest{Title: "The Wire", Year: "2002", QualityProfile: "HD-1080p", Monitored: true})
-	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "The Details", true); err != nil {
+	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "The Details", nil, true); err != nil {
 		t.Fatalf("add e1: %v", err)
 	}
-	if _, err := svc.AddEpisode(ctx, seriesID, 1, 2, "The Target", true); err != nil {
+	if _, err := svc.AddEpisode(ctx, seriesID, 1, 2, "The Target", nil, true); err != nil {
 		t.Fatalf("add e2: %v", err)
 	}
 
@@ -452,7 +453,7 @@ func TestPipeline_SeasonMonitor_Acceptance(t *testing.T) {
 
 	// 2. Add three known episodes; the unmonitored E3 is present but unwanted.
 	for ep, title := range map[int]string{1: "Pilot", 2: "Over-Looked", 3: "Bright Lights"} {
-		if _, err := svc.AddEpisode(ctx, seriesID, 1, ep, title, false); err != nil {
+		if _, err := svc.AddEpisode(ctx, seriesID, 1, ep, title, nil, false); err != nil {
 			t.Fatalf("add episode %d: %v", ep, err)
 		}
 	}
@@ -530,7 +531,7 @@ func TestPipeline_NoMatch(t *testing.T) {
 	ctx := context.Background()
 
 	seriesID, _ := svc.AddSeries(ctx, AddSeriesRequest{Title: "Fringe", Year: "2008", QualityProfile: "HD-1080p", Monitored: true})
-	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true)
+	_, _ = svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", nil, true)
 
 	_, err := svc.RunPipeline(ctx, seriesID)
 	if !errors.Is(err, ErrNoMatch) {

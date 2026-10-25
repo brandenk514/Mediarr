@@ -18,8 +18,10 @@ type QueueDeps struct {
 
 // SetQueue wires the queue-view endpoints (#43):
 //
-//	GET /api/v1/queue                          — the full queue, filtered + paginated
-//	GET /api/v1/queue/{kind}/{parent}/history  — one parent's lifecycle history
+//	GET    /api/v1/queue                          — the full queue, filtered + paginated
+//	GET    /api/v1/queue/{kind}/{parent}/history  — one parent's lifecycle history
+//	POST   /api/v1/queue/{kind}/{parent}/grab     — grab the parent's queued jobs (P3)
+//	DELETE /api/v1/queue/{kind}/{parent}          — remove the parent's queue jobs (P3)
 //
 // Called after construction, mirroring SetDashboard, so NewServer stays usable
 // for health-only boot and tests.
@@ -27,6 +29,8 @@ func (s *Server) SetQueue(deps *QueueDeps) {
 	s.queueDeps = deps
 	s.register("GET /api/v1/queue", s.requireAuth(s.ListQueue))
 	s.register("GET /api/v1/queue/{kind}/{parent}/history", s.requireAuth(s.QueueHistory))
+	s.register("POST /api/v1/queue/{kind}/{parent}/grab", s.requireAuth(s.GrabQueue))
+	s.register("DELETE /api/v1/queue/{kind}/{parent}", s.requireAuth(s.RemoveQueue))
 }
 
 // queueKinds is the accepted set for the {kind} path segment and the ?kind=
@@ -102,4 +106,53 @@ func (s *Server) QueueHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, events)
+}
+
+// queueParent handles the {kind}/{parent} path pair shared by the queue
+// history, grab, and remove endpoints: it validates the kind and parent id
+// (400 otherwise) and returns them.
+func (s *Server) queueParent(w http.ResponseWriter, r *http.Request) (queue.Kind, int64, bool) {
+	kind := queue.Kind(strings.ToLower(r.PathValue("kind")))
+	if !queueKinds[kind] {
+		writeError(w, http.StatusBadRequest, "unknown kind (want movie, tv, music, or book)")
+		return kind, 0, false
+	}
+	parentID, err := strconv.ParseInt(r.PathValue("parent"), 10, 64)
+	if err != nil || parentID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid parent id")
+		return kind, 0, false
+	}
+	return kind, parentID, true
+}
+
+// GrabQueue handles POST /api/v1/queue/{kind}/{parent}/grab: promotes the
+// parent's queued jobs to downloading and reports how many ({grabbed: n}).
+// An unknown kind or malformed parent id is a 400.
+func (s *Server) GrabQueue(w http.ResponseWriter, r *http.Request) {
+	kind, parentID, ok := s.queueParent(w, r)
+	if !ok {
+		return
+	}
+	n, err := s.queueDeps.Repo.Grab(r.Context(), kind, parentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to grab queue jobs")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"grabbed": n})
+}
+
+// RemoveQueue handles DELETE /api/v1/queue/{kind}/{parent}: removes all of
+// the parent's queue jobs in any state and reports how many
+// ({removed: n}). An unknown kind or malformed parent id is a 400.
+func (s *Server) RemoveQueue(w http.ResponseWriter, r *http.Request) {
+	kind, parentID, ok := s.queueParent(w, r)
+	if !ok {
+		return
+	}
+	n, err := s.queueDeps.Repo.Remove(r.Context(), kind, parentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to remove queue jobs")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"removed": n})
 }

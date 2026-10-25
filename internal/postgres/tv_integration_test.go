@@ -205,7 +205,7 @@ func TestTVRepo_WantedEpisodeGranularity(t *testing.T) {
 	}
 
 	// Satisfy one episode only.
-	if err := r.MarkWantedSatisfied(ctx, seriesID, 1, 1, "Fringe.S01E01.1080p.WEB.x264"); err != nil {
+	if err := r.MarkWantedSatisfied(ctx, seriesID, 1, 1, "Fringe.S01E01.1080p.WEB.x264", "HDTV-1080p"); err != nil {
 		t.Fatalf("satisfy S01E01: %v", err)
 	}
 	w, err := r.GetWanted(ctx, seriesID, 1, 1)

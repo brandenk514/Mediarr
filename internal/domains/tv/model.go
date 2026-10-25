@@ -51,7 +51,8 @@ type Episode struct {
 	Season    int
 	Episode   int
 	Title     string
-	Monitored bool // episode-level monitor toggle
+	AirDate   *time.Time // first air date (UTC); nil when unknown
+	Monitored bool       // episode-level monitor toggle
 	AddedAt   time.Time
 }
 
@@ -72,6 +73,7 @@ type Wanted struct {
 	Episode      int
 	Status       WantedStatus
 	ReleaseTitle string // the release that satisfied it (when satisfied)
+	Quality      string // quality of the satisfying release ("" until satisfied)
 	CreatedAt    time.Time
 	SatisfiedAt  *time.Time
 }
@@ -141,7 +143,11 @@ type Repo interface {
 	EnsureWanted(ctx context.Context, seriesID int64, season, episode int) error
 	GetWanted(ctx context.Context, seriesID int64, season, episode int) (*Wanted, error)
 	ListWanted(ctx context.Context, seriesID int64) ([]Wanted, error)
-	MarkWantedSatisfied(ctx context.Context, seriesID int64, season, episode int, releaseTitle string) error
+	// MarkWantedSatisfied flips the episode's wanted row to satisfied,
+	// recording the release that satisfied it and the release's quality
+	// label (e.g. "1080p"; "" when unknown) — the quality is what the
+	// Cutoff Unmet wanted tab compares against the series cutoff.
+	MarkWantedSatisfied(ctx context.Context, seriesID int64, season, episode int, releaseTitle, quality string) error
 
 	// Queue
 	CreateQueue(ctx context.Context, e QueueEntry) (int64, error)
