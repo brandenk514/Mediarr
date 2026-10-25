@@ -20,6 +20,7 @@ vi.mock('../../api/client', () => ({
     getSystemUpdates: vi.fn(),
     runMigration: vi.fn(),
     getMigrationStatus: vi.fn(),
+    openSystemLogsStream: vi.fn(() => () => {}),
   },
 }))
 
@@ -97,10 +98,10 @@ beforeEach(() => {
 })
 
 describe('System page — nav + Status sub-page', () => {
-  it('renders the six sub-page nav items', async () => {
+  it('renders the seven sub-page nav items', async () => {
     renderSystem()
     const nav = await screen.findByTestId('system-nav')
-    for (const slug of ['status', 'tasks', 'backup', 'updates', 'events', 'logs']) {
+    for (const slug of ['status', 'tasks', 'backup', 'updates', 'events', 'logs', 'import']) {
       expect(screen.getByTestId(`system-nav-${slug}`)).toBeInTheDocument()
     }
     expect(nav).toBeInTheDocument()

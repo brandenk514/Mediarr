@@ -442,6 +442,82 @@ export const client = {
 
 export type Api = typeof client
 
+// SystemLogLine is one line in the System > Log Files SSE stream. It mirrors
+// the Go system.LogLine JSON shape; the OpenAPI op serves text/event-stream
+// (not a JSON schema), so this is a local wire type rather than a generated
+// one.
+export type SystemLogLine = {
+  time: string
+  level: string
+  message: string
+}
+
+// LogStreamStatus reports the log-stream phase to the viewer.
+export type LogStreamStatus = { state: 'connecting' | 'open' | 'error' | 'closed'; error?: string }
+
+// openSystemLogsStream opens the /api/v1/system/logs SSE stream. Browsers
+// cannot set the Authorization header on an EventSource, so this uses fetch +
+// ReadableStream with the token in the header (as every other call). onLines
+// receives each frame's line batch (the backlog first, then live lines);
+// onStatus reports the phase. Returns a close function; call it on unmount.
+export function openSystemLogsStream(
+  onLines: (lines: SystemLogLine[]) => void,
+  onStatus: (s: LogStreamStatus) => void,
+): () => void {
+  const controller = new AbortController()
+  let closed = false
+
+  const headers: Record<string, string> = { Accept: 'text/event-stream' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  onStatus({ state: 'connecting' })
+
+  fetch(`${API}/system/logs`, { headers, signal: controller.signal })
+    .then(async (res) => {
+      if (!res.ok || !res.body) {
+        throw new Error(`log stream failed (${res.status})`)
+      }
+      onStatus({ state: 'open' })
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        // SSE frames are separated by a blank line.
+        let idx
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, idx)
+          buf = buf.slice(idx + 2)
+          const data = frame
+            .split('\n')
+            .filter((l) => l.startsWith('data: '))
+            .map((l) => l.slice(6))
+            .join('\n')
+          if (!data) continue
+          try {
+            onLines(JSON.parse(data) as SystemLogLine[])
+          } catch {
+            // A malformed frame must not kill the stream.
+          }
+        }
+      }
+    })
+    .catch((e: unknown) => {
+      if (!closed) onStatus({ state: 'error', error: e instanceof Error ? e.message : String(e) })
+    })
+    .finally(() => {
+      if (!closed) onStatus({ state: 'closed' })
+    })
+
+  return () => {
+    closed = true
+    controller.abort()
+  }
+}
+
 // connectEvents opens the /api/v1/events WebSocket (#40: "WebSocket
 // subscription for live queue/history updates"). Browsers cannot set the
 // Authorization header on a WebSocket handshake, so the bearer token goes as

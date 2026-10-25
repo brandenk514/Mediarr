@@ -2,8 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { NavLink, useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
 import type { DiskRoot, SystemAbout, SystemDisk, SystemHealth, SystemTasks, TaskInfo } from '../../api/types'
+import { BackupPanel } from './BackupPanel'
+import { EventsPanel } from './EventsPanel'
+import { LogsPanel } from './LogsPanel'
+import { MigrationPanel } from './MigrationPanel'
+import { UpdatesPanel } from './UpdatesPanel'
 
-type SystemPage = 'status' | 'tasks' | 'backup' | 'updates' | 'events' | 'logs'
+type SystemPage = 'status' | 'tasks' | 'backup' | 'updates' | 'events' | 'logs' | 'import'
 
 const PAGES: { slug: SystemPage; label: string }[] = [
   { slug: 'status', label: 'Status' },
@@ -12,6 +17,7 @@ const PAGES: { slug: SystemPage; label: string }[] = [
   { slug: 'updates', label: 'Updates' },
   { slug: 'events', label: 'Events' },
   { slug: 'logs', label: 'Log Files' },
+  { slug: 'import', label: 'Sonarr Import' },
 ]
 
 // System is the system area (route established in P1). P6 wires every
@@ -43,10 +49,11 @@ function SystemShell({ page = 'status' }: { page?: SystemPage }) {
       <div style={{ minWidth: 0 }}>
         {current === 'status' && <StatusPanel />}
         {current === 'tasks' && <TasksPanel />}
-        {current === 'backup' && <PlaceholderPanel slug="backup" label="Backup" />}
-        {current === 'updates' && <PlaceholderPanel slug="updates" label="Updates" />}
-        {current === 'events' && <PlaceholderPanel slug="events" label="Events" />}
-        {current === 'logs' && <PlaceholderPanel slug="logs" label="Log Files" />}
+        {current === 'backup' && <BackupPanel />}
+        {current === 'updates' && <UpdatesPanel />}
+        {current === 'events' && <EventsPanel />}
+        {current === 'logs' && <LogsPanel />}
+        {current === 'import' && <MigrationPanel />}
       </div>
     </div>
   )
@@ -269,17 +276,6 @@ function TaskRow({ t }: { t: TaskInfo }) {
         <span className={`pill task-state-${state}`}>{state}</span>
         {t.last_error ? <span className="lt-dim" title={t.last_error}> ⚠</span> : null}
       </span>
-    </div>
-  )
-}
-
-// ---- Placeholder panels (Wave 2/3 sub-pages) ----
-
-function PlaceholderPanel({ slug, label }: { slug: string; label: string }) {
-  return (
-    <div className="card empty-state" data-testid={`system-empty-${slug}`}>
-      <h3>{label}</h3>
-      <p className="dim">{label} is loading…</p>
     </div>
   )
 }

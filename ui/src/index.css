@@ -407,6 +407,74 @@ button.ghost:hover {
   overflow-wrap: anywhere;
 }
 
+/* P6 sub-page utilities (Backup / Events / Updates / Log Files / Import) */
+.code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.banner-success {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+  color: var(--ok);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  margin-top: 0.5rem;
+}
+
+.banner-danger {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+  color: var(--err);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  margin-top: 0.5rem;
+}
+
+/* Media kind pills (Events feed) */
+.pill-movie {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+.pill-series {
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
+  color: var(--ok);
+}
+.pill-music {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+.pill-author {
+  background: var(--panel-2);
+  color: var(--dim);
+}
+
+/* Log Files viewer */
+.log-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.log-level {
+  font-weight: 700;
+}
+.log-level-debug {
+  color: var(--dim);
+}
+.log-level-info {
+  color: var(--ok);
+}
+.log-level-warn {
+  color: var(--warn);
+}
+.log-level-error {
+  color: var(--err);
+}
+
 /* ---- feeds ---- */
 
 .feed {
