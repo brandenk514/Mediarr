@@ -75,6 +75,8 @@ import type {
   QueueGrabResult,
   QueueRemoveResult,
   CalendarEntry,
+  SettingsSection,
+  TagUsage,
 } from './types'
 
 export class ApiError extends Error {
@@ -341,6 +343,19 @@ export const client = {
   getLibraryOverrides: () => request<LibraryOverrides>('GET', '/settings/library'),
   putLibraryOverride: (kind: MediaKind, o: LibraryOverride) =>
     request<LibraryOverride>('PUT', `/settings/library/${kind}`, o),
+
+  // ---- settings sections (P5: the 13-section settings shell) ----
+  // Generic per-section documents. The read merges stored values over the
+  // section defaults (a fresh install reads complete documents); the write is
+  // a full-document replace. Secrets (connect tokens, import-list API keys)
+  // come back masked (empty string + *_set boolean); a blank secret in the
+  // body keeps the stored value.
+  getSettingsSection: <T,>(section: SettingsSection) =>
+    request<T>('GET', `/settings/${section}`),
+  putSettingsSection: <T,>(section: SettingsSection, doc: T) =>
+    request<T>('PUT', `/settings/${section}`, doc),
+  // Tag usage view: the series/episodes carrying one tag (tags section).
+  getTagUsage: (id: number) => request<TagUsage>('GET', `/settings/tags/${id}/usage`),
 
   // ---- add flows (#42) ----
   // Provider search: debounced by the UI; each call is one provider round
