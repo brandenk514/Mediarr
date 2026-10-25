@@ -9,8 +9,8 @@ import {
   Pagination,
   usePagedList,
 } from '../../components/list'
+import { PosterGrid } from '../../components/poster'
 import {
-  AzJump,
   EmptyState,
   Menu,
   Toolbar,
@@ -25,6 +25,7 @@ import {
 // Sonarr-style toolbar (icon-over-label groups with dividers). The list view
 // is the P1 expandable table, kept behind the View toggle. Sorting is
 // client-side over the loaded page; filtering (monitored) stays server-side.
+// The grid building blocks live in components/poster (shared with Movies, P7).
 type SortKey = 'title-asc' | 'title-desc' | 'year-asc' | 'year-desc' | 'added-asc' | 'added-desc'
 
 const SORT_OPTIONS = [
@@ -50,27 +51,6 @@ function sortSeries(items: Series[], key: SortKey): Series[] {
   return arr
 }
 
-// posterText derives a lightweight poster stand-in (two-word initials) since
-// poster art is not served yet.
-function posterText(title: string): string {
-  const words = title.trim().split(/\s+/).filter((w) => !/^(the|a|an)$/i.test(w))
-  if (words.length === 0) return '🎬'
-  return words
-    .slice(0, 2)
-    .map((w) => w[0]!.toUpperCase())
-    .join('')
-}
-
-function firstLetter(title: string): string {
-  // Skip leading articles ("The Wire" -> W, Sonarr-style).
-  const words = title.trim().split(/\s+/)
-  for (const w of words) {
-    if (!/^(the|a|an)$/i.test(w) && /^[a-z]/i.test(w)) return w[0]!.toUpperCase()
-  }
-  const c = title.trim()[0]
-  return c ? c.toUpperCase() : '#'
-}
-
 export function TvPage() {
   const navigate = useNavigate()
   const load = useCallback((q: ListQuery) => client.listSeries(q), [])
@@ -93,12 +73,6 @@ export function TvPage() {
   const [status, setStatus] = useState<string | null>(null)
 
   const items = useMemo(() => (data ? sortSeries(data.items, sort) : []), [data, sort])
-  const azLetters = useMemo(() => [...new Set(items.map((s) => firstLetter(s.Title)))].sort(), [items])
-
-  function jumpTo(letter: string) {
-    const el = document.querySelector(`[data-series-letter="${letter}"]`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
 
   function updateAll() {
     setStatus(`Updated ${total} series just now`)
@@ -194,26 +168,31 @@ export function TvPage() {
       ) : (
         <>
           {view === 'grid' && (
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                {loading && !data ? (
-                  <p className="dim">Loading series…</p>
-                ) : items.length === 0 ? (
-                  <EmptyState title="No series" message="Add your first series to get started.">
-                    <Link to="/tv/add" data-testid="tv-empty-add">
-                      + Add series
-                    </Link>
-                  </EmptyState>
-                ) : (
-                  <div className="poster-grid" data-testid="tv-grid">
-                    {items.map((s) => (
-                      <PosterCard key={s.ID} s={s} onOpen={() => navigate(`/tv/${s.ID}`)} />
-                    ))}
-                  </div>
-                )}
-              </div>
-              {items.length > 0 && <AzJump available={azLetters} onJump={jumpTo} testId="tv-az" />}
-            </div>
+            <>
+              {loading && !data ? (
+                <p className="dim">Loading series…</p>
+              ) : items.length === 0 ? (
+                <EmptyState title="No series" message="Add your first series to get started.">
+                  <Link to="/tv/add" data-testid="tv-empty-add">
+                    + Add series
+                  </Link>
+                </EmptyState>
+              ) : (
+                <PosterGrid
+                  items={items.map((s) => ({
+                    id: s.ID,
+                    name: s.Title,
+                    year: s.Year,
+                    monitored: s.Monitored,
+                    quality: s.QualityProfile,
+                  }))}
+                  testIdPrefix="series"
+                  gridTestId="tv-grid"
+                  azTestId="tv-az"
+                  onOpen={(i) => navigate(`/tv/${i.id}`)}
+                />
+              )}
+            </>
           )}
 
           {view === 'list' && (
@@ -264,33 +243,6 @@ export function TvPage() {
         </>
       )}
     </div>
-  )
-}
-
-// PosterCard is one grid cell: 2:3 poster (with a red status ribbon when the
-// series is unmonitored) over the light two-line footer. Clicking the card
-// opens the series detail page.
-function PosterCard({ s, onOpen }: { s: Series; onOpen: () => void }) {
-  return (
-    <button
-      type="button"
-      className="poster-card"
-      onClick={onOpen}
-      data-testid={`series-card-${s.ID}`}
-      data-series-letter={firstLetter(s.Title)}
-      title={`${s.Title}${s.Year ? ` (${s.Year})` : ''}`}
-    >
-      {!s.Monitored && <span className="ribbon" data-testid={`ribbon-${s.ID}`}>Unmonitored</span>}
-      <span className="poster" aria-hidden>
-        {posterText(s.Title)}
-      </span>
-      <span className="poster-foot">
-        <span className="pf-mon">{s.Monitored ? 'Monitored' : 'Unmonitored'}</span>
-        <span className="pf-q" data-testid={`card-quality-${s.ID}`}>
-          {s.QualityProfile || '—'}
-        </span>
-      </span>
-    </button>
   )
 }
 

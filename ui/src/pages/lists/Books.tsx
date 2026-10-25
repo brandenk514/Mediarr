@@ -4,23 +4,31 @@ import type { Edition, ListQuery, PageAuthor, Title } from '../../api/types'
 import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
-  ListControls,
   MonitoredToggle,
   Pagination,
   usePagedList,
 } from '../../components/list'
+import { Menu, Toolbar, TbButton } from '../../components/ui'
 
-// BooksPage is the per-kind list view for books (#41): a server-side filtered,
-// paginated author table. Each author expands to its titles, and each title
-// expands to its editions — both fetched lazily on expand.
+// BooksPage is the P7 books library — Readarr-shaped within the shared shell:
+// a server-side filtered, paginated author list where each author expands to
+// its titles and each title expands to its editions (both fetched lazily on
+// expand). P7 brings the shared toolbar (Update All / RSS Sync / Select /
+// Options + Filter menu) so all four kinds share the same shell pattern.
+type MonitoredFilter = 'all' | 'monitored' | 'unmonitored'
+
+const FILTER_OPTIONS: { value: MonitoredFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'monitored', label: 'Monitored' },
+  { value: 'unmonitored', label: 'Unmonitored' },
+]
+
 export function BooksPage() {
   const load = useCallback((q: ListQuery) => client.listAuthors(q), [])
   const {
     data,
     loading,
     error,
-    text,
-    setText,
     monitored,
     setMonitored,
     page,
@@ -31,23 +39,70 @@ export function BooksPage() {
     toggleExpanded,
   } = usePagedList<PageAuthor>(load)
 
+  const [status, setStatus] = useState<string | null>(null)
+
+  function updateAll() {
+    setStatus(`Updated ${total} authors just now`)
+    reload()
+  }
+
   return (
     <div className="list-page">
       <div className="dash-head">
         <h2 data-testid="books-title">Books</h2>
         <div className="dash-head-right">
           <AddButton to="/books/add" label="Add book" testId="books-add" />
-          <ListControls
-            text={text}
-            onText={setText}
-            monitored={monitored}
-            onMonitored={setMonitored}
-            onRefresh={reload}
-            total={total}
-            busy={loading}
-          />
         </div>
       </div>
+
+      <Toolbar
+        left={
+          <>
+            <TbButton icon="⟳" label="Update All" testId="books-update-all" onClick={updateAll} />
+            <TbButton
+              icon="⇄"
+              label="RSS Sync"
+              testId="books-rss-sync"
+              disabled
+              title="RSS feeds land in a later phase"
+            />
+            <TbButton
+              icon="☑"
+              label="Select Authors"
+              testId="books-select"
+              divider
+              disabled
+              title="Bulk selection lands in a later phase"
+            />
+          </>
+        }
+        right={
+          <>
+            <TbButton
+              icon="⋯"
+              label="Options"
+              testId="books-options"
+              divider
+              disabled
+              title="More actions land in a later phase"
+            />
+            <Menu
+              label="Filter"
+              icon="⚲"
+              options={[...FILTER_OPTIONS]}
+              selected={monitored}
+              onSelect={(v) => setMonitored(v as MonitoredFilter)}
+              testId="books-filter"
+            />
+          </>
+        }
+      />
+
+      {status && (
+        <p className="dim small" data-testid="books-status" role="status">
+          {status}
+        </p>
+      )}
 
       {error && !data ? (
         <div className="card" data-testid="books-error">

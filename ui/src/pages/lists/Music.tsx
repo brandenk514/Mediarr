@@ -1,26 +1,37 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
-import type { Album, ListQuery, PageArtist, Track } from '../../api/types'
-import { AddButton } from '../../components/addflow'
+import type { Album, Artist, ListQuery, PageArtist, Track } from '../../api/types'
+import { AddButton, MonitoredField, ProfilePicker } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
-  ListControls,
   MonitoredToggle,
   Pagination,
   usePagedList,
 } from '../../components/list'
+import { Menu, Toolbar, TbButton } from '../../components/ui'
 
-// MusicPage is the per-kind list view for music (#41): a server-side filtered,
-// paginated artist table. Each artist expands to its albums, and each album
-// expands to its tracks — both fetched lazily on expand.
+// MusicPage is the P7 music library — Lidarr-shaped within the shared shell.
+// P1 built the three-level lazy expansion (artist → album → track, each level
+// fetched on expand); P7 layers the shared toolbar pattern (Update All /
+// RSS Sync / Select / Options + Filter menu, same as TV and Movies) on top
+// and adds the lossless quality dimension the plan asks for: each album row
+// shows its lossless quality profile, and every artist has an "Add album"
+// form prefilled with the music kind's built-in lossless profiles (FLAC /
+// ALAC / …).
+type MonitoredFilter = 'all' | 'monitored' | 'unmonitored'
+
+const FILTER_OPTIONS: { value: MonitoredFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'monitored', label: 'Monitored' },
+  { value: 'unmonitored', label: 'Unmonitored' },
+]
+
 export function MusicPage() {
   const load = useCallback((q: ListQuery) => client.listArtists(q), [])
   const {
     data,
     loading,
     error,
-    text,
-    setText,
     monitored,
     setMonitored,
     page,
@@ -31,23 +42,70 @@ export function MusicPage() {
     toggleExpanded,
   } = usePagedList<PageArtist>(load)
 
+  const [status, setStatus] = useState<string | null>(null)
+
+  function updateAll() {
+    setStatus(`Updated ${total} artists just now`)
+    reload()
+  }
+
   return (
     <div className="list-page">
       <div className="dash-head">
         <h2 data-testid="music-title">Music</h2>
         <div className="dash-head-right">
           <AddButton to="/music/add" label="Add artist" testId="music-add" />
-          <ListControls
-            text={text}
-            onText={setText}
-            monitored={monitored}
-            onMonitored={setMonitored}
-            onRefresh={reload}
-            total={total}
-            busy={loading}
-          />
         </div>
       </div>
+
+      <Toolbar
+        left={
+          <>
+            <TbButton icon="⟳" label="Update All" testId="music-update-all" onClick={updateAll} />
+            <TbButton
+              icon="⇄"
+              label="RSS Sync"
+              testId="music-rss-sync"
+              disabled
+              title="RSS feeds land in a later phase"
+            />
+            <TbButton
+              icon="☑"
+              label="Select Artists"
+              testId="music-select"
+              divider
+              disabled
+              title="Bulk selection lands in a later phase"
+            />
+          </>
+        }
+        right={
+          <>
+            <TbButton
+              icon="⋯"
+              label="Options"
+              testId="music-options"
+              divider
+              disabled
+              title="More actions land in a later phase"
+            />
+            <Menu
+              label="Filter"
+              icon="⚲"
+              options={[...FILTER_OPTIONS]}
+              selected={monitored}
+              onSelect={(v) => setMonitored(v as MonitoredFilter)}
+              testId="music-filter"
+            />
+          </>
+        }
+      />
+
+      {status && (
+        <p className="dim small" data-testid="music-status" role="status">
+          {status}
+        </p>
+      )}
 
       {error && !data ? (
         <div className="card" data-testid="music-error">
@@ -93,7 +151,12 @@ export function MusicPage() {
                     testId={`artist-mon-${a.ID}`}
                   />
                 </div>
-                {expanded.has(a.ID) && <AlbumList artistId={a.ID} />}
+                {expanded.has(a.ID) && (
+                  <>
+                    <AlbumList artistId={a.ID} />
+                    <AddAlbumForm artist={a} onAdded={reload} />
+                  </>
+                )}
               </div>
             ))
           )}
@@ -101,6 +164,106 @@ export function MusicPage() {
         </div>
       )}
     </div>
+  )
+}
+
+// AddAlbumForm is the per-artist "add an album" form (Lidarr's artist →
+// album flow, P7). Lossless quality: the quality profile select is the music
+// kind's built-in lossless profiles, prefilled with the kind default.
+function AddAlbumForm({ artist, onAdded }: { artist: Artist; onAdded: () => void }) {
+  const [name, setName] = useState('')
+  const [year, setYear] = useState('')
+  const [quality, setQuality] = useState('')
+  const [monitored, setMonitored] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (busy || !name.trim()) return
+    setBusy(true)
+    setError(null)
+    setDone(null)
+    try {
+      const req: Parameters<typeof client.addAlbum>[1] = {
+        name: name.trim(),
+        quality_profile: quality || undefined,
+        monitored,
+      }
+      const y = Number(year)
+      if (year && !Number.isNaN(y)) req.year = y
+      await client.addAlbum(artist.ID, req)
+      setName('')
+      setYear('')
+      setQuality('')
+      setMonitored(true)
+      setDone(`Added “${req.name}”.`)
+      onAdded()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'failed to add album')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form
+      className="search-block"
+      onSubmit={(e) => void submit(e)}
+      data-testid={`artist-add-album-${artist.ID}`}
+    >
+      <div className="search-row">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Album name"
+          aria-label="Album name"
+          data-testid={`album-name-${artist.ID}`}
+          required
+        />
+        <input
+          value={year}
+          onChange={(e) => setYear(e.target.value)}
+          placeholder="Year"
+          aria-label="Album year"
+          inputMode="numeric"
+          maxLength={4}
+          data-testid={`album-year-${artist.ID}`}
+        />
+        <button
+          type="submit"
+          disabled={busy || !name.trim()}
+          data-testid={`album-submit-${artist.ID}`}
+        >
+          Add album
+        </button>
+      </div>
+      <div className="search-row">
+        <ProfilePicker
+          kind="music"
+          value={quality}
+          onChange={setQuality}
+          testId={`add-album-quality-${artist.ID}`}
+        />
+        <MonitoredField
+          checked={monitored}
+          onChecked={setMonitored}
+          label="Monitor album"
+          testId={`album-monitored-${artist.ID}`}
+        />
+      </div>
+      {error && (
+        <p className="error" data-testid={`album-error-${artist.ID}`}>
+          {error}
+        </p>
+      )}
+      {done && (
+        <p className="dim small" role="status" data-testid={`album-status-${artist.ID}`}>
+          {done}
+        </p>
+      )}
+    </form>
   )
 }
 
@@ -150,6 +313,11 @@ function AlbumList({ artistId }: { artistId: number }) {
               </span>
               <span className="lt-name">{al.Name}</span>
               {al.Year ? <span className="lt-dim">{al.Year}</span> : null}
+              {al.QualityProfile ? (
+                <span className="lt-dim" data-testid={`album-${al.ID}-quality`}>
+                  {al.QualityProfile}
+                </span>
+              ) : null}
             </button>
             <MonitoredToggle
               monitored={al.Monitored}
