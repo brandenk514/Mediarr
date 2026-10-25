@@ -1,11 +1,24 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { SettingsPage } from './Settings'
 import { SettingsLayout } from '../../components/ui'
+import { GeneralSection } from './sections/GeneralSection'
+import { UISection } from './sections/UISection'
+import { QualitySection } from './sections/QualitySection'
+import { ProfilesSection } from './sections/ProfilesSection'
+import { TagsSection } from './sections/TagsSection'
+import { MediaManagementSection } from './sections/MediaManagementSection'
+import { IndexersSection } from './sections/IndexersSection'
+import { DownloadClientsSection } from './sections/DownloadClientsSection'
+import { CustomFormatsSection } from './sections/CustomFormatsSection'
+import { ConnectSection } from './sections/ConnectSection'
+import { MetadataSection } from './sections/MetadataSection'
+import { MetadataSourceSection } from './sections/MetadataSourceSection'
+import { ImportListsSection } from './sections/ImportListsSection'
 
 // The 13 Sonarr settings sections (the settings IA contract, P1). Each is a
-// route (/settings/:section). P1 establishes the nav + layout + unsaved-changes
-// bar; per-section forms ship in P5. The first section carries the app's
-// current settings for now (P5 decomposes it into per-section forms).
+// route (/settings/:section). P1 established the nav + layout; P5 decomposes
+// the legacy monolithic settings page into per-section forms: the generic
+// sections ride the per-section document endpoints, while indexers and
+// download-clients keep their dedicated endpoints.
 export const SETTINGS_SECTIONS: { slug: string; label: string }[] = [
   { slug: 'media-management', label: 'Media Management' },
   { slug: 'profiles', label: 'Profiles' },
@@ -22,10 +35,49 @@ export const SETTINGS_SECTIONS: { slug: string; label: string }[] = [
   { slug: 'ui', label: 'UI' },
 ]
 
-// SettingsShell is the settings IA (P1): a left section nav + a content pane
-// with the unsaved-changes bar, framed by the shared SettingsLayout. The
-// default section (media-management) hosts the current settings until P5
-// decomposes it into per-section forms.
+// renderSection maps a slug to its P5 section component. All 13 sections
+// have forms; the generic ones ride the per-section document endpoints.
+function renderSection(slug: string) {
+  switch (slug) {
+    case 'media-management':
+      return <MediaManagementSection />
+    case 'profiles':
+      return <ProfilesSection />
+    case 'quality':
+      return <QualitySection />
+    case 'tags':
+      return <TagsSection />
+    case 'general':
+      return <GeneralSection />
+    case 'ui':
+      return <UISection />
+    case 'indexers':
+      return <IndexersSection />
+    case 'download-clients':
+      return <DownloadClientsSection />
+    case 'custom-formats':
+      return <CustomFormatsSection />
+    case 'connect':
+      return <ConnectSection />
+    case 'metadata':
+      return <MetadataSection />
+    case 'metadata-source':
+      return <MetadataSourceSection />
+    case 'import-lists':
+      return <ImportListsSection />
+    default:
+      return (
+        <div className="empty-state" data-testid={`settings-empty-${slug}`}>
+          <h3>Unknown section</h3>
+          <p>This settings section does not exist.</p>
+        </div>
+      )
+  }
+}
+
+// SettingsShell is the settings IA: a left section nav + a content pane,
+// framed by the shared SettingsLayout. The default section (media-management)
+// matches the P1 e2e contract.
 export function SettingsShell() {
   const { pathname } = useLocation()
   const current = pathname.split('/')[2] || 'media-management'
@@ -45,14 +97,7 @@ export function SettingsShell() {
       ))}
     >
       <h2 style={{ marginBottom: '0.8rem' }}>{label}</h2>
-      {current === 'media-management' ? (
-        <SettingsPage />
-      ) : (
-        <div className="empty-state" data-testid={`settings-empty-${current}`}>
-          <h3>{label}</h3>
-          <p>This settings section ships with the settings parity build (P5).</p>
-        </div>
-      )}
+      {renderSection(current)}
     </SettingsLayout>
   )
 }

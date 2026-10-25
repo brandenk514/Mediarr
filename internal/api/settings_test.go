@@ -18,13 +18,17 @@ import (
 // when nothing has been saved, PutX upserts, and a zero library override clears
 // the row.
 type fakeSettingsStore struct {
-	mu   sync.Mutex
-	dc   *settings.DownloadClient
-	libs map[settings.LibraryKind]*settings.LibraryOverride
+	mu       sync.Mutex
+	dc       *settings.DownloadClient
+	libs     map[settings.LibraryKind]*settings.LibraryOverride
+	sections map[settings.Section][]byte
 }
 
 func newFakeSettingsStore() *fakeSettingsStore {
-	return &fakeSettingsStore{libs: map[settings.LibraryKind]*settings.LibraryOverride{}}
+	return &fakeSettingsStore{
+		libs:     map[settings.LibraryKind]*settings.LibraryOverride{},
+		sections: map[settings.Section][]byte{},
+	}
 }
 
 func (s *fakeSettingsStore) GetDownloadClient(ctx context.Context) (*settings.DownloadClient, error) {
@@ -64,6 +68,21 @@ func (s *fakeSettingsStore) PutLibrary(ctx context.Context, k settings.LibraryKi
 	}
 	cp := *o
 	s.libs[k] = &cp
+	return nil
+}
+
+// P5 generic section documents: the fake keeps raw JSON per section.
+func (s *fakeSettingsStore) GetSectionDocument(ctx context.Context, sec settings.Section) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sections[sec], nil
+}
+
+func (s *fakeSettingsStore) PutSectionDocument(ctx context.Context, sec settings.Section, doc []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := append([]byte(nil), doc...)
+	s.sections[sec] = cp
 	return nil
 }
 

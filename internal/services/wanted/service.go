@@ -15,14 +15,31 @@ import (
 
 	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	dom "github.com/brandenk514/mediarr/internal/domains/wanted"
+	"github.com/brandenk514/mediarr/internal/metawrite"
 	"github.com/brandenk514/mediarr/internal/paging"
 )
 
 // Service programs the wanted repository.
 type Service struct {
 	repo      dom.Repo
-	mediaRoot string // base directory a manual-import file must live under
+	mediaRoot string    // base directory a manual-import file must live under
+	nfo       NFOWriter // optional metadata sidecar writer (P5); nil = no NFOs
 }
+
+// NFOWriter generates a metadata sidecar next to an imported episode file.
+// The metawrite.Writer (configured from the metadata section document)
+// satisfies it; the import flow calls it best-effort so an NFO failure can
+// never fail the import.
+type NFOWriter interface {
+	WriteEpisodeNFO(mediaPath string, info metawrite.EpisodeInfo) (string, error)
+}
+
+// EpisodeInfo is the episode metadata handed to the NFO writer.
+type EpisodeInfo = metawrite.EpisodeInfo
+
+// SetNFOWriter installs the metadata sidecar writer (P5 wave 2). Called
+// after construction, mirroring how the service's collaborators are wired.
+func (s *Service) SetNFOWriter(w NFOWriter) { s.nfo = w }
 
 // New builds a wanted service over the given repository. mediaRoot is the
 // base directory a manual-import file path is confined to (defense against
@@ -202,6 +219,19 @@ func (s *Service) ManualImport(ctx context.Context, req dom.ManualImport) (dom.M
 	detail := "Imported " + impPath
 	if release != filepath.Base(impPath) {
 		detail += " (release: " + release + ")"
+	}
+	// P5 metadata file writer: best-effort .nfo sidecar next to the
+	// imported file (the metadata section's generate_nfo gates it). An
+	// NFO failure is reported in the detail, never fails the import.
+	// (EpisodeRef carries no title/air-date, so those are omitted.)
+	if s.nfo != nil {
+		if _, nfoErr := s.nfo.WriteEpisodeNFO(impPath, EpisodeInfo{
+			SeriesTitle: series.Title,
+			Season:      req.Season,
+			Episode:     req.Episode,
+		}); nfoErr != nil {
+			detail += "; nfo: " + nfoErr.Error()
+		}
 	}
 	if err := s.repo.AddHistory(ctx, "tv", req.SeriesID, "manual-import", detail); err != nil {
 		return empty, err

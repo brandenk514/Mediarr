@@ -109,9 +109,12 @@ func IsValidClientKind(kind string) bool {
 	return false
 }
 
-// Store is the persistence surface for the two settings documents. GetX
-// returns a non-nil document with empty/default values when nothing has been
-// saved (so the UI always has something to render); PutX upserts.
+// Store is the persistence surface for the settings documents. GetX returns
+// a non-nil document with empty/default values when nothing has been saved
+// (so the UI always has something to render); PutX upserts. The Section
+// document methods (P5) are the generic key/value surface: the stored value
+// is the raw section JSON, and Get returns nil bytes when the section has
+// never been saved (the API layer merges defaults over nil).
 type Store interface {
 	// GetDownloadClient returns the saved download-client config, or a default
 	// (kind "mock", all fields empty) when none has been saved.
@@ -123,6 +126,11 @@ type Store interface {
 	GetLibrary(ctx context.Context, k LibraryKind) (*LibraryOverride, error)
 	// PutLibrary upserts the override for k. A zero override clears it.
 	PutLibrary(ctx context.Context, k LibraryKind, o *LibraryOverride) error
+	// GetSectionDocument returns the stored JSON for section s, or nil (no
+	// error) when the section has never been saved.
+	GetSectionDocument(ctx context.Context, s Section) ([]byte, error)
+	// PutSectionDocument upserts the stored JSON for section s.
+	PutSectionDocument(ctx context.Context, s Section, doc []byte) error
 }
 
 // ErrInvalidLibraryKind is returned when a Store method is called with a kind

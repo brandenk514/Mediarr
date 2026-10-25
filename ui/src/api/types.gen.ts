@@ -868,6 +868,156 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/{section}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one settings-section document (merged with defaults).
+         * @description The P5 settings shell reads every section through this one endpoint.
+         *     The response is the section document merged with its defaults, so a
+         *     fresh install always returns a complete document. Section documents
+         *     are key/value JSON stored in the `settings` table. Secrets carried by
+         *     a document (connect tokens, import-list API keys) are masked on read
+         *     — only `*_set` presence booleans come back; a blank secret on write
+         *     keeps the stored value.
+         */
+        get: operations["getSettingsSection"];
+        /**
+         * Save one settings-section document (full replace).
+         * @description Full-document replace: the body must carry the complete document (the
+         *     server does not merge partial documents). Server-side validation
+         *     rejects unknown enum values (kinds, operators, notification kinds)
+         *     with 400. Secrets follow the masked round-trip — an empty value
+         *     keeps the stored secret.
+         */
+        put: operations["putSettingsSection"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/tags/{id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Usage view for one tag (which items carry it).
+         * @description The Tags section's usage view. TV series are the only tagged entity
+         *     today, so `series` counts series with the tag and `episodes` counts
+         *     the episodes of those series.
+         */
+        get: operations["getTagUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/custom-formats/score": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Score a candidate release against the saved custom formats.
+         * @description Runs the custom-format scorer (parity with Sonarr's CF engine) over
+         *     the saved custom formats from the custom-formats section and returns
+         *     the total score with a per-format breakdown. Disabled formats and
+         *     unmatched rules contribute nothing.
+         */
+        post: operations["scoreCustomFormats"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/connect/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test one notification (fires a test event through the dispatcher).
+         * @description Builds the sink from the saved notification with the given id (or an
+         *     inline definition) and dispatches a test event through the
+         *     notification dispatcher. A non-2xx delivery is reported as ok=false
+         *     with the transport error — the endpoint itself answers 200.
+         */
+        post: operations["testConnectNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/metadata-source/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search through the per-kind provider fallback chain (P5.7).
+         * @description Runs the metadata search for the requested kind through its ordered
+         *     source list (keyed primary → keyless fallback, P5.7). The first
+         *     source that answers with results wins. 503 (with the per-source
+         *     attempt log in the body) only when every configured source failed or
+         *     was unconfigured — so a zero-key install still searches through the
+         *     keyless adapters (TVmaze, Wikidata, MusicBrainz, Open Library).
+         */
+        post: operations["searchMetadataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/import-lists/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an import list (Trakt list or another Sonarr instance).
+         * @description Pulls the list from the saved import list (Trakt list URL, or a
+         *     Sonarr instance via its v3 API — the drop-in bridge) and, unless
+         *     dry_run, adds the items to the matching library. Items that already
+         *     exist are reported, not duplicated.
+         */
+        post: operations["runImportListImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dashboard": {
         parameters: {
             query?: never;
@@ -2198,6 +2348,245 @@ export interface components {
             author_id: number;
             event: string;
             detail: string;
+        };
+        /**
+         * @description The generic per-section slugs (indexers and download-clients keep their dedicated endpoints).
+         * @enum {string}
+         */
+        SettingsSection: "general" | "ui" | "quality" | "profiles" | "tags" | "media-management" | "custom-formats" | "connect" | "metadata" | "metadata-source" | "import-lists";
+        SettingsSectionDocument: components["schemas"]["GeneralSettings"] | components["schemas"]["UISettings"] | components["schemas"]["QualitySettings"] | components["schemas"]["ProfilesSettings"] | components["schemas"]["TagsSettings"] | components["schemas"]["MediaManagementSettings"] | components["schemas"]["CustomFormatsSettings"] | components["schemas"]["ConnectSettings"] | components["schemas"]["MetadataSettings"] | components["schemas"]["MetadataSourceSettings"] | components["schemas"]["ImportListsSettings"];
+        /**
+         * @description App-level settings, reconciled with the env-based boot config.
+         *     host/port/base_url/ssl are persisted here for display and for the
+         *     next boot; auth_enabled/auth_pinning take effect at next boot.
+         */
+        GeneralSettings: {
+            host: string;
+            port: number;
+            base_url: string;
+            ssl: boolean;
+            auth_enabled: boolean;
+            auth_pinning: boolean;
+        };
+        UISettings: {
+            /** @enum {string} */
+            default_view: "dashboard" | "calendar" | "queue" | "wanted" | "series" | "movies" | "artists" | "authors";
+            date_format: string;
+            /** @enum {string} */
+            time_format: "24h" | "12h";
+            items_per_page: number;
+        };
+        QualityLevel: {
+            id: number;
+            name: string;
+            source: string;
+            resolution: string;
+            /** @description 0 = unlimited. */
+            size_limit_mb: number;
+        };
+        QualitySettings: {
+            levels: components["schemas"]["QualityLevel"][];
+        };
+        QualityProfileItem: {
+            /** @description QualityLevel id. */
+            quality: number;
+            approved: boolean;
+        };
+        QualityProfile: {
+            id: number;
+            name: string;
+            items: components["schemas"]["QualityProfileItem"][];
+            /** @description QualityLevel id that triggers a re-download when exceeded. */
+            cutoff: number;
+        };
+        ProfilesSettings: {
+            profiles: components["schemas"]["QualityProfile"][];
+        };
+        TagInfo: {
+            id: number;
+            label: string;
+            description: string;
+        };
+        TagsSettings: {
+            tags: components["schemas"]["TagInfo"][];
+        };
+        TagUsage: {
+            id: number;
+            label: string;
+            /** @description Series carrying the tag (TV series are the only tagged entity today). */
+            series: number;
+            /** @description Episodes of series carrying the tag. */
+            episodes: number;
+        };
+        NamingTemplate: {
+            series: string;
+            episode: string;
+            movie: string;
+            album: string;
+            track: string;
+            author: string;
+            title: string;
+        };
+        FileManagement: {
+            min_file_age_hours: number;
+            remove_empty_dirs: boolean;
+            /** @description Pull in subtitles / images / extras alongside the media file. */
+            import_extra_files: boolean;
+            rename_series: boolean;
+        };
+        RemotePathMapping: {
+            source: string;
+            destination: string;
+        };
+        MediaManagementSettings: {
+            naming: components["schemas"]["NamingTemplate"];
+            file_management: components["schemas"]["FileManagement"];
+            remote_path_mappings: components["schemas"]["RemotePathMapping"][];
+        };
+        CFRule: {
+            /** @enum {string} */
+            field: "title" | "quality" | "source" | "kind" | "tag" | "size_mb";
+            /** @enum {string} */
+            operator: "contains" | "not_contains" | "equals" | "regex" | "exists" | "gt" | "lt";
+            value: string;
+        };
+        CustomFormat: {
+            id: number;
+            name: string;
+            enabled: boolean;
+            /** @description Points added when every rule matches (may be negative to penalise). */
+            score: number;
+            rules: components["schemas"]["CFRule"][];
+        };
+        CustomFormatsSettings: {
+            formats: components["schemas"]["CustomFormat"][];
+        };
+        CustomFormatScoreRequest: {
+            title: string;
+            quality?: string;
+            source?: string;
+            kind?: string;
+            /** Format: int64 */
+            size_mb?: number;
+            tags?: string[];
+        };
+        CustomFormatMatch: {
+            name: string;
+            score: number;
+        };
+        CustomFormatScoreResult: {
+            total: number;
+            matches: components["schemas"]["CustomFormatMatch"][];
+        };
+        NotificationOptions: {
+            /** @description Webhook URL, or the Plex / Jellyfin / Emby base URL. */
+            url: string;
+            /** @description Plex library-section id (Jellyfin/Emby refresh all when empty). */
+            section_id: string;
+            /** @description Write-only in practice — reads return an empty string and set token_set instead. Blank on write keeps the stored token. */
+            token: string;
+            token_set: boolean;
+        };
+        Notification: {
+            id: number;
+            name: string;
+            /** @enum {string} */
+            kind: "webhook" | "plex" | "jellyfin" | "emby";
+            enabled: boolean;
+            options: components["schemas"]["NotificationOptions"];
+        };
+        ConnectSettings: {
+            notifications: components["schemas"]["Notification"][];
+        };
+        ConnectTestRequest: {
+            /** @description Saved notification id; 0 = use the inline kind+options. */
+            id: number;
+            /** @enum {string} */
+            kind: "webhook" | "plex" | "jellyfin" | "emby";
+            options: components["schemas"]["NotificationOptions"];
+            /** @description Event type for the test dispatch. Defaults to test. */
+            event?: string;
+        };
+        ConnectTestResult: {
+            ok: boolean;
+            message: string;
+        };
+        MetadataSettings: {
+            /** @description Write .nfo sidecars on import / refresh (the metadata file writer). */
+            generate_nfo: boolean;
+            /** @description Fetch sidecar subtitles on import (provider-dependent). */
+            generate_subtitles: boolean;
+            /** @description Default subtitle / metadata language code. */
+            language: string;
+            /** @description Per-kind enablement (movie / tv / music / book). */
+            kinds: {
+                [key: string]: boolean;
+            };
+        };
+        /**
+         * @description P5.7 per-kind source lists: the ordered provider chain for each
+         *     library kind (keyed primary first, keyless fallbacks after). A
+         *     source that is not configured (missing key) is skipped by the
+         *     fallback chain, so zero-key installs still work through TVmaze,
+         *     Wikidata, MusicBrainz and Open Library.
+         */
+        MetadataSourceSettings: {
+            sources: {
+                [key: string]: string[];
+            };
+        };
+        MetadataSourceSearchRequest: {
+            kind: components["schemas"]["MediaKind"];
+            query: string;
+        };
+        ProviderAttempt: {
+            source: string;
+            ok: boolean;
+            /** Format: int64 */
+            latency_ms: number;
+            /** @description empty string when ok. */
+            error: string;
+        };
+        MetadataSourceSearchResult: {
+            kind: string;
+            /** @description The provider that answered; empty string when every source failed. */
+            source: string;
+            results: components["schemas"]["SearchResult"][];
+            attempts: components["schemas"]["ProviderAttempt"][];
+        };
+        ImportList: {
+            id: number;
+            name: string;
+            /** @enum {string} */
+            kind: "trakt" | "sonarr";
+            /** @description Trakt list URL, or the base URL of a Sonarr instance. */
+            url: string;
+            enabled: boolean;
+            /** @description Sonarr instance API key; write-only in practice (reads return empty string + api_key_set). */
+            api_key: string;
+            api_key_set: boolean;
+        };
+        ImportListsSettings: {
+            lists: components["schemas"]["ImportList"][];
+        };
+        ImportRunRequest: {
+            /** @description The import list to run. */
+            id: number;
+            dry_run: boolean;
+        };
+        ImportRunItem: {
+            external_id: string;
+            title: string;
+            /** @description The library kind the item was (or would be) added to. */
+            kind: string;
+            /** @enum {string} */
+            status: "imported" | "exists" | "skipped" | "error";
+            message: string;
+        };
+        ImportRunResult: {
+            dry_run: boolean;
+            total: number;
+            items: components["schemas"]["ImportRunItem"][];
         };
     };
     responses: {
@@ -4139,6 +4528,212 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
+        };
+    };
+    getSettingsSection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                section: components["schemas"]["SettingsSection"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The section document with defaults applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsSectionDocument"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    putSettingsSection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                section: components["schemas"]["SettingsSection"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsSectionDocument"];
+            };
+        };
+        responses: {
+            /** @description The saved document (masked secrets, defaults applied). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsSectionDocument"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getTagUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tag's usage counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagUsage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    scoreCustomFormats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomFormatScoreRequest"];
+            };
+        };
+        responses: {
+            /** @description The score result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomFormatScoreResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    testConnectNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectTestRequest"];
+            };
+        };
+        responses: {
+            /** @description The delivery outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectTestResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    searchMetadataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetadataSourceSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Results from the first working source, plus the attempt log. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetadataSourceSearchResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+            /** @description Every configured source failed (attempts in the body). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetadataSourceSearchResult"];
+                };
+            };
+        };
+    };
+    runImportListImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportRunRequest"];
+            };
+        };
+        responses: {
+            /** @description The per-item import report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportRunResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+            /** @description The upstream list could not be reached. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectTestResult"];
+                };
+            };
         };
     };
     getDashboard: {

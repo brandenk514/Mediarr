@@ -5,9 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	dom "github.com/brandenk514/mediarr/internal/domains/wanted"
+	"github.com/brandenk514/mediarr/internal/metawrite"
 )
 
 type sxe struct {
@@ -318,5 +320,34 @@ func TestManualImportValidation(t *testing.T) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestManualImportWritesNFOSidecar(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "Gamma.S01E01.mkv")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repo := &fakeRepo{
+		rows: baseRows(), profiles: baseProfiles(),
+		epMonitored: map[sxe]bool{(sxe{3, 1, 1}): true},
+		series:      map[int64]*dom.SeriesRef{3: {ID: 3, Title: "Gamma"}},
+	}
+	s := New(repo, dir)
+	s.SetNFOWriter(&metawrite.Writer{Enabled: true, Language: "en"})
+
+	_, err := s.ManualImport(context.Background(), dom.ManualImport{
+		Kind: "tv", SeriesID: 3, Season: 1, Episode: 1, FilePath: file,
+	})
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	data, err := os.ReadFile(file + ".nfo")
+	if err != nil {
+		t.Fatalf("nfo sidecar missing: %v", err)
+	}
+	if !strings.Contains(string(data), "<episodedetails>") || !strings.Contains(string(data), "Gamma") {
+		t.Fatalf("nfo content = %q", data)
 	}
 }
