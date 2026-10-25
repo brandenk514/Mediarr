@@ -85,7 +85,7 @@ func TestUpdateSeries(t *testing.T) {
 	}
 
 	// A monitored change propagates to episodes (like the PUT toggle).
-	_, _ = svc.AddEpisode(ctx, id, 1, 1, "Pilot", true)
+	_, _ = svc.AddEpisode(ctx, id, 1, 1, "Pilot", nil, true)
 	mon := false
 	if _, err := svc.UpdateSeries(ctx, id, dom.SeriesPatch{Monitored: &mon}); err != nil {
 		t.Fatalf("update monitored: %v", err)
@@ -128,10 +128,10 @@ func TestSearchMissing(t *testing.T) {
 
 	id, _ := svc.AddSeries(ctx, AddSeriesRequest{Title: "Fringe", Year: "2008", Monitored: true})
 	// S01E01 monitored, S01E02 unmonitored.
-	if _, err := svc.AddEpisode(ctx, id, 1, 1, "Pilot", true); err != nil {
+	if _, err := svc.AddEpisode(ctx, id, 1, 1, "Pilot", nil, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddEpisode(ctx, id, 1, 2, "The Box", false); err != nil {
+	if _, err := svc.AddEpisode(ctx, id, 1, 2, "The Box", nil, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +146,7 @@ func TestSearchMissing(t *testing.T) {
 	}
 
 	// Satisfy S01E01, then a re-run finds nothing missing.
-	if err := repo.MarkWantedSatisfied(ctx, id, 1, 1, "Fringe.S01E01.1080p.WEB.x264"); err != nil {
+	if err := repo.MarkWantedSatisfied(ctx, id, 1, 1, "Fringe.S01E01.1080p.WEB.x264", "HDTV-1080p"); err != nil {
 		t.Fatal(err)
 	}
 	n, err = svc.SearchMissing(ctx, id)

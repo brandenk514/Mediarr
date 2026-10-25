@@ -24,6 +24,8 @@ type fakeQueueRepo struct {
 	gotLimit  int
 	sawList   bool
 	sawHist   bool
+	sawGrab   bool
+	sawRemove bool
 }
 
 func (f *fakeQueueRepo) List(ctx context.Context) ([]queue.Item, error) {
@@ -47,6 +49,24 @@ func (f *fakeQueueRepo) History(ctx context.Context, kind queue.Kind, parentID i
 		return []queue.HistoryEvent{}, nil
 	}
 	return f.hist, nil
+}
+
+func (f *fakeQueueRepo) Grab(ctx context.Context, kind queue.Kind, parentID int64) (int, error) {
+	f.sawGrab = true
+	f.gotKind, f.gotParent = kind, parentID
+	if f.err != nil {
+		return 0, f.err
+	}
+	return len(f.items), nil
+}
+
+func (f *fakeQueueRepo) Remove(ctx context.Context, kind queue.Kind, parentID int64) (int, error) {
+	f.sawRemove = true
+	f.gotKind, f.gotParent = kind, parentID
+	if f.err != nil {
+		return 0, f.err
+	}
+	return len(f.items), nil
 }
 
 // newQueueTestServer builds an authenticated server with the queue endpoints

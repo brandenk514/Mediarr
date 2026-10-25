@@ -36,6 +36,10 @@ type Server struct {
 	booksDeps      *BooksDeps
 	searchDeps     *SearchDeps
 	rootFolderDeps *RootFolderDeps
+	historyDeps    *HistoryDeps
+	blocklistDeps  *BlocklistDeps
+	wantedDeps     *WantedDeps
+	importDeps     *ImportDeps
 }
 
 // NewServer builds a Server with the given readiness checker.

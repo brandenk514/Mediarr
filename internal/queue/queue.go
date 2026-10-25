@@ -30,14 +30,15 @@ const (
 // the top-level media item the job belongs to (movie id, series id, artist
 // id, author id); the queue view drills into that parent's history from it.
 type Item struct {
-	Kind         Kind      `json:"kind"`
-	ParentID     int64     `json:"parent_id"`
-	ParentName   string    `json:"parent_name"`
-	ReleaseTitle string    `json:"release_title"`
-	Indexer      string    `json:"indexer"`
-	State        string    `json:"state"`
-	Progress     int       `json:"progress"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Kind           Kind      `json:"kind"`
+	ParentID       int64     `json:"parent_id"`
+	ParentName     string    `json:"parent_name"`
+	ReleaseTitle   string    `json:"release_title"`
+	Indexer        string    `json:"indexer"`
+	State          string    `json:"state"`
+	Progress       int       `json:"progress"`
+	DownloadClient string    `json:"download_client"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // HistoryEvent is one lifecycle event for a parent media item — the content of
@@ -120,7 +121,8 @@ func Apply(items []Item, f Filter) (page []Item, total int) {
 	return matched[start:end], total
 }
 
-// Repo is the queue read surface. Implementations must not mutate state.
+// Repo is the queue read/write surface. List/History must not mutate state;
+// the P3 queue actions (Grab/Remove) are the only mutators.
 type Repo interface {
 	// List returns every queue job across all four kinds, joined to the
 	// parent's human name, ordered newest-updated-first. Callers filter and
@@ -130,4 +132,10 @@ type Repo interface {
 	// first, capped at limit (a non-positive limit means "use the
 	// implementation default").
 	History(ctx context.Context, kind Kind, parentID int64, limit int) ([]HistoryEvent, error)
+	// Grab promotes every *queued* job for the parent to downloading (the
+	// client hand-off) and returns how many jobs moved.
+	Grab(ctx context.Context, kind Kind, parentID int64) (int, error)
+	// Remove deletes every queue job for the parent, in any state, and
+	// returns how many jobs were removed.
+	Remove(ctx context.Context, kind Kind, parentID int64) (int, error)
 }

@@ -33,11 +33,14 @@ import (
 	"github.com/brandenk514/mediarr/internal/providers"
 	"github.com/brandenk514/mediarr/internal/redis"
 	"github.com/brandenk514/mediarr/internal/secrets"
+	blocklistsvc "github.com/brandenk514/mediarr/internal/services/blocklist"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
+	historysvc "github.com/brandenk514/mediarr/internal/services/historyfeed"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 	rootfolders "github.com/brandenk514/mediarr/internal/services/rootfolders"
 	tvs "github.com/brandenk514/mediarr/internal/services/tv"
+	wantedsvc "github.com/brandenk514/mediarr/internal/services/wanted"
 )
 
 // Build-time stamped values (see -ldflags in Dockerfile / Makefile).
@@ -391,6 +394,20 @@ func run() error {
 			}
 			return "none"
 		}())
+
+	// --- Activity + Wanted (P3 parity) --------------------------------
+	// The global Activity pages (History feed + Blocklist) read the
+	// per-kind history tables and the blocklist table through their own
+	// repositories. The global Wanted view + its actions (Search All,
+	// Unmonitor Selected, Manual Import) operate on the TV tables, so the
+	// wanted service is wired here, after the TV pipeline, sharing the
+	// TV repo for reads.
+	srv.SetHistory(&api.HistoryDeps{Svc: historysvc.New(postgres.NewHistoryRepo(pg.DB()))})
+	srv.SetBlocklist(&api.BlocklistDeps{Svc: blocklistsvc.New(postgres.NewBlocklistRepo(pg.DB()))})
+	wantedRepo := postgres.NewWantedRepo(pg.DB())
+	wantedSvc := wantedsvc.New(wantedRepo, tvMediaRoot)
+	srv.SetWanted(&api.WantedDeps{Svc: wantedSvc})
+	srv.SetImport(&api.ImportDeps{Wanted: wantedSvc})
 
 	// --- Music pipeline --------------------------------------------
 	// M3: wire the music pipeline end-to-end, mirroring the TV pipeline. The

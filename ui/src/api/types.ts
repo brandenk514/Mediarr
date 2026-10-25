@@ -91,6 +91,22 @@ export type HistoryAppendedTV = components["schemas"]["HistoryAppendedTV"]
 export type HistoryAppendedMusic = components["schemas"]["HistoryAppendedMusic"]
 export type HistoryAppendedBook = components["schemas"]["HistoryAppendedBook"]
 
+// ---- P3: Activity + Wanted (global history, blocklist, wanted, manual import) ----
+export type GlobalHistoryItem = components["schemas"]["GlobalHistoryItem"]
+export type BlocklistEntry = components["schemas"]["BlocklistEntry"]
+export type BlocklistRequest = components["schemas"]["BlocklistRequest"]
+export type WantedTab = components["schemas"]["WantedTab"]
+export type WantedItem = components["schemas"]["WantedItem"]
+export type PageWantedItem = components["schemas"]["PageWantedItem"]
+export type WantedSearchRequest = components["schemas"]["WantedSearchRequest"]
+export type WantedEpisodeRef = components["schemas"]["WantedEpisodeRef"]
+export type WantedUnmonitorRequest = components["schemas"]["WantedUnmonitorRequest"]
+export type WantedActionResult = components["schemas"]["WantedActionResult"]
+export type ManualImportRequest = components["schemas"]["ManualImportRequest"]
+export type ManualImportReport = components["schemas"]["ManualImportReport"]
+export type QueueGrabResult = components["schemas"]["QueueGrabResult"]
+export type QueueRemoveResult = components["schemas"]["QueueRemoveResult"]
+
 // Books' domain type is books.Title; the spec names it BookTitle so the
 // document reads clearly at a glance.
 export type Title = components["schemas"]["BookTitle"]

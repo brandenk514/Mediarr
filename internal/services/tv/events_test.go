@@ -76,7 +76,7 @@ func TestPipeline_EmitsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
-	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "Piloto", true); err != nil {
+	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "Piloto", nil, true); err != nil {
 		t.Fatalf("add episode: %v", err)
 	}
 	if _, err := svc.RunPipeline(ctx, seriesID); err != nil {

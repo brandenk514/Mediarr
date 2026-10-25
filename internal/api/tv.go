@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/paging"
@@ -127,10 +128,11 @@ func (s *Server) GetSeries(w http.ResponseWriter, r *http.Request) {
 // is a pointer so "omitted" (defaults to monitored) is distinguishable from an
 // explicit false.
 type addEpisodeRequest struct {
-	Season    int    `json:"season"`
-	Episode   int    `json:"episode"`
-	Title     string `json:"title"`
-	Monitored *bool  `json:"monitored"`
+	Season    int        `json:"season"`
+	Episode   int        `json:"episode"`
+	Title     string     `json:"title"`
+	AirDate   *time.Time `json:"air_date"`
+	Monitored *bool      `json:"monitored"`
 }
 
 // AddEpisode handles POST /api/v1/tv/{id}/episodes.
@@ -154,7 +156,7 @@ func (s *Server) AddEpisode(w http.ResponseWriter, r *http.Request) {
 	if req.Monitored != nil {
 		monitored = *req.Monitored
 	}
-	_, err := s.tvDeps.Svc.AddEpisode(r.Context(), id, req.Season, req.Episode, req.Title, monitored)
+	_, err := s.tvDeps.Svc.AddEpisode(r.Context(), id, req.Season, req.Episode, req.Title, req.AirDate, monitored)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return

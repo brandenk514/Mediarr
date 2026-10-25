@@ -113,8 +113,8 @@ func TestVersion_TracksAppliedMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after migrate: %v", err)
 	}
-	if v != "0009_tv_series_fields" {
-		t.Errorf("version = %q, want 0009_tv_series_fields (highest applied)", v)
+	if v != "0010_p3_activity" {
+		t.Errorf("version = %q, want 0010_p3_activity (highest applied)", v)
 	}
 }
 

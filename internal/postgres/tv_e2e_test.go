@@ -53,7 +53,7 @@ func TestTVPipeline_EndToEnd_Postgres(t *testing.T) {
 		t.Fatalf("add series: %v", err)
 	}
 	for i, title := range []string{"Piloto", "Cat in a Tree", "...And No One Lets Crying Out"} {
-		if _, err := svc.AddEpisode(ctx, seriesID, 1, i+1, title, true); err != nil {
+		if _, err := svc.AddEpisode(ctx, seriesID, 1, i+1, title, nil, true); err != nil {
 			t.Fatalf("add episode %d: %v", i+1, err)
 		}
 	}
@@ -151,7 +151,7 @@ func TestTVPipeline_NoMatch_Postgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add series: %v", err)
 	}
-	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", true); err != nil {
+	if _, err := svc.AddEpisode(ctx, seriesID, 1, 1, "Pilot", nil, true); err != nil {
 		t.Fatalf("add episode: %v", err)
 	}
 

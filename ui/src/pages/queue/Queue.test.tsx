@@ -24,6 +24,8 @@ vi.mock('../../api/client', () => ({
   client: {
     listQueue: vi.fn(),
     queueHistory: vi.fn(),
+    grabQueue: vi.fn(),
+    removeQueue: vi.fn(),
   },
   connectEvents: (
     onEvent: (f: EventFrame) => void,
@@ -52,6 +54,7 @@ function item(
     indexer: 'nyaa',
     state,
     progress: state === 'downloading' ? 42 : state === 'complete' ? 100 : 0,
+    download_client: state === 'queued' ? '' : 'qBittorrent',
     updated_at: NOW,
   }
 }
@@ -80,6 +83,8 @@ function renderPage() {
 beforeEach(() => {
   vi.mocked(client.listQueue).mockReset()
   vi.mocked(client.queueHistory).mockReset()
+  vi.mocked(client.grabQueue).mockReset()
+  vi.mocked(client.removeQueue).mockReset()
   liveOnEvent = null
   liveClose = vi.fn()
 })
@@ -231,5 +236,37 @@ describe('QueuePage', () => {
     await waitFor(() => expect(screen.getByTestId('queue-refresh')).toBeInTheDocument())
     await user.click(screen.getByTestId('queue-refresh'))
     await waitFor(() => expect(client.listQueue).toHaveBeenCalledTimes(2))
+  })
+
+  // ---- P3: client column + Grab/Remove Selected ----
+
+  it('renders the download-client column', async () => {
+    vi.mocked(client.listQueue).mockResolvedValue(samplePage() as never)
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('queue-table')).toBeInTheDocument())
+    expect(screen.getByTestId('queue-client-movie-101')).toHaveTextContent('qBittorrent')
+    expect(screen.getByTestId('queue-client-tv-201')).toHaveTextContent('—')
+  })
+
+  it('grabs the selected parent via the API', async () => {
+    const user = userEvent.setup()
+    vi.mocked(client.listQueue).mockResolvedValue(samplePage() as never)
+    vi.mocked(client.grabQueue).mockResolvedValue({ grabbed: 1 } as never)
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('queue-table')).toBeInTheDocument())
+    await user.click(screen.getByTestId('queue-check-movie-101'))
+    await user.click(screen.getByTestId('queue-grab'))
+    await waitFor(() => expect(client.grabQueue).toHaveBeenCalledWith('movie', 101))
+  })
+
+  it('removes the selected parent via the API', async () => {
+    const user = userEvent.setup()
+    vi.mocked(client.listQueue).mockResolvedValue(samplePage() as never)
+    vi.mocked(client.removeQueue).mockResolvedValue({ removed: 1 } as never)
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('queue-table')).toBeInTheDocument())
+    await user.click(screen.getByTestId('queue-check-tv-201'))
+    await user.click(screen.getByTestId('queue-remove'))
+    await waitFor(() => expect(client.removeQueue).toHaveBeenCalledWith('tv', 201))
   })
 })
