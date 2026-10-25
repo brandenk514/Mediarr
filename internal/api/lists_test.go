@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,11 +24,16 @@ import (
 // compiles.
 type listMoviesRepo struct {
 	movies map[int64]moviesdom.Movie
+	wanted map[int64]*moviesdom.Wanted
 	nextID int64
 }
 
 func newListMoviesRepo() *listMoviesRepo {
-	return &listMoviesRepo{movies: map[int64]moviesdom.Movie{}, nextID: 1}
+	return &listMoviesRepo{
+		movies: map[int64]moviesdom.Movie{},
+		wanted: map[int64]*moviesdom.Wanted{},
+		nextID: 1,
+	}
 }
 
 func (r *listMoviesRepo) seed(m moviesdom.Movie) int64 {
@@ -38,6 +45,10 @@ func (r *listMoviesRepo) seed(m moviesdom.Movie) int64 {
 	}
 	r.movies[id] = m
 	return id
+}
+
+func (r *listMoviesRepo) seedWanted(w moviesdom.Wanted) {
+	r.wanted[w.MovieID] = &w
 }
 
 func (r *listMoviesRepo) CreateMovie(ctx context.Context, m moviesdom.Movie) (int64, error) {
@@ -73,7 +84,11 @@ func (r *listMoviesRepo) SetMovieMonitored(ctx context.Context, id int64, monito
 
 func (r *listMoviesRepo) EnsureWanted(ctx context.Context, movieID int64) error { return nil }
 func (r *listMoviesRepo) GetWanted(ctx context.Context, movieID int64) (*moviesdom.Wanted, error) {
-	return &moviesdom.Wanted{MovieID: movieID}, nil
+	w, ok := r.wanted[movieID]
+	if !ok {
+		return nil, sql.ErrNoRows
+	}
+	return w, nil
 }
 func (r *listMoviesRepo) ListWanted(ctx context.Context) ([]moviesdom.Wanted, error) {
 	return nil, nil
@@ -273,6 +288,48 @@ func TestSetMovieMonitored_404Unknown(t *testing.T) {
 	rec := putJSON(t, s.Handler(), "/api/v1/movies/999", token, map[string]bool{"monitored": true})
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 for unknown movie", rec.Code)
+	}
+}
+
+// TestGetMovieWanted covers the P7 detail-page endpoint: 200 with the wanted
+// row, 204 when the movie has no wanted row yet, 404 for an unknown movie.
+func TestGetMovieWanted(t *testing.T) {
+	repo := newListMoviesRepo()
+	duneID := repo.seed(moviesdom.Movie{Title: "Dune", Year: 2021, Monitored: true})
+	repo.seedWanted(moviesdom.Wanted{
+		MovieID: duneID, Status: moviesdom.WantedSatisfied,
+		ReleaseTitle: "Dune.2021.1080p.BluRay.x264-GROUP",
+	})
+	plainID := repo.seed(moviesdom.Movie{Title: "Inception", Year: 2010, Monitored: true})
+	s, token := newListTestServer(t, repo)
+
+	// Satisfied wanted row → 200 with the JSON body.
+	rec := getJSON(t, s.Handler(), fmt.Sprintf("/api/v1/movies/%d/wanted", duneID), token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var wd struct {
+		MovieID      int64  `json:"MovieID"`
+		Status       string `json:"Status"`
+		ReleaseTitle string `json:"ReleaseTitle"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&wd); err != nil {
+		t.Fatal(err)
+	}
+	if wd.MovieID != duneID || wd.Status != "satisfied" || wd.ReleaseTitle == "" {
+		t.Errorf("got %+v, want movie %d satisfied with a release title", wd, duneID)
+	}
+
+	// Movie exists but no wanted row → 204.
+	rec = getJSON(t, s.Handler(), fmt.Sprintf("/api/v1/movies/%d/wanted", plainID), token)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+
+	// Unknown movie → 404.
+	rec = getJSON(t, s.Handler(), "/api/v1/movies/999/wanted", token)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
 	}
 }
 

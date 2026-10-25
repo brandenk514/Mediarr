@@ -112,4 +112,24 @@ describe('BooksPage', () => {
     // Toggling a child does NOT refetch the top-level list.
     expect(client.listAuthors).toHaveBeenCalledTimes(1)
   })
+
+  it('shows the shared P7 toolbar and updates all authors', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(authorPage([author(1, 'Aldous Huxley')]))
+    render(
+      <MemoryRouter>
+        <BooksPage />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('author-1')
+    // P7 toolbar parity with TV/Movies/Music: the icon-over-label groups.
+    expect(screen.getByTestId('books-update-all')).toBeInTheDocument()
+    expect(screen.getByTestId('books-rss-sync')).toBeDisabled()
+    expect(screen.getByTestId('books-select')).toBeDisabled()
+    expect(screen.getByTestId('books-options')).toBeDisabled()
+    expect(screen.getByTestId('books-filter-btn')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('books-update-all'))
+    expect(await screen.findByTestId('books-status')).toHaveTextContent('Updated 1 authors just now')
+    expect(client.listAuthors).toHaveBeenCalledTimes(2)
+  })
 })

@@ -13,6 +13,7 @@ import { ArtistAddPage } from './pages/add/ArtistAdd'
 import { BookAddPage } from './pages/add/BookAdd'
 import { QueuePage } from './pages/queue/Queue'
 import { SettingsShell } from './pages/settings/SettingsShell'
+import { MovieDetailPage } from './pages/movies/MovieDetail'
 import { SeriesDetailPage } from './pages/tv/SeriesDetail'
 import { LibraryImportPage } from './pages/tv/LibraryImport'
 import { CalendarPage } from './pages/Calendar'
@@ -49,7 +50,11 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<AuthGate />}>
-        <Route path="/" element={<DashboardPage />} />
+        {/* P7 home decision: default landing = the TV library (the Sonarr
+            users' home). The cross-kind Dashboard is a Mediarr extra,
+            reachable from the rail's Dashboard item. */}
+        <Route path="/" element={<Navigate to="/tv" replace />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         {/* Per-kind libraries + Add (four-kind app: TV / Movies / Music / Books). */}
         <Route path="/movies" element={<MoviesPage />} />
         <Route path="/tv" element={<TvPage />} />
@@ -59,6 +64,8 @@ export default function App() {
         <Route path="/tv/add" element={<TvAddPage />} />
         <Route path="/music/add" element={<ArtistAddPage />} />
         <Route path="/books/add" element={<BookAddPage />} />
+        {/* Movie deep route (static paths like /movies/add rank above). */}
+        <Route path="/movies/:id" element={<MovieDetailPage />} />
         {/* TV deep routes (static paths rank above /tv/:id). */}
         <Route path="/tv/import" element={<LibraryImportPage />} />
         <Route path="/tv/:id" element={<SeriesDetailPage />} />

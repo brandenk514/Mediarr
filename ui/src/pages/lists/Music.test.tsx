@@ -6,8 +6,9 @@ import { client } from '../../api/client'
 import type { Album, Artist, PageArtist, Track } from '../../api/types'
 import { MusicPage } from './Music'
 
-// Page test for the music list (#41): paginated artists with two-level lazy
-// expansion (artist → album → track).
+// Page test for the music list (#41 + P7): paginated artists with three-level
+// lazy expansion (artist → album → track), the shared P7 toolbar, and the
+// per-artist "Add album" form with the lossless quality profile picker.
 vi.mock('../../api/client', () => ({
   client: {
     listArtists: vi.fn(),
@@ -16,6 +17,8 @@ vi.mock('../../api/client', () => ({
     setArtistMonitored: vi.fn(),
     setAlbumMonitored: vi.fn(),
     setTrackMonitored: vi.fn(),
+    addAlbum: vi.fn(),
+    getProfiles: vi.fn(),
   },
 }))
 
@@ -39,6 +42,9 @@ beforeEach(() => {
   vi.mocked(client.listArtists).mockReset()
   vi.mocked(client.listAlbums).mockReset()
   vi.mocked(client.listTracks).mockReset()
+  vi.mocked(client.addAlbum).mockReset()
+  vi.mocked(client.getProfiles).mockReset()
+  vi.mocked(client.getProfiles).mockResolvedValue({ profiles: ['FLAC', 'ALAC'], default: 'FLAC' })
 })
 
 afterEach(() => {
@@ -109,5 +115,59 @@ describe('MusicPage', () => {
     expect(client.setAlbumMonitored).toHaveBeenCalledWith(11, false)
     // Toggling a child does NOT refetch the top-level list.
     expect(client.listArtists).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the shared P7 toolbar and updates all artists', async () => {
+    vi.mocked(client.listArtists).mockResolvedValue(artistPage([artist(1, 'Radiohead')]))
+    render(
+      <MemoryRouter>
+        <MusicPage />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('artist-1')
+    // P7 toolbar parity with TV/Movies: the icon-over-label groups.
+    expect(screen.getByTestId('music-update-all')).toBeInTheDocument()
+    expect(screen.getByTestId('music-rss-sync')).toBeDisabled()
+    expect(screen.getByTestId('music-select')).toBeDisabled()
+    expect(screen.getByTestId('music-options')).toBeDisabled()
+    expect(screen.getByTestId('music-filter-btn')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('music-update-all'))
+    expect(await screen.findByTestId('music-status')).toHaveTextContent('Updated 1 artists just now')
+    expect(client.listArtists).toHaveBeenCalledTimes(2)
+  })
+
+  it('adds an album through the per-artist form with the lossless profile', async () => {
+    vi.mocked(client.listArtists).mockResolvedValue(artistPage([artist(1, 'Radiohead')]))
+    vi.mocked(client.listAlbums).mockResolvedValue([])
+    vi.mocked(client.addAlbum).mockResolvedValue({ id: 99 })
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <MusicPage />
+      </MemoryRouter>,
+    )
+    await screen.findByTestId('artist-1')
+    await user.click(screen.getByTestId('artist-toggle-1'))
+
+    const form = await screen.findByTestId('artist-add-album-1')
+    expect(form).toBeInTheDocument()
+    await user.type(screen.getByTestId('album-name-1'), 'In Rainbows')
+    await user.type(screen.getByTestId('album-year-1'), '2007')
+
+    // The lossless profile picker loads the music kind's built-ins and
+    // prefills the default (FLAC).
+    const select = (await screen.findByTestId('add-album-quality-1')) as HTMLSelectElement
+    expect(Array.from(select.options).some((o) => o.textContent?.includes('FLAC'))).toBe(true)
+    expect(select.value).toBe('FLAC')
+
+    await user.click(screen.getByTestId('album-submit-1'))
+    expect(client.addAlbum).toHaveBeenCalledWith(1, {
+      name: 'In Rainbows',
+      year: 2007,
+      quality_profile: 'FLAC',
+      monitored: true,
+    })
+    expect(await screen.findByTestId('album-status-1')).toHaveTextContent('Added “In Rainbows”.')
   })
 })

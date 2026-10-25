@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { client } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { KINDS, SHARED_SECTIONS, kindById, type KindId, type SharedSection } from '../nav'
+import { KINDS, SHARED_SECTIONS, DASHBOARD_SECTION, kindById, type KindId, type SharedSection } from '../nav'
 
 // Layout is the authenticated Sonarr-parity shell (P1): a full-width teal top
 // bar (logo · global search · notifications · profile) over a slate left rail
@@ -144,6 +144,11 @@ export function Rail() {
 
   return (
     <nav className="rail" aria-label="Primary">
+      {/* Mediarr extra (P7): the cross-library Dashboard, above the per-kind
+          sections. The TV list is the default landing; the Dashboard is how a
+          Sonarr-shaped user finds the four-library overview. */}
+      <SharedRailSection section={DASHBOARD_SECTION} pathname={pathname} />
+
       {/* Kind switcher: Mediarr is four-kind; the rail is parameterized by it. */}
       <div className="rail-kind" role="group" aria-label="Library kind">
         <div className="segmented">
