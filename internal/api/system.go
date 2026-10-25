@@ -40,6 +40,9 @@ type SystemDeps struct {
 	Changelog *system.ChangelogService
 	// Logs is the streaming log viewer source (nil = logs not wired).
 	Logs *system.LogService
+
+	// ---- Wave 3: Sonarr drop-in migration ----
+	Migration *system.Migrator
 }
 
 // SetSystem wires the System area endpoints. Called after construction,
@@ -57,6 +60,9 @@ func (s *Server) SetSystem(deps *SystemDeps) {
 	s.register("GET /api/v1/system/events", s.requireAuth(s.GetSystemEvents))
 	s.register("GET /api/v1/system/updates", s.requireAuth(s.GetSystemUpdates))
 	s.register("GET /api/v1/system/logs", s.requireAuth(s.GetSystemLogs))
+	// Wave 3: Sonarr drop-in migration.
+	s.register("POST /api/v1/system/migration", s.requireAuth(s.RunMigration))
+	s.register("GET /api/v1/system/migration/status", s.requireAuth(s.GetMigrationStatus))
 }
 
 // systemDepsOr501 returns the wired deps or writes a 501 (not wired).

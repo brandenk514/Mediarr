@@ -26,6 +26,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/api"
 	"github.com/brandenk514/mediarr/internal/auth"
 	"github.com/brandenk514/mediarr/internal/config"
+	tvd "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/health"
 	"github.com/brandenk514/mediarr/internal/indexers"
@@ -613,11 +614,20 @@ func run(logSvc *system.LogService) error {
 		if mode == "" {
 			mode = "production"
 		}
+		// P6 Wave 3: the Sonarr drop-in migration stores. The target maps the
+		// six entity classes onto the real Mediarr stores: profiles / tags /
+		// download client over the settings repo, indexers over the indexer
+		// repo, series + episodes over the TV repo. The source is the live
+		// Sonarr v3 API (admin-configured URL + API key).
+		migrationIndexers := &migrationIndexerStore{repo: indexerRepo}
+		migrationTV := &migrationTVStore{repo: tvRepo}
+
 		// P6 Wave 2: the System depth services. Backup exports/imports the
 		// configuration over the settings repo (queue / series snapshots are
-		// optional attachments). The Events page is the global history feed,
-		// the Updates page the release changelog, and Log Files the log
-		// service bridged into the app logger in main().
+		// optional attachments; the series snapshot can be imported back
+		// idempotently). The Events page is the global history feed, the
+		// Updates page the release changelog, and Log Files the log service
+		// bridged into the app logger in main().
 		backupSvc := &system.BackupService{
 			Store:   settingsRepo,
 			Version: version,
@@ -635,7 +645,38 @@ func run(logSvc *system.LogService) error {
 				}
 				return json.Marshal(series)
 			},
+			SeriesImport: func(ctx context.Context, raw json.RawMessage) (int, error) {
+				var series []tvd.Series
+				if err := json.Unmarshal(raw, &series); err != nil {
+					return 0, err
+				}
+				n := 0
+				for _, sr := range series {
+					if sr.Title == "" {
+						continue
+					}
+					if _, found := migrationTV.FindSeries(ctx, sr.TVDBID, sr.Title, sr.Year); found {
+						continue
+					}
+					if _, err := migrationTV.AddSeries(ctx, system.SeriesRef{
+						Title:          sr.Title,
+						Year:           sr.Year,
+						TVDBID:         sr.TVDBID,
+						QualityProfile: sr.QualityProfile,
+						Monitored:      sr.Monitored,
+						SeasonFolder:   sr.SeasonFolder,
+						Tags:           sr.Tags,
+					}); err != nil {
+						return n, err
+					}
+					n++
+				}
+				return n, nil
+			},
 		}
+		// P6 Wave 3: the migrator (source factory = the live Sonarr v3
+		// client, target = the real Mediarr import sink).
+		migrator := system.NewMigrator(system.NewPostgresTarget(settingsRepo, migrationIndexers, migrationTV))
 
 		srv.SetSystem(&api.SystemDeps{
 			Health:       system.NewHealth(probes),
@@ -647,6 +688,7 @@ func run(logSvc *system.LogService) error {
 			Events:       historyFeedSvc,
 			Changelog:    system.NewChangelogService(version),
 			Logs:         logSvc,
+			Migration:    migrator,
 			RootFolderPaths: func() []string {
 				roots, err := rfSvc.List()
 				if err != nil {
@@ -683,6 +725,88 @@ func run(logSvc *system.LogService) error {
 		time.Duration(cfg.WriteTimeout)*time.Second,
 		time.Duration(cfg.ShutdownTimeout)*time.Second,
 	)
+}
+
+// migrationIndexerStore adapts the Postgres indexer repo to the migration
+// target's indexer seam (system.IndexerStore).
+type migrationIndexerStore struct {
+	repo *postgres.IndexersRepo
+}
+
+func (s *migrationIndexerStore) FindIndexer(ctx context.Context, name string) (int64, bool) {
+	def, err := s.repo.GetByName(ctx, name)
+	if err != nil {
+		return 0, false
+	}
+	return def.ID, true
+}
+
+func (s *migrationIndexerStore) CreateIndexer(ctx context.Context, name, kind, baseURL, apiKey string, enabled bool) (int64, error) {
+	return s.repo.Create(ctx, indexers.Definition{
+		Name: name, Kind: kind, BaseURL: baseURL, APIKey: apiKey, Enabled: enabled,
+	})
+}
+
+// migrationTVStore adapts the Postgres TV repo to the migration target's TV
+// seam (system.TVStore). FindSeries matches by TVDB id (when set) or
+// title+year, which is the identity the migration uses for idempotency.
+type migrationTVStore struct {
+	repo *postgres.TVRepo
+}
+
+func (s *migrationTVStore) FindSeries(ctx context.Context, tvdbID int, title string, year int) (int64, bool) {
+	all, err := s.repo.ListSeries(ctx)
+	if err != nil {
+		return 0, false
+	}
+	for _, sr := range all {
+		if tvdbID > 0 && sr.TVDBID == tvdbID {
+			return sr.ID, true
+		}
+		if sr.Title == title && sr.Year == year {
+			return sr.ID, true
+		}
+	}
+	return 0, false
+}
+
+func (s *migrationTVStore) AddSeries(ctx context.Context, ref system.SeriesRef) (int64, error) {
+	return s.repo.CreateSeries(ctx, tvd.Series{
+		TVDBID:         ref.TVDBID,
+		Title:          ref.Title,
+		Year:           ref.Year,
+		QualityProfile: ref.QualityProfile,
+		Monitored:      ref.Monitored,
+		SeasonFolder:   ref.SeasonFolder,
+		Tags:           ref.Tags,
+		AddedAt:        time.Now(),
+	})
+}
+
+// EpisodeKeys returns the "S<season>xE<episode>" keys of the series' known
+// episodes (the same key format the migration target probes).
+func (s *migrationTVStore) EpisodeKeys(ctx context.Context, seriesID int64) (map[string]bool, error) {
+	eps, err := s.repo.ListEpisodes(ctx, seriesID)
+	if err != nil {
+		return nil, err
+	}
+	keys := make(map[string]bool, len(eps))
+	for _, e := range eps {
+		keys[fmt.Sprintf("S%dxE%d", e.Season, e.Episode)] = true
+	}
+	return keys, nil
+}
+
+func (s *migrationTVStore) AddEpisode(ctx context.Context, seriesID int64, season, episode int, title string, airDate *time.Time, monitored bool) (int64, error) {
+	return s.repo.CreateEpisode(ctx, tvd.Episode{
+		SeriesID:  seriesID,
+		Season:    season,
+		Episode:   episode,
+		Title:     title,
+		AirDate:   airDate,
+		Monitored: monitored,
+		AddedAt:   time.Now(),
+	})
 }
 
 // hostOf extracts the host portion of a DSN for logging (never logs creds).
