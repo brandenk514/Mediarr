@@ -28,11 +28,13 @@ import (
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/health"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	"github.com/brandenk514/mediarr/internal/metawrite"
 	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/postgres"
 	"github.com/brandenk514/mediarr/internal/providers"
 	"github.com/brandenk514/mediarr/internal/redis"
 	"github.com/brandenk514/mediarr/internal/secrets"
+	"github.com/brandenk514/mediarr/internal/settings"
 	blocklistsvc "github.com/brandenk514/mediarr/internal/services/blocklist"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 	calendarsvc "github.com/brandenk514/mediarr/internal/services/calendar"
@@ -501,6 +503,37 @@ func run() error {
 		logger.Warn("metadata providers partially configured",
 			"tmdb_key_set", cfg.Providers.TMDBAPIKey != "",
 			"tvdb_key_set", cfg.Providers.TVDBAPIKey != "")
+	}
+
+	// P5 (waves 2/3): the settings extension endpoints — custom-format
+	// scoring, the connect test dispatch, the metadata-source fallback
+	// search (P5.7), and import lists. The keyless adapters (TVmaze,
+	// Wikidata) make a zero-key install fully searchable.
+	srv.SetSettingsP5(&api.SettingsP5Deps{
+		Store: settingsRepo,
+		TVDB:        providers.NewTVDB(cfg.Providers.TVDBAPIKey),
+		TMDB:        providers.NewTMDB(cfg.Providers.TMDBAPIKey),
+		TVmaze:      providers.NewTVmaze(),
+		Wikidata:    providers.NewWikidata(),
+		MusicBrainz: providers.NewMusicBrainz(),
+		OpenLibrary: providers.NewOpenLibrary(),
+		TV:     tvSvc,
+		Movies: movieSvc,
+	})
+
+	// P5 metadata file writer: .nfo sidecars are generated on manual
+	// import, gated by the metadata section's generate_nfo (a corrupt or
+	// missing document keeps the default: NFOs on for tv).
+	if mdRaw, err := settingsRepo.GetSectionDocument(ctx, settings.SectionMetadata); err == nil {
+		if mdDoc, err := settings.SectionMetadata.DecodeDocument(mdRaw); err == nil {
+			md := mdDoc.(*settings.MetadataSettings)
+			wantedSvc.SetNFOWriter(&metawrite.Writer{
+				Enabled:  md.GenerateNFO && md.Kinds["tv"],
+				Language: md.Language,
+			})
+		}
+	} else {
+		wantedSvc.SetNFOWriter(&metawrite.Writer{Enabled: true, Language: "en"})
 	}
 
 	logger.Info("server starting", "addr", cfg.HTTPAddr)

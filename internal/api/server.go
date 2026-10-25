@@ -30,6 +30,7 @@ type Server struct {
 	queueDeps      *QueueDeps
 	settingsDeps   *SettingsDeps
 	settingsSectionDeps *SettingsSectionDeps
+	settingsP5Deps *SettingsP5Deps
 	eventsDeps     *EventsDeps
 	moviesDeps     *MoviesDeps
 	tvDeps         *TVDeps
