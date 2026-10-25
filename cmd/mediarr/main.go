@@ -281,6 +281,11 @@ func run() error {
 	// indexer repo uses (PLAN §7).
 	settingsRepo := postgres.NewSettingsRepo(pg.DB(), vault)
 	srv.SetSettings(&api.SettingsDeps{Store: settingsRepo})
+	// P5 settings shell: generic per-section documents + tag usage.
+	srv.SetSettingsSections(&api.SettingsSectionDeps{
+		Store:    settingsRepo,
+		TagUsage: postgres.NewTagUsageRepo(pg.DB()),
+	})
 	authRepo := auth.NewRepo(pg.DB())
 	srv.SetAuth(&api.AuthDeps{Repo: authRepo})
 	srv.SetEvents(&api.EventsDeps{Repo: authRepo, Events: events})

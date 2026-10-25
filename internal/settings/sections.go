@@ -1,0 +1,951 @@
+package settings
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// Section names one of the eleven settings-section documents served by the
+// generic per-section endpoints (P5 settings parity). The settings shell's
+// 13 sections are these eleven plus indexers and download-clients, which keep
+// their dedicated endpoints (the indexer CRUD + test surface and the
+// download-client config / per-library overrides).
+//
+// A section document is a JSON value stored in the settings key/value table
+// under the key "section.<slug>". Get returns the stored document merged over
+// the section defaults (a fresh install reads complete documents); Put is a
+// full-document replace. Secrets carried by a document (connect tokens,
+// import-list API keys) are masked at the API boundary — the stored document
+// keeps the plaintext secret and the read shape only carries *_set booleans.
+type Section string
+
+const (
+	SectionGeneral         Section = "general"
+	SectionUI              Section = "ui"
+	SectionQuality         Section = "quality"
+	SectionProfiles        Section = "profiles"
+	SectionTags            Section = "tags"
+	SectionMediaManagement Section = "media-management"
+	SectionCustomFormats   Section = "custom-formats"
+	SectionConnect         Section = "connect"
+	SectionMetadata        Section = "metadata"
+	SectionMetadataSource  Section = "metadata-source"
+	SectionImportLists     Section = "import-lists"
+)
+
+// AllSections is the fixed, ordered set of generic section slugs (the order
+// the UI renders its nav, matching the shell).
+var AllSections = []Section{
+	SectionGeneral,
+	SectionUI,
+	SectionQuality,
+	SectionProfiles,
+	SectionTags,
+	SectionMediaManagement,
+	SectionCustomFormats,
+	SectionConnect,
+	SectionMetadata,
+	SectionMetadataSource,
+	SectionImportLists,
+}
+
+// ParseSection reports whether slug is a generic section slug. indexers and
+// download-clients are deliberately NOT generic slugs — they have dedicated
+// endpoints and must 404/400 on the generic route, not be swallowed.
+func ParseSection(slug string) (Section, bool) {
+	s := Section(slug)
+	for _, v := range AllSections {
+		if v == s {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// Key is the settings-table storage key for a section document.
+func (s Section) Key() string { return "section." + string(s) }
+
+// ---------------------------------------------------------------------------
+// general
+// ---------------------------------------------------------------------------
+
+// GeneralSettings is the app-level document. It is reconciled with the
+// env-based boot config: host/port/base_url/ssl are persisted for display and
+// for the next boot (boot config still wins at startup), and auth flags
+// likewise take effect at the next boot.
+type GeneralSettings struct {
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	BaseURL     string `json:"base_url"`
+	SSL         bool   `json:"ssl"`
+	AuthEnabled bool   `json:"auth_enabled"`
+	AuthPinning bool   `json:"auth_pinning"`
+}
+
+func DefaultGeneral() GeneralSettings {
+	return GeneralSettings{
+		Host:        "0.0.0.0",
+		Port:        8080,
+		BaseURL:     "http://localhost:8080",
+		AuthEnabled: true,
+		AuthPinning: true,
+	}
+}
+
+func (g GeneralSettings) Validate() string {
+	if g.Port < 1 || g.Port > 65535 {
+		return "port must be between 1 and 65535"
+	}
+	if len(g.Host) > 64 {
+		return "host is too long"
+	}
+	if g.BaseURL != "" && !isHTTPURLValue(g.BaseURL) {
+		return "base_url must be an http/https URL"
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// ui
+// ---------------------------------------------------------------------------
+
+// UISettings holds the UI options (default landing view + date/time format +
+// list density).
+type UISettings struct {
+	DefaultView  string `json:"default_view"`
+	DateFormat   string `json:"date_format"`
+	TimeFormat   string `json:"time_format"`
+	ItemsPerPage int    `json:"items_per_page"`
+}
+
+// UIDefaultsView enumerates the valid default_view values.
+var UIViews = []string{"dashboard", "calendar", "queue", "wanted", "series", "movies", "artists", "authors"}
+
+func DefaultUI() UISettings {
+	return UISettings{
+		DefaultView:  "dashboard",
+		DateFormat:   "YYYY-MM-DD",
+		TimeFormat:   "24h",
+		ItemsPerPage: 50,
+	}
+}
+
+func (u UISettings) Validate() string {
+	if !containsString(UIViews, u.DefaultView) {
+		return "default_view must be one of " + strings.Join(UIViews, ", ")
+	}
+	if u.TimeFormat != "24h" && u.TimeFormat != "12h" {
+		return "time_format must be 24h or 12h"
+	}
+	if u.DateFormat == "" || len(u.DateFormat) > 32 {
+		return "date_format is required (max 32 chars)"
+	}
+	if u.ItemsPerPage < 1 || u.ItemsPerPage > 500 {
+		return "items_per_page must be between 1 and 500"
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// quality
+// ---------------------------------------------------------------------------
+
+// QualityLevel is one row of the quality matrix (id is a stable reference the
+// quality profiles use).
+type QualityLevel struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Source      string `json:"source"`
+	Resolution  string `json:"resolution"`
+	SizeLimitMB int    `json:"size_limit_mb"`
+}
+
+// QualitySettings is the quality-levels document.
+type QualitySettings struct {
+	Levels []QualityLevel `json:"levels"`
+}
+
+// DefaultQuality returns the TV-parity default matrix (Sonarr's standard
+// levels, with size limits in MB; 0 = unlimited).
+func DefaultQuality() QualitySettings {
+	return QualitySettings{Levels: []QualityLevel{
+		{ID: 1, Name: "SD", Source: "dvd", Resolution: "480p", SizeLimitMB: 1024},
+		{ID: 2, Name: "720p WEB", Source: "webrip", Resolution: "720p", SizeLimitMB: 1536},
+		{ID: 3, Name: "720p", Source: "blu-ray", Resolution: "720p", SizeLimitMB: 2560},
+		{ID: 4, Name: "720p REMUX", Source: "remux", Resolution: "720p", SizeLimitMB: 7168},
+		{ID: 5, Name: "1080p WEB", Source: "webrip", Resolution: "1080p", SizeLimitMB: 1536},
+		{ID: 6, Name: "1080p", Source: "blu-ray", Resolution: "1080p", SizeLimitMB: 4096},
+		{ID: 7, Name: "1080p REMUX", Source: "remux", Resolution: "1080p", SizeLimitMB: 11264},
+		{ID: 8, Name: "2160p WEB", Source: "webrip", Resolution: "2160p", SizeLimitMB: 5120},
+		{ID: 9, Name: "2160p", Source: "blu-ray", Resolution: "2160p", SizeLimitMB: 8192},
+		{ID: 10, Name: "2160p REMUX", Source: "remux", Resolution: "2160p", SizeLimitMB: 20480},
+	}}
+}
+
+func (q QualitySettings) Validate() string {
+	seen := map[int]bool{}
+	for i, l := range q.Levels {
+		if l.ID < 1 {
+			return fmt.Sprintf("levels[%d]: id must be >= 1", i)
+		}
+		if seen[l.ID] {
+			return fmt.Sprintf("levels[%d]: duplicate id %d", i, l.ID)
+		}
+		seen[l.ID] = true
+		if l.Name == "" {
+			return fmt.Sprintf("levels[%d]: name is required", i)
+		}
+		if l.SizeLimitMB < 0 {
+			return fmt.Sprintf("levels[%d]: size_limit_mb must be >= 0", i)
+		}
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// profiles
+// ---------------------------------------------------------------------------
+
+// QualityProfileItem is one approved/not-approved quality in a profile.
+type QualityProfileItem struct {
+	Quality  int  `json:"quality"`
+	Approved bool `json:"approved"`
+}
+
+// QualityProfile is a named quality profile with an approval set and a
+// cutoff level (re-download trigger). Delay/release profiles are out of scope
+// for P5 (the plan ships them only if wanted cutoff needs them).
+type QualityProfile struct {
+	ID    int                  `json:"id"`
+	Name  string               `json:"name"`
+	Items []QualityProfileItem `json:"items"`
+	Cutoff int                 `json:"cutoff"`
+}
+
+// ProfilesSettings is the quality-profiles document.
+type ProfilesSettings struct {
+	Profiles []QualityProfile `json:"profiles"`
+}
+
+// DefaultProfiles returns the single default profile: every default quality
+// level approved, cutoff at the highest level.
+func DefaultProfiles() ProfilesSettings {
+	levels := DefaultQuality().Levels
+	prof := QualityProfile{ID: 1, Name: "Default", Cutoff: levels[len(levels)-1].ID}
+	prof.Items = make([]QualityProfileItem, 0, len(levels))
+	for _, l := range levels {
+		prof.Items = append(prof.Items, QualityProfileItem{Quality: l.ID, Approved: true})
+	}
+	return ProfilesSettings{Profiles: []QualityProfile{prof}}
+}
+
+func (p ProfilesSettings) Validate() string {
+	names := map[string]bool{}
+	for i, prof := range p.Profiles {
+		if prof.ID < 1 {
+			return fmt.Sprintf("profiles[%d]: id must be >= 1", i)
+		}
+		if prof.Name == "" {
+			return fmt.Sprintf("profiles[%d]: name is required", i)
+		}
+		if names[prof.Name] {
+			return fmt.Sprintf("profiles[%d]: duplicate name %q", i, prof.Name)
+		}
+		names[prof.Name] = true
+		if prof.Cutoff < 1 {
+			return fmt.Sprintf("profiles[%d]: cutoff must reference a quality level id >= 1", i)
+		}
+		if len(prof.Items) == 0 {
+			return fmt.Sprintf("profiles[%d]: at least one quality item is required", i)
+		}
+		seen := map[int]bool{}
+		for j, it := range prof.Items {
+			if it.Quality < 1 {
+				return fmt.Sprintf("profiles[%d].items[%d]: quality must be a level id >= 1", i, j)
+			}
+			if seen[it.Quality] {
+				return fmt.Sprintf("profiles[%d].items[%d]: duplicate quality %d", i, j, it.Quality)
+			}
+			seen[it.Quality] = true
+		}
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// tags
+// ---------------------------------------------------------------------------
+
+// TagInfo is one tag (label + free-text description). TV series are the only
+// tagged entity today; the tag label is what is stored in tv_series.tags.
+type TagInfo struct {
+	ID          int    `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+// TagsSettings is the tags document. Defaults to an empty (non-nil) list.
+type TagsSettings struct {
+	Tags []TagInfo `json:"tags"`
+}
+
+func DefaultTags() TagsSettings { return TagsSettings{Tags: []TagInfo{}} }
+
+func (t TagsSettings) Validate() string {
+	ids := map[int]bool{}
+	labels := map[string]bool{}
+	for i, tag := range t.Tags {
+		if tag.ID < 1 {
+			return fmt.Sprintf("tags[%d]: id must be >= 1", i)
+		}
+		if ids[tag.ID] {
+			return fmt.Sprintf("tags[%d]: duplicate id %d", i, tag.ID)
+		}
+		ids[tag.ID] = true
+		if tag.Label == "" {
+			return fmt.Sprintf("tags[%d]: label is required", i)
+		}
+		if labels[tag.Label] {
+			return fmt.Sprintf("tags[%d]: duplicate label %q", i, tag.Label)
+		}
+		labels[tag.Label] = true
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// media management
+// ---------------------------------------------------------------------------
+
+// NamingTemplate is the per-kind naming templates (TV parity first — the
+// episode/series templates use Sonarr's {token} syntax).
+type NamingTemplate struct {
+	Series  string `json:"series"`
+	Episode string `json:"episode"`
+	Movie   string `json:"movie"`
+	Album   string `json:"album"`
+	Track   string `json:"track"`
+	Author  string `json:"author"`
+	Title   string `json:"title"`
+}
+
+// FileManagement is the file-management options block.
+type FileManagement struct {
+	MinFileAgeHours  int  `json:"min_file_age_hours"`
+	RemoveEmptyDirs  bool `json:"remove_empty_dirs"`
+	ImportExtraFiles bool `json:"import_extra_files"`
+	RenameSeries     bool `json:"rename_series"`
+}
+
+// RemotePathMapping maps a source path (on the download client) to a
+// destination path (on the Mediarr host) for the import step.
+type RemotePathMapping struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+}
+
+// MediaManagementSettings is the media-management document. Root folders are
+// NOT part of this document — they live in the root-folders registry
+// (P2 add-flow domain) and the section's UI reads/writes that registry.
+type MediaManagementSettings struct {
+	Naming             NamingTemplate      `json:"naming"`
+	Management         FileManagement      `json:"file_management"`
+	RemotePathMappings []RemotePathMapping `json:"remote_path_mappings"`
+}
+
+func DefaultMediaManagement() MediaManagementSettings {
+	return MediaManagementSettings{
+		Naming: NamingTemplate{
+			Series:  "{series-title} ({year})",
+			Episode: "{series-title} S{season:00}E{episode:00} - {episode-title}",
+			Movie:   "{movie-title} ({year})",
+			Album:   "{artist} - {album}",
+			Track:   "{disc:0} - {track:0} - {track-title}",
+			Author:  "{author}",
+			Title:   "{title}",
+		},
+		Management: FileManagement{
+			MinFileAgeHours:  0,
+			RemoveEmptyDirs:  true,
+			ImportExtraFiles: true,
+			RenameSeries:     true,
+		},
+		RemotePathMappings: []RemotePathMapping{},
+	}
+}
+
+func (m MediaManagementSettings) Validate() string {
+	for name, tpl := range map[string]string{
+		"series": m.Naming.Series, "episode": m.Naming.Episode, "movie": m.Naming.Movie,
+		"album": m.Naming.Album, "track": m.Naming.Track, "author": m.Naming.Author,
+		"title": m.Naming.Title,
+	} {
+		if tpl == "" {
+			return "naming." + name + " is required"
+		}
+	}
+	if m.Management.MinFileAgeHours < 0 {
+		return "file_management.min_file_age_hours must be >= 0"
+	}
+	srcs := map[string]bool{}
+	for i, mp := range m.RemotePathMappings {
+		if mp.Source == "" || mp.Destination == "" {
+			return fmt.Sprintf("remote_path_mappings[%d]: source and destination are required", i)
+		}
+		if srcs[mp.Source] {
+			return fmt.Sprintf("remote_path_mappings[%d]: duplicate source %q", i, mp.Source)
+		}
+		srcs[mp.Source] = true
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// custom formats
+// ---------------------------------------------------------------------------
+
+// CFRule is one custom-format rule. A format matches when ALL of its rules
+// match (Sonarr CF engine parity), and contributes its score when it matches.
+type CFRule struct {
+	Field    string `json:"field"`
+	Operator string `json:"operator"`
+	Value    string `json:"value"`
+}
+
+// CFFields / CFOperators are the rule vocabulary.
+var (
+	CFFields    = []string{"title", "quality", "source", "kind", "tag", "size_mb"}
+	CFOperators = []string{"contains", "not_contains", "equals", "regex", "exists", "gt", "lt"}
+)
+
+// CustomFormat is one named, scored, enabled-able rule group.
+type CustomFormat struct {
+	ID      int      `json:"id"`
+	Name    string   `json:"name"`
+	Enabled bool     `json:"enabled"`
+	Score   int      `json:"score"`
+	Rules   []CFRule `json:"rules"`
+}
+
+// CustomFormatsSettings is the custom-formats document.
+type CustomFormatsSettings struct {
+	Formats []CustomFormat `json:"formats"`
+}
+
+func DefaultCustomFormats() CustomFormatsSettings { return CustomFormatsSettings{Formats: []CustomFormat{}} }
+
+func (c CustomFormatsSettings) Validate() string {
+	ids := map[int]bool{}
+	for i, f := range c.Formats {
+		if f.ID < 1 {
+			return fmt.Sprintf("formats[%d]: id must be >= 1", i)
+		}
+		if ids[f.ID] {
+			return fmt.Sprintf("formats[%d]: duplicate id %d", i, f.ID)
+		}
+		ids[f.ID] = true
+		if f.Name == "" {
+			return fmt.Sprintf("formats[%d]: name is required", i)
+		}
+		if len(f.Rules) == 0 {
+			return fmt.Sprintf("formats[%d]: at least one rule is required", i)
+		}
+		for j, r := range f.Rules {
+			if !containsString(CFFields, r.Field) {
+				return fmt.Sprintf("formats[%d].rules[%d]: unknown field %q", i, j, r.Field)
+			}
+			if !containsString(CFOperators, r.Operator) {
+				return fmt.Sprintf("formats[%d].rules[%d]: unknown operator %q", i, j, r.Operator)
+			}
+			if r.Operator != "exists" && r.Value == "" {
+				return fmt.Sprintf("formats[%d].rules[%d]: value is required for operator %q", i, j, r.Operator)
+			}
+			if r.Operator == "regex" {
+				if _, err := regexp.Compile(r.Value); err != nil {
+					return fmt.Sprintf("formats[%d].rules[%d]: invalid regex: %v", i, j, err)
+				}
+			}
+			if (r.Operator == "gt" || r.Operator == "lt") && r.Field != "size_mb" {
+				return fmt.Sprintf("formats[%d].rules[%d]: gt/lt only apply to size_mb", i, j)
+			}
+			if r.Operator == "gt" || r.Operator == "lt" {
+				if _, err := strconv.ParseFloat(r.Value, 64); err != nil {
+					return fmt.Sprintf("formats[%d].rules[%d]: value must be a number for %q", i, j, r.Operator)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// connect
+// ---------------------------------------------------------------------------
+
+// NotificationOptions is one notification sink's options. Token is the
+// sink's credential (Plex token / webhook secret); it crosses the API masked
+// — reads return Token="" + TokenSet, writes with an empty Token keep the
+// stored value.
+type NotificationOptions struct {
+	URL       string `json:"url"`
+	SectionID string `json:"section_id"`
+	Token     string `json:"token"`
+	TokenSet  bool   `json:"token_set"`
+}
+
+// NotificationKinds are the supported sink implementations.
+var NotificationKinds = []string{"webhook", "plex", "jellyfin", "emby"}
+
+// Notification is one configured sink.
+type Notification struct {
+	ID      int                 `json:"id"`
+	Name    string              `json:"name"`
+	Kind    string              `json:"kind"`
+	Enabled bool                `json:"enabled"`
+	Options NotificationOptions `json:"options"`
+}
+
+// ConnectSettings is the connect document (the notification feed).
+type ConnectSettings struct {
+	Notifications []Notification `json:"notifications"`
+}
+
+func DefaultConnect() ConnectSettings { return ConnectSettings{Notifications: []Notification{}} }
+
+func (c ConnectSettings) Validate() string {
+	ids := map[int]bool{}
+	for i, n := range c.Notifications {
+		if n.ID < 1 {
+			return fmt.Sprintf("notifications[%d]: id must be >= 1", i)
+		}
+		if ids[n.ID] {
+			return fmt.Sprintf("notifications[%d]: duplicate id %d", i, n.ID)
+		}
+		ids[n.ID] = true
+		if n.Name == "" {
+			return fmt.Sprintf("notifications[%d]: name is required", i)
+		}
+		if !containsString(NotificationKinds, n.Kind) {
+			return fmt.Sprintf("notifications[%d]: unknown kind %q", i, n.Kind)
+		}
+		if !isHTTPURLValue(n.Options.URL) {
+			return fmt.Sprintf("notifications[%d]: url must be an http/https URL", i)
+		}
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// metadata
+// ---------------------------------------------------------------------------
+
+// MetadataSettings is the metadata-generation document (the metadata file
+// writer's options): whether .nfo sidecars and subtitles are written on
+// import/refresh, in which language, and for which kinds.
+type MetadataSettings struct {
+	GenerateNFO       bool          `json:"generate_nfo"`
+	GenerateSubtitles bool          `json:"generate_subtitles"`
+	Language          string        `json:"language"`
+	Kinds             map[string]bool `json:"kinds"`
+}
+
+func DefaultMetadata() MetadataSettings {
+	return MetadataSettings{
+		GenerateNFO:       true,
+		GenerateSubtitles: false,
+		Language:          "en",
+		Kinds:             map[string]bool{"movie": true, "tv": true, "music": true, "book": true},
+	}
+}
+
+func (m MetadataSettings) Validate() string {
+	if len(m.Language) < 2 || len(m.Language) > 8 {
+		return "language must be a 2-8 char language code"
+	}
+	for k := range m.Kinds {
+		if !settingsLibraryKinds[k] {
+			return "kinds: unknown kind " + strconv.Quote(k)
+		}
+	}
+	return ""
+}
+
+var settingsLibraryKinds = map[string]bool{
+	"movie": true, "tv": true, "music": true, "book": true,
+}
+
+// ---------------------------------------------------------------------------
+// metadata source (P5.7 per-kind source lists)
+// ---------------------------------------------------------------------------
+
+// MetadataSourceSettings is the P5.7 document: the ordered provider chain
+// per library kind. The fallback chain tries sources in order, skipping any
+// that are not configured (missing API key), so a zero-key install still
+// searches through the keyless adapters.
+type MetadataSourceSettings struct {
+	Sources map[string][]string `json:"sources"`
+}
+
+// ProviderNames is the full vocabulary of metadata providers a kind's source
+// list may name (keyed: tmdb, tvdb; keyless: tvmaze, wikidata, musicbrainz,
+// openlibrary).
+var ProviderNames = []string{"tmdb", "tvdb", "tvmaze", "wikidata", "musicbrainz", "openlibrary"}
+
+// KeyedProviders are the providers that need an API key; keyless ones are
+// ProviderNames minus these.
+var KeyedProviders = map[string]bool{"tmdb": true, "tvdb": true}
+
+// DefaultMetadataSource returns the default per-kind chains: keyed primary
+// first, keyless fallbacks after.
+func DefaultMetadataSource() MetadataSourceSettings {
+	return MetadataSourceSettings{Sources: map[string][]string{
+		"tv":    {"tvdb", "tvmaze", "tmdb"},
+		"movie": {"tmdb"},
+		"music": {"musicbrainz"},
+		"book":  {"openlibrary"},
+	}}
+}
+
+func (m MetadataSourceSettings) Validate() string {
+	for kind, list := range m.Sources {
+		if !settingsLibraryKinds[kind] {
+			return "sources: unknown kind " + strconv.Quote(kind)
+		}
+		if len(list) == 0 {
+			return "sources." + kind + " must name at least one provider"
+		}
+		seen := map[string]bool{}
+		for _, p := range list {
+			if !containsString(ProviderNames, p) {
+				return "sources." + kind + ": unknown provider " + strconv.Quote(p)
+			}
+			if seen[p] {
+				return "sources." + kind + ": duplicate provider " + strconv.Quote(p)
+			}
+			seen[p] = true
+		}
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// import lists
+// ---------------------------------------------------------------------------
+
+// ImportListKinds are the supported import-list sources.
+var ImportListKinds = []string{"trakt", "sonarr"}
+
+// ImportList is one configured list. For trakt, URL is a Trakt list URL
+// (https://trakt.tv/users/<user>/lists/<slug>); for sonarr, URL is the base
+// URL of a Sonarr instance and APIKey its API key (masked on read).
+type ImportList struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	URL       string `json:"url"`
+	Enabled   bool   `json:"enabled"`
+	APIKey    string `json:"api_key"`
+	APIKeySet bool   `json:"api_key_set"`
+}
+
+// ImportListsSettings is the import-lists document.
+type ImportListsSettings struct {
+	Lists []ImportList `json:"lists"`
+}
+
+func DefaultImportLists() ImportListsSettings { return ImportListsSettings{Lists: []ImportList{}} }
+
+func (i ImportListsSettings) Validate() string {
+	ids := map[int]bool{}
+	for n, l := range i.Lists {
+		if l.ID < 1 {
+			return fmt.Sprintf("lists[%d]: id must be >= 1", n)
+		}
+		if ids[l.ID] {
+			return fmt.Sprintf("lists[%d]: duplicate id %d", n, l.ID)
+		}
+		ids[l.ID] = true
+		if l.Name == "" {
+			return fmt.Sprintf("lists[%d]: name is required", n)
+		}
+		if !containsString(ImportListKinds, l.Kind) {
+			return fmt.Sprintf("lists[%d]: unknown kind %q", n, l.Kind)
+		}
+		if !isHTTPURLValue(l.URL) {
+			return fmt.Sprintf("lists[%d]: url must be an http/https URL", n)
+		}
+		if l.Kind == "trakt" && !strings.Contains(l.URL, "trakt.tv") {
+			return fmt.Sprintf("lists[%d]: trakt lists must use a trakt.tv URL", n)
+		}
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// generic per-section codecs
+// ---------------------------------------------------------------------------
+
+// DecodeDocument turns stored (or nil, for unsaved) section JSON into the
+// typed document, decoded over the section defaults so a partial stored
+// document still reads complete.
+func (s Section) DecodeDocument(b []byte) (any, error) {
+	var out any
+	switch s {
+	case SectionGeneral:
+		d := DefaultGeneral()
+		out = &d
+	case SectionUI:
+		d := DefaultUI()
+		out = &d
+	case SectionQuality:
+		d := DefaultQuality()
+		out = &d
+	case SectionProfiles:
+		d := DefaultProfiles()
+		out = &d
+	case SectionTags:
+		d := DefaultTags()
+		out = &d
+	case SectionMediaManagement:
+		d := DefaultMediaManagement()
+		out = &d
+	case SectionCustomFormats:
+		d := DefaultCustomFormats()
+		out = &d
+	case SectionConnect:
+		d := DefaultConnect()
+		out = &d
+	case SectionMetadata:
+		d := DefaultMetadata()
+		out = &d
+	case SectionMetadataSource:
+		d := DefaultMetadataSource()
+		out = &d
+	case SectionImportLists:
+		d := DefaultImportLists()
+		out = &d
+	default:
+		return nil, fmt.Errorf("settings: unknown section %q", s)
+	}
+	if len(b) > 0 {
+		if err := json.Unmarshal(b, out); err != nil {
+			return nil, fmt.Errorf("settings: decode %s: %w", s, err)
+		}
+	}
+	return out, nil
+}
+
+// ValidateDocument type-switches to the document's Validate (accepts either
+// the value or pointer form, so callers can pass the result of DefaultX()).
+func (s Section) ValidateDocument(doc any) string {
+	switch v := doc.(type) {
+	case GeneralSettings, *GeneralSettings:
+		switch g := any(v).(type) {
+		case GeneralSettings:
+			return g.Validate()
+		case *GeneralSettings:
+			return g.Validate()
+		}
+	case UISettings, *UISettings:
+		switch u := any(v).(type) {
+		case UISettings:
+			return u.Validate()
+		case *UISettings:
+			return u.Validate()
+		}
+	case QualitySettings, *QualitySettings:
+		switch q := any(v).(type) {
+		case QualitySettings:
+			return q.Validate()
+		case *QualitySettings:
+			return q.Validate()
+		}
+	case ProfilesSettings, *ProfilesSettings:
+		switch p := any(v).(type) {
+		case ProfilesSettings:
+			return p.Validate()
+		case *ProfilesSettings:
+			return p.Validate()
+		}
+	case TagsSettings, *TagsSettings:
+		switch t := any(v).(type) {
+		case TagsSettings:
+			return t.Validate()
+		case *TagsSettings:
+			return t.Validate()
+		}
+	case MediaManagementSettings, *MediaManagementSettings:
+		switch m := any(v).(type) {
+		case MediaManagementSettings:
+			return m.Validate()
+		case *MediaManagementSettings:
+			return m.Validate()
+		}
+	case CustomFormatsSettings, *CustomFormatsSettings:
+		switch c := any(v).(type) {
+		case CustomFormatsSettings:
+			return c.Validate()
+		case *CustomFormatsSettings:
+			return c.Validate()
+		}
+	case ConnectSettings, *ConnectSettings:
+		switch c := any(v).(type) {
+		case ConnectSettings:
+			return c.Validate()
+		case *ConnectSettings:
+			return c.Validate()
+		}
+	case MetadataSettings, *MetadataSettings:
+		switch m := any(v).(type) {
+		case MetadataSettings:
+			return m.Validate()
+		case *MetadataSettings:
+			return m.Validate()
+		}
+	case MetadataSourceSettings, *MetadataSourceSettings:
+		switch m := any(v).(type) {
+		case MetadataSourceSettings:
+			return m.Validate()
+		case *MetadataSourceSettings:
+			return m.Validate()
+		}
+	case ImportListsSettings, *ImportListsSettings:
+		switch i := any(v).(type) {
+		case ImportListsSettings:
+			return i.Validate()
+		case *ImportListsSettings:
+			return i.Validate()
+		}
+	}
+	return fmt.Sprintf("settings: cannot validate %T", doc)
+}
+
+// MaskDocument returns a copy of the document with secrets blanked (connect
+// tokens, import-list API keys) — the read shape that goes over the wire.
+// The copy is deep enough that masking never mutates the caller's document.
+func (s Section) MaskDocument(doc any) any {
+	switch v := doc.(type) {
+	case *ConnectSettings:
+		out := *v
+		out.Notifications = make([]Notification, len(v.Notifications))
+		copy(out.Notifications, v.Notifications)
+		for i := range out.Notifications {
+			out.Notifications[i].Options.Token = ""
+		}
+		return &out
+	case *ImportListsSettings:
+		out := *v
+		out.Lists = make([]ImportList, len(v.Lists))
+		copy(out.Lists, v.Lists)
+		for i := range out.Lists {
+			out.Lists[i].APIKey = ""
+		}
+		return &out
+	case ConnectSettings:
+		out := v
+		out.Notifications = make([]Notification, len(v.Notifications))
+		copy(out.Notifications, v.Notifications)
+		for i := range out.Notifications {
+			out.Notifications[i].Options.Token = ""
+		}
+		return out
+	case ImportListsSettings:
+		out := v
+		out.Lists = make([]ImportList, len(v.Lists))
+		copy(out.Lists, v.Lists)
+		for i := range out.Lists {
+			out.Lists[i].APIKey = ""
+		}
+		return out
+	default:
+		return doc
+	}
+}
+
+// EncodeDocument marshals a typed document to its stored JSON form.
+func (s Section) EncodeDocument(doc any) ([]byte, error) {
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("settings: encode %s: %w", s, err)
+	}
+	return b, nil
+}
+
+// MergeSecrets copies stored secrets into an incoming document whose secret
+// fields are empty (the masked-password round-trip), per section.
+func (s Section) MergeSecrets(stored, incoming any) {
+	switch s {
+	case SectionConnect:
+		st, ok := stored.(*ConnectSettings)
+		if !ok {
+			return
+		}
+		in, ok := incoming.(*ConnectSettings)
+		if !ok {
+			return
+		}
+		tokens := map[int]string{}
+		for _, n := range st.Notifications {
+			tokens[n.ID] = n.Options.Token
+		}
+		for i := range in.Notifications {
+			t := in.Notifications[i]
+			if t.Options.Token != "" {
+				t.Options.TokenSet = true
+			} else if old, ok := tokens[t.ID]; ok {
+				t.Options.Token = old
+				t.Options.TokenSet = true
+			}
+			in.Notifications[i] = t
+		}
+	case SectionImportLists:
+		st, ok := stored.(*ImportListsSettings)
+		if !ok {
+			return
+		}
+		in, ok := incoming.(*ImportListsSettings)
+		if !ok {
+			return
+		}
+		keys := map[int]string{}
+		for _, l := range st.Lists {
+			keys[l.ID] = l.APIKey
+		}
+		for i := range in.Lists {
+			l := in.Lists[i]
+			if l.APIKey != "" {
+				l.APIKeySet = true
+			} else if old, ok := keys[l.ID]; ok {
+				l.APIKey = old
+				l.APIKeySet = true
+			}
+			in.Lists[i] = l
+		}
+	}
+}
+
+// ---- small helpers ----
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func isHTTPURLValue(s string) bool {
+	if s == "" {
+		return false
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}

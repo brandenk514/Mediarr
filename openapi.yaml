@@ -55,7 +55,7 @@ tags:
   - name: indexers
     description: Indexer definitions, on-demand tests, health stats.
   - name: settings
-    description: Download-client config and per-library overrides.
+    description: Settings IA (P5) — per-section documents (13-section shell), download client, library overrides, tag usage, custom-format scoring, connect test, metadata-source fallback search, import lists.
   - name: dashboard
     description: Cross-library overview.
   - name: queue
@@ -1662,6 +1662,234 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/settings/{section}:
+    get:
+      tags: [settings]
+      summary: Get one settings-section document (merged with defaults).
+      operationId: getSettingsSection
+      description: |
+        The P5 settings shell reads every section through this one endpoint.
+        The response is the section document merged with its defaults, so a
+        fresh install always returns a complete document. Section documents
+        are key/value JSON stored in the `settings` table. Secrets carried by
+        a document (connect tokens, import-list API keys) are masked on read
+        — only `*_set` presence booleans come back; a blank secret on write
+        keeps the stored value.
+      parameters:
+        - name: section
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/SettingsSection"
+      responses:
+        "200":
+          description: The section document with defaults applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsSectionDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    put:
+      tags: [settings]
+      summary: Save one settings-section document (full replace).
+      operationId: putSettingsSection
+      description: |
+        Full-document replace: the body must carry the complete document (the
+        server does not merge partial documents). Server-side validation
+        rejects unknown enum values (kinds, operators, notification kinds)
+        with 400. Secrets follow the masked round-trip — an empty value
+        keeps the stored secret.
+      parameters:
+        - name: section
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/SettingsSection"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsSectionDocument"
+      responses:
+        "200":
+          description: The saved document (masked secrets, defaults applied).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsSectionDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/tags/{id}/usage:
+    get:
+      tags: [settings]
+      summary: Usage view for one tag (which items carry it).
+      operationId: getTagUsage
+      description: |
+        The Tags section's usage view. TV series are the only tagged entity
+        today, so `series` counts series with the tag and `episodes` counts
+        the episodes of those series.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: The tag's usage counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagUsage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/custom-formats/score:
+    post:
+      tags: [settings]
+      summary: Score a candidate release against the saved custom formats.
+      operationId: scoreCustomFormats
+      description: |
+        Runs the custom-format scorer (parity with Sonarr's CF engine) over
+        the saved custom formats from the custom-formats section and returns
+        the total score with a per-format breakdown. Disabled formats and
+        unmatched rules contribute nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomFormatScoreRequest"
+      responses:
+        "200":
+          description: The score result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomFormatScoreResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/connect/test:
+    post:
+      tags: [settings]
+      summary: Test one notification (fires a test event through the dispatcher).
+      operationId: testConnectNotification
+      description: |
+        Builds the sink from the saved notification with the given id (or an
+        inline definition) and dispatches a test event through the
+        notification dispatcher. A non-2xx delivery is reported as ok=false
+        with the transport error — the endpoint itself answers 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectTestRequest"
+      responses:
+        "200":
+          description: The delivery outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectTestResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/metadata-source/search:
+    post:
+      tags: [settings]
+      summary: Search through the per-kind provider fallback chain (P5.7).
+      operationId: searchMetadataSource
+      description: |
+        Runs the metadata search for the requested kind through its ordered
+        source list (keyed primary → keyless fallback, P5.7). The first
+        source that answers with results wins. 503 (with the per-source
+        attempt log in the body) only when every configured source failed or
+        was unconfigured — so a zero-key install still searches through the
+        keyless adapters (TVmaze, Wikidata, MusicBrainz, Open Library).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MetadataSourceSearchRequest"
+      responses:
+        "200":
+          description: Results from the first working source, plus the attempt log.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetadataSourceSearchResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: Every configured source failed (attempts in the body).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetadataSourceSearchResult"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/import-lists/import:
+    post:
+      tags: [settings]
+      summary: Run an import list (Trakt list or another Sonarr instance).
+      operationId: runImportListImport
+      description: |
+        Pulls the list from the saved import list (Trakt list URL, or a
+        Sonarr instance via its v3 API — the drop-in bridge) and, unless
+        dry_run, adds the items to the matching library. Items that already
+        exist are reported, not duplicated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportRunRequest"
+      responses:
+        "200":
+          description: The per-item import report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportRunResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          description: The upstream list could not be reached.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectTestResult"
   /api/v1/dashboard:
     get:
       tags: [dashboard]
@@ -4032,3 +4260,478 @@ components:
           type: string
         detail:
           type: string
+    # ---- P5 settings sections (the 13-section settings IA) ----
+    SettingsSection:
+      type: string
+      description: The generic per-section slugs (indexers and download-clients keep their dedicated endpoints).
+      enum:
+        - general
+        - ui
+        - quality
+        - profiles
+        - tags
+        - media-management
+        - custom-formats
+        - connect
+        - metadata
+        - metadata-source
+        - import-lists
+    SettingsSectionDocument:
+      oneOf:
+        - $ref: "#/components/schemas/GeneralSettings"
+        - $ref: "#/components/schemas/UISettings"
+        - $ref: "#/components/schemas/QualitySettings"
+        - $ref: "#/components/schemas/ProfilesSettings"
+        - $ref: "#/components/schemas/TagsSettings"
+        - $ref: "#/components/schemas/MediaManagementSettings"
+        - $ref: "#/components/schemas/CustomFormatsSettings"
+        - $ref: "#/components/schemas/ConnectSettings"
+        - $ref: "#/components/schemas/MetadataSettings"
+        - $ref: "#/components/schemas/MetadataSourceSettings"
+        - $ref: "#/components/schemas/ImportListsSettings"
+    GeneralSettings:
+      type: object
+      description: |
+        App-level settings, reconciled with the env-based boot config.
+        host/port/base_url/ssl are persisted here for display and for the
+        next boot; auth_enabled/auth_pinning take effect at next boot.
+      required: [host, port, base_url, ssl, auth_enabled, auth_pinning]
+      properties:
+        host:
+          type: string
+        port:
+          type: integer
+        base_url:
+          type: string
+        ssl:
+          type: boolean
+        auth_enabled:
+          type: boolean
+        auth_pinning:
+          type: boolean
+    UISettings:
+      type: object
+      required: [default_view, date_format, time_format, items_per_page]
+      properties:
+        default_view:
+          type: string
+          enum: [dashboard, calendar, queue, wanted, series, movies, artists, authors]
+        date_format:
+          type: string
+        time_format:
+          type: string
+          enum: ["24h", "12h"]
+        items_per_page:
+          type: integer
+    QualityLevel:
+      type: object
+      required: [id, name, source, resolution, size_limit_mb]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        source:
+          type: string
+        resolution:
+          type: string
+        size_limit_mb:
+          type: integer
+          description: "0 = unlimited."
+    QualitySettings:
+      type: object
+      required: [levels]
+      properties:
+        levels:
+          type: array
+          items:
+            $ref: "#/components/schemas/QualityLevel"
+    QualityProfileItem:
+      type: object
+      required: [quality, approved]
+      properties:
+        quality:
+          type: integer
+          description: QualityLevel id.
+        approved:
+          type: boolean
+    QualityProfile:
+      type: object
+      required: [id, name, items, cutoff]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QualityProfileItem"
+        cutoff:
+          type: integer
+          description: QualityLevel id that triggers a re-download when exceeded.
+    ProfilesSettings:
+      type: object
+      required: [profiles]
+      properties:
+        profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/QualityProfile"
+    TagInfo:
+      type: object
+      required: [id, label, description]
+      properties:
+        id:
+          type: integer
+        label:
+          type: string
+        description:
+          type: string
+    TagsSettings:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/TagInfo"
+    TagUsage:
+      type: object
+      required: [id, label, series, episodes]
+      properties:
+        id:
+          type: integer
+        label:
+          type: string
+        series:
+          type: integer
+          description: Series carrying the tag (TV series are the only tagged entity today).
+        episodes:
+          type: integer
+          description: Episodes of series carrying the tag.
+    NamingTemplate:
+      type: object
+      required: [series, episode, movie, album, track, author, title]
+      properties:
+        series:
+          type: string
+        episode:
+          type: string
+        movie:
+          type: string
+        album:
+          type: string
+        track:
+          type: string
+        author:
+          type: string
+        title:
+          type: string
+    FileManagement:
+      type: object
+      required: [min_file_age_hours, remove_empty_dirs, import_extra_files, rename_series]
+      properties:
+        min_file_age_hours:
+          type: integer
+        remove_empty_dirs:
+          type: boolean
+        import_extra_files:
+          type: boolean
+          description: Pull in subtitles / images / extras alongside the media file.
+        rename_series:
+          type: boolean
+    RemotePathMapping:
+      type: object
+      required: [source, destination]
+      properties:
+        source:
+          type: string
+        destination:
+          type: string
+    MediaManagementSettings:
+      type: object
+      required: [naming, file_management, remote_path_mappings]
+      properties:
+        naming:
+          $ref: "#/components/schemas/NamingTemplate"
+        file_management:
+          $ref: "#/components/schemas/FileManagement"
+        remote_path_mappings:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemotePathMapping"
+    CFRule:
+      type: object
+      required: [field, operator, value]
+      properties:
+        field:
+          type: string
+          enum: [title, quality, source, kind, tag, size_mb]
+        operator:
+          type: string
+          enum: [contains, not_contains, equals, regex, exists, gt, lt]
+        value:
+          type: string
+    CustomFormat:
+      type: object
+      required: [id, name, enabled, score, rules]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        enabled:
+          type: boolean
+        score:
+          type: integer
+          description: Points added when every rule matches (may be negative to penalise).
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/CFRule"
+    CustomFormatsSettings:
+      type: object
+      required: [formats]
+      properties:
+        formats:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomFormat"
+    CustomFormatScoreRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        quality:
+          type: string
+        source:
+          type: string
+        kind:
+          type: string
+        size_mb:
+          type: integer
+          format: int64
+        tags:
+          type: array
+          items:
+            type: string
+    CustomFormatMatch:
+      type: object
+      required: [name, score]
+      properties:
+        name:
+          type: string
+        score:
+          type: integer
+    CustomFormatScoreResult:
+      type: object
+      required: [total, matches]
+      properties:
+        total:
+          type: integer
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomFormatMatch"
+    NotificationOptions:
+      type: object
+      required: [url, section_id, token, token_set]
+      properties:
+        url:
+          type: string
+          description: Webhook URL, or the Plex / Jellyfin / Emby base URL.
+        section_id:
+          type: string
+          description: Plex library-section id (Jellyfin/Emby refresh all when empty).
+        token:
+          type: string
+          description: Write-only in practice — reads return an empty string and set token_set instead. Blank on write keeps the stored token.
+        token_set:
+          type: boolean
+    Notification:
+      type: object
+      required: [id, name, kind, enabled, options]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [webhook, plex, jellyfin, emby]
+        enabled:
+          type: boolean
+        options:
+          $ref: "#/components/schemas/NotificationOptions"
+    ConnectSettings:
+      type: object
+      required: [notifications]
+      properties:
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+    ConnectTestRequest:
+      type: object
+      required: [id, kind, options]
+      properties:
+        id:
+          type: integer
+          description: Saved notification id; 0 = use the inline kind+options.
+        kind:
+          type: string
+          enum: [webhook, plex, jellyfin, emby]
+        options:
+          $ref: "#/components/schemas/NotificationOptions"
+        event:
+          type: string
+          description: Event type for the test dispatch. Defaults to test.
+    ConnectTestResult:
+      type: object
+      required: [ok, message]
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+    MetadataSettings:
+      type: object
+      required: [generate_nfo, generate_subtitles, language, kinds]
+      properties:
+        generate_nfo:
+          type: boolean
+          description: Write .nfo sidecars on import / refresh (the metadata file writer).
+        generate_subtitles:
+          type: boolean
+          description: Fetch sidecar subtitles on import (provider-dependent).
+        language:
+          type: string
+          description: Default subtitle / metadata language code.
+        kinds:
+          type: object
+          description: Per-kind enablement (movie / tv / music / book).
+          additionalProperties:
+            type: boolean
+    MetadataSourceSettings:
+      type: object
+      description: |
+        P5.7 per-kind source lists: the ordered provider chain for each
+        library kind (keyed primary first, keyless fallbacks after). A
+        source that is not configured (missing key) is skipped by the
+        fallback chain, so zero-key installs still work through TVmaze,
+        Wikidata, MusicBrainz and Open Library.
+      required: [sources]
+      properties:
+        sources:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    MetadataSourceSearchRequest:
+      type: object
+      required: [kind, query]
+      properties:
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        query:
+          type: string
+    ProviderAttempt:
+      type: object
+      required: [source, ok, latency_ms, error]
+      properties:
+        source:
+          type: string
+        ok:
+          type: boolean
+        latency_ms:
+          type: integer
+          format: int64
+        error:
+          type: string
+          description: empty string when ok.
+    MetadataSourceSearchResult:
+      type: object
+      required: [kind, source, results, attempts]
+      properties:
+        kind:
+          type: string
+        source:
+          type: string
+          description: The provider that answered; empty string when every source failed.
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchResult"
+        attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderAttempt"
+    ImportList:
+      type: object
+      required: [id, name, kind, url, enabled, api_key, api_key_set]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [trakt, sonarr]
+        url:
+          type: string
+          description: Trakt list URL, or the base URL of a Sonarr instance.
+        enabled:
+          type: boolean
+        api_key:
+          type: string
+          description: Sonarr instance API key; write-only in practice (reads return empty string + api_key_set).
+        api_key_set:
+          type: boolean
+    ImportListsSettings:
+      type: object
+      required: [lists]
+      properties:
+        lists:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportList"
+    ImportRunRequest:
+      type: object
+      required: [id, dry_run]
+      properties:
+        id:
+          type: integer
+          description: The import list to run.
+        dry_run:
+          type: boolean
+    ImportRunItem:
+      type: object
+      required: [external_id, title, kind, status, message]
+      properties:
+        external_id:
+          type: string
+        title:
+          type: string
+        kind:
+          type: string
+          description: The library kind the item was (or would be) added to.
+        status:
+          type: string
+          enum: [imported, exists, skipped, error]
+        message:
+          type: string
+    ImportRunResult:
+      type: object
+      required: [dry_run, total, items]
+      properties:
+        dry_run:
+          type: boolean
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportRunItem"
