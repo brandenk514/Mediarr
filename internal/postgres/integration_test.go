@@ -113,8 +113,8 @@ func TestVersion_TracksAppliedMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after migrate: %v", err)
 	}
-	if v != "0011_movie_editions" {
-		t.Errorf("version = %q, want 0011_movie_editions (highest applied)", v)
+	if v != "0012_movie_add_fields" {
+		t.Errorf("version = %q, want 0012_movie_add_fields (highest applied)", v)
 	}
 }
 
