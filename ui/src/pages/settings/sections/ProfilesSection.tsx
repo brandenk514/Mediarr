@@ -69,7 +69,14 @@ export function ProfilesSection() {
 
   function handleSave() {
     void submit(async () => {
-      const next: ProfilesSettings = { profiles }
+      // Radarr R5a: the movie/delay/release profile arrays are required doc
+      // fields; the TV page keeps sending [] until R5b renders them.
+      const next: ProfilesSettings = {
+        profiles,
+        movie_profiles: [],
+        delay_profiles: [],
+        release_profiles: [],
+      }
       await client.putSettingsSection<ProfilesSettings>('profiles', next)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)

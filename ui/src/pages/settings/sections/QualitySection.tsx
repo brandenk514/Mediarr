@@ -27,7 +27,9 @@ export function QualitySection() {
 
   function handleSave() {
     void submit(async () => {
-      const next: QualitySettings = { levels }
+      // Radarr R5a: movie_levels is a required doc field; the TV page keeps
+      // sending [] until R5b renders the movie ladder.
+      const next: QualitySettings = { levels, movie_levels: [] }
       await client.putSettingsSection<QualitySettings>('quality', next)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)

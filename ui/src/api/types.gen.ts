@@ -2108,7 +2108,11 @@ export interface components {
         AddMovieRequest: {
             title: string;
             year?: string;
-            quality_profile?: string;
+            /**
+             * @description Quality profile name (Radarr R5a); must match a seeded movie profile. Omitted = "4K Best Effort" (the Radarr v6 factory default).
+             * @default 4K Best Effort
+             */
+            quality_profile: string;
             /**
              * @description Edition-aware monitor mode (Radarr R2). all = movie + every edition
              *     monitored; movie_only = movie monitored, editions unmonitored;
@@ -2707,6 +2711,12 @@ export interface components {
             has_api_key: boolean;
             /** Format: date-time */
             last_test: string | null;
+            /** @description RSS sync for this indexer (Radarr R5a per-indexer toggle). */
+            rss: boolean;
+            /** @description Automatic search for this indexer (Radarr R5a per-indexer toggle). */
+            auto_search: boolean;
+            /** @description Interactive (manual) search for this indexer (Radarr R5a per-indexer toggle). */
+            interactive_search: boolean;
         };
         IndexerCreate: {
             name: string;
@@ -2719,6 +2729,12 @@ export interface components {
             settings_json?: string;
             /** @description Omitted = enabled (default). */
             enabled?: boolean;
+            /** @description RSS sync for this indexer (Radarr R5a). Omitted = true. */
+            rss?: boolean;
+            /** @description Automatic search for this indexer (Radarr R5a). Omitted = true. */
+            auto_search?: boolean;
+            /** @description Interactive search for this indexer (Radarr R5a). Omitted = true. */
+            interactive_search?: boolean;
         };
         IndexerUpdate: {
             name: string;
@@ -2729,6 +2745,12 @@ export interface components {
             api_key?: string;
             /** @description Empty = keep the stored settings. */
             settings_json?: string;
+            /** @description Omitted = keep the stored value (Radarr R5a). */
+            rss?: boolean;
+            /** @description Omitted = keep the stored value (Radarr R5a). */
+            auto_search?: boolean;
+            /** @description Omitted = keep the stored value (Radarr R5a). */
+            interactive_search?: boolean;
         };
         IndexerEnabled: {
             enabled: boolean;
@@ -2977,6 +2999,12 @@ export interface components {
         };
         QualitySettings: {
             levels: components["schemas"]["QualityLevel"][];
+            /**
+             * @description Radarr movie quality definitions (Radarr R5a). A separate ID
+             *     space from the TV levels, starting at 100, so movie quality
+             *     profile items can't collide with TV level ids.
+             */
+            movie_levels: components["schemas"]["QualityLevel"][];
         };
         QualityProfileItem: {
             /** @description QualityLevel id. */
@@ -2990,8 +3018,46 @@ export interface components {
             /** @description QualityLevel id that triggers a re-download when exceeded. */
             cutoff: number;
         };
+        /**
+         * @description Search delay per release source, in hours (Radarr R5a; Radarr's
+         *     delay profiles). 0 = no delay.
+         */
+        DelayProfile: {
+            id: number;
+            name: string;
+            description: string;
+            webrip: number;
+            bluray: number;
+            remux: number;
+            brdisk: number;
+            rawhd: number;
+            hdtv: number;
+        };
+        /**
+         * @description Which release sources may be considered (Radarr R5a; Radarr's
+         *     release profiles). Every flag defaults to true.
+         */
+        ReleaseProfile: {
+            id: number;
+            name: string;
+            description: string;
+            webrip: boolean;
+            bluray: boolean;
+            remux: boolean;
+            brdisk: boolean;
+            rawhd: boolean;
+            hdtv: boolean;
+        };
         ProfilesSettings: {
             profiles: components["schemas"]["QualityProfile"][];
+            /**
+             * @description Radarr movie quality profiles (Radarr R5a). Seeded with the 14
+             *     Radarr v6 defaults; profile ids live in a separate space from the
+             *     TV profiles (100+). Items reference movie quality level ids.
+             */
+            movie_profiles: components["schemas"]["QualityProfile"][];
+            delay_profiles: components["schemas"]["DelayProfile"][];
+            release_profiles: components["schemas"]["ReleaseProfile"][];
         };
         TagInfo: {
             id: number;
@@ -3024,6 +3090,24 @@ export interface components {
             /** @description Pull in subtitles / images / extras alongside the media file. */
             import_extra_files: boolean;
             rename_series: boolean;
+            /** @description Unmonitor a movie when its files are deleted (Radarr R5a file management; defaults to true). */
+            unmonitor_deleted_movies?: boolean;
+        };
+        /**
+         * @description Radarr movie naming block (R5a). standard_format is the movie's
+         *     standard naming template in the same brace-token style as the rest of
+         *     the naming document — it renders, for example, to "Title (2010)
+         *     Bluray-1080p Proper".
+         */
+        MovieNaming: {
+            /** @description Rename movie files to the standard format. */
+            rename_movies: boolean;
+            /** @description Replace characters the filesystem rejects. */
+            replace_illegal_characters: boolean;
+            /** @description Single character (or empty) used for ':' in titles. */
+            colon_replacement: string;
+            /** @description Standard movie naming template (brace tokens). */
+            standard_format: string;
         };
         RemotePathMapping: {
             source: string;
@@ -3031,6 +3115,7 @@ export interface components {
         };
         MediaManagementSettings: {
             naming: components["schemas"]["NamingTemplate"];
+            movie_naming: components["schemas"]["MovieNaming"];
             file_management: components["schemas"]["FileManagement"];
             remote_path_mappings: components["schemas"]["RemotePathMapping"][];
         };
@@ -3149,11 +3234,15 @@ export interface components {
             id: number;
             name: string;
             /** @enum {string} */
-            kind: "trakt" | "sonarr";
-            /** @description Trakt list URL, or the base URL of a Sonarr instance. */
-            url: string;
+            kind: "trakt" | "sonarr" | "radarr";
+            /** @description Trakt list URL, or the base URL of a Sonarr instance. Required for trakt/sonarr kinds; radarr lists use host/port instead. */
+            url?: string;
+            /** @description Radarr instance host (kind radarr, R5a drop-in bridge); '' for other kinds. */
+            host?: string;
+            /** @description Radarr instance port (kind radarr, R5a; 1-65535); 0 for other kinds. */
+            port?: number;
             enabled: boolean;
-            /** @description Sonarr instance API key; write-only in practice (reads return empty string + api_key_set). */
+            /** @description Sonarr instance API key (the Trakt client id for trakt lists); for radarr, the Radarr instance API key. Masked on read, write-only in practice. */
             api_key: string;
             api_key_set: boolean;
         };

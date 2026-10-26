@@ -76,6 +76,9 @@ export function MovieAddPage() {
   const { busy, error, submit } = useAddSubmit(async () => {
     const req: AddMovieRequest = {
       title: title.trim(),
+      // Radarr R5a: the generated type makes quality_profile required; the
+      // factory default is sent until R5b wires up a profile picker.
+      quality_profile: '4K Best Effort',
       monitor,
       minimum_availability: minAvailability,
       start_search: startSearch,

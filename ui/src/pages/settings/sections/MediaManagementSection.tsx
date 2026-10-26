@@ -96,6 +96,14 @@ export function MediaManagementSection() {
     void submit(async () => {
       const next: MediaManagementSettings = {
         naming,
+        // Radarr R5a: movie_naming is a required doc field; the page keeps
+        // sending the Radarr defaults until R5b renders the movie naming form.
+        movie_naming: {
+          rename_movies: true,
+          replace_illegal_characters: true,
+          colon_replacement: '',
+          standard_format: '{movie-title} ({year}) {quality} {edition}',
+        },
         file_management: fileMgmt,
         remote_path_mappings: mappings,
       }

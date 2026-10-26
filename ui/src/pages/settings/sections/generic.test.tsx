@@ -180,6 +180,7 @@ describe('QualitySection', () => {
             { id: 2, name: '720p', source: 'web', resolution: '720p', size_limit_mb: 0 },
             { id: 3, name: '1080p', source: 'web', resolution: '1080p', size_limit_mb: 0 },
           ],
+          movie_levels: [],
         },
       ),
     )

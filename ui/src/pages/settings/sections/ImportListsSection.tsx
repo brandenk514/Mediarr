@@ -41,7 +41,7 @@ export function ImportListsSection() {
     setEditId(l.id)
     setName(l.name)
     setKind(l.kind as (typeof LIST_KINDS)[number])
-    setUrl(l.url)
+    setUrl(l.url ?? '')
     setApiKey('')
   }
 

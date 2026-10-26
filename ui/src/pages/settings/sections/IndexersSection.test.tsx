@@ -27,6 +27,9 @@ function indexer(over: Partial<Indexer> = {}): Indexer {
     enabled: true,
     has_api_key: false,
     last_test: '2026-10-11T09:00:00Z',
+    rss: true,
+    auto_search: true,
+    interactive_search: true,
     ...over,
   }
 }
