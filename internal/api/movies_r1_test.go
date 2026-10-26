@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -31,8 +32,8 @@ func TestMovies_GetStats(t *testing.T) {
 	repo := newListMoviesRepo()
 	repo.seed(moviesdom.Movie{Title: "Inception", Year: 2010, Monitored: true, QualityProfile: "HD-1080p"})
 	repo.seed(moviesdom.Movie{Title: "Tenet", Year: 2020, Monitored: false, QualityProfile: "HD-1080p"})
-	_, _ = repo.CreateMovieFile(nil, moviesdom.MovieFile{MovieID: 1, RelativePath: "Inception (2010)/Inception.mkv", Size: 2_000_000_000})
-	_, _ = repo.CreateMovieFile(nil, moviesdom.MovieFile{MovieID: 1, RelativePath: "Inception (2010)/Inception.1080p.mkv", Size: 1_000_000_000})
+	_, _ = repo.CreateMovieFile(context.TODO(), moviesdom.MovieFile{MovieID: 1, RelativePath: "Inception (2010)/Inception.mkv", Size: 2_000_000_000})
+	_, _ = repo.CreateMovieFile(context.TODO(), moviesdom.MovieFile{MovieID: 1, RelativePath: "Inception (2010)/Inception.1080p.mkv", Size: 1_000_000_000})
 
 	s, token := newListTestServer(t, repo)
 	rec := getJSON(t, s.Handler(), "/api/v1/movies/stats", token)
@@ -75,7 +76,7 @@ type movieDetailBody struct {
 func TestMovies_GetMovie_EmbedsEditionsAndFiles(t *testing.T) {
 	repo := newListMoviesRepo()
 	id := repo.seed(moviesdom.Movie{Title: "Inception", Year: 2010, Monitored: true, QualityProfile: "HD-1080p"})
-	_, _ = repo.CreateMovieFile(nil, moviesdom.MovieFile{
+	_, _ = repo.CreateMovieFile(context.TODO(), moviesdom.MovieFile{
 		MovieID: id, RelativePath: "Inception (2010)/Inception.mkv",
 		VideoCodec: "x265", Size: 1_500_000_000, Languages: []string{"en"}, Quality: "2160p", Formats: []string{"web"},
 	})
@@ -162,7 +163,7 @@ func TestMovies_SetMovieEditionMonitored(t *testing.T) {
 	if off.Monitored {
 		t.Fatal("monitored = true after toggle off")
 	}
-	e, err := repo.GetEdition(nil, edID)
+	e, err := repo.GetEdition(context.TODO(), edID)
 	if err != nil {
 		t.Fatal(err)
 	}

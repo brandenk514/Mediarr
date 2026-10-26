@@ -254,10 +254,7 @@ func (r *memRepo) CreateMovieFile(ctx context.Context, f dom.MovieFile) (int64, 
 }
 
 func (r *memRepo) ListMovieFiles(ctx context.Context) ([]dom.MovieFile, error) {
-	out := make([]dom.MovieFile, 0, len(r.files))
-	for _, f := range r.files {
-		out = append(out, f)
-	}
+	out := append([]dom.MovieFile{}, r.files...)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].MovieID != out[j].MovieID {
 			return out[i].MovieID < out[j].MovieID
