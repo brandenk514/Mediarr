@@ -105,10 +105,10 @@ func TestEnricher_FillsDetailFields(t *testing.T) {
 
 func TestEnricher_DegradesGracefully(t *testing.T) {
 	cases := map[string]*stubDetailer{
-		"search error (no key)":  {searchErr: providers.ErrNotConfigured},
-		"no search results":      {},
-		"detail fetch error":     {searchResults: []providers.Result{{ID: "1", Title: "X", Year: 2020}}, detailErr: errors.New("boom")},
-		"detail nil":             {searchResults: []providers.Result{{ID: "1", Title: "X", Year: 2020}}},
+		"search error (no key)": {searchErr: providers.ErrNotConfigured},
+		"no search results":     {},
+		"detail fetch error":    {searchResults: []providers.Result{{ID: "1", Title: "X", Year: 2020}}, detailErr: errors.New("boom")},
+		"detail nil":            {searchResults: []providers.Result{{ID: "1", Title: "X", Year: 2020}}},
 	}
 	for name, stub := range cases {
 		t.Run(name, func(t *testing.T) {

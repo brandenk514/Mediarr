@@ -197,4 +197,3 @@ func TestMovies_SetMovieEditionMonitored(t *testing.T) {
 		t.Fatalf("bad edition id status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }
-

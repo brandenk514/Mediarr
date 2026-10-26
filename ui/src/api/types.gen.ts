@@ -1929,7 +1929,7 @@ export interface components {
          * @enum {string}
          */
         MovieStatus: "downloaded:monitored" | "downloaded:unmonitored" | "missing:monitored" | "missing:unmonitored" | "queued" | "unreleased";
-        /** @description External scores; every field null when unknown. */
+        /** @description External scores; the whole object is null until a metadata provider fills it. */
         MovieScores: {
             /** @description TMDB vote average scaled to 0-100. */
             TmdbPct?: number | null;
@@ -1939,7 +1939,7 @@ export interface components {
             RottenTomatoes?: number | null;
             /** @description Metacritic score (0-100). */
             Metacritic?: number | null;
-        };
+        } | null;
         MovieCast: {
             Name: string;
             /** @description Character played; empty when unknown. */

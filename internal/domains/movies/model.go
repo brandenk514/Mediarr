@@ -29,24 +29,24 @@ type Movie struct {
 	AddedAt        time.Time
 
 	// Enrichment (TMDB detail fetch; nil/empty without a provider).
-	Certification    *string
-	Runtime          *int // minutes
-	Studio           *string
-	Genres           []string
-	OriginalLanguage *string // ISO language code
-	CollectionName   *string
-	Overview         *string
-	Scores           *MovieScores
-	Cast             []MovieCast
-	Crew             []MovieCrew
+	Certification     *string
+	Runtime           *int // minutes
+	Studio            *string
+	Genres            []string
+	OriginalLanguage  *string // ISO language code
+	CollectionName    *string
+	Overview          *string
+	Scores            *MovieScores
+	Cast              []MovieCast
+	Crew              []MovieCrew
 	AlternativeTitles []AlternativeTitle
 
 	// File/edition state (R1).
-	Path    *string    // relative file path under the media root; nil when no file
-	Status  MovieStatus // derived; see DeriveMovieStatus
-	Size    *int64    // total bytes of the movie's files; nil when no file
+	Path     *string     // relative file path under the media root; nil when no file
+	Status   MovieStatus // derived; see DeriveMovieStatus
+	Size     *int64      // total bytes of the movie's files; nil when no file
 	Editions []Edition
-	Files     []MovieFile
+	Files    []MovieFile
 
 	// ReleaseDate is the provider release date (enrichment only, not part of
 	// the API payload); it feeds the 'unreleased' status derivation.
@@ -83,12 +83,12 @@ type AlternativeTitle struct {
 type MovieStatus string
 
 const (
-	StatusDownloadedMonitored  MovieStatus = "downloaded:monitored"
+	StatusDownloadedMonitored   MovieStatus = "downloaded:monitored"
 	StatusDownloadedUnmonitored MovieStatus = "downloaded:unmonitored"
-	StatusMissingMonitored     MovieStatus = "missing:monitored"
-	StatusMissingUnmonitored   MovieStatus = "missing:unmonitored"
-	StatusQueued               MovieStatus = "queued"
-	StatusUnreleased           MovieStatus = "unreleased"
+	StatusMissingMonitored      MovieStatus = "missing:monitored"
+	StatusMissingUnmonitored    MovieStatus = "missing:unmonitored"
+	StatusQueued                MovieStatus = "queued"
+	StatusUnreleased            MovieStatus = "unreleased"
 )
 
 // DeriveMovieStatus computes a movie's status from its wanted/queue/file

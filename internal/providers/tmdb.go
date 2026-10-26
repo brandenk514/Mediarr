@@ -77,7 +77,7 @@ type CrewCredit struct {
 type MovieDetail struct {
 	TmdbID           string
 	Overview         string
-	Runtime          int // minutes; 0 when unknown
+	Runtime          int    // minutes; 0 when unknown
 	OriginalLanguage string // ISO code ("en"); "" when unknown
 	VoteAverage      float64
 	ReleaseDate      string // "YYYY-MM-DD"; "" when unknown
@@ -105,11 +105,11 @@ func (t *TMDB) GetMovieDetail(ctx context.Context, tmdbID string) (*MovieDetail,
 	values := url.Values{}
 	values.Set("append_to_response", "credits,release_dates,genres")
 	var resp struct {
-		Overview          string  `json:"overview"`
-		Runtime           int     `json:"runtime"`
-		OriginalLanguage  string  `json:"original_language"`
-		VoteAverage       float64 `json:"vote_average"`
-		ReleaseDate       string  `json:"release_date"`
+		Overview            string  `json:"overview"`
+		Runtime             int     `json:"runtime"`
+		OriginalLanguage    string  `json:"original_language"`
+		VoteAverage         float64 `json:"vote_average"`
+		ReleaseDate         string  `json:"release_date"`
 		BelongsToCollection struct {
 			Name string `json:"name"`
 		} `json:"belongs_to_collection"`
@@ -131,8 +131,8 @@ func (t *TMDB) GetMovieDetail(ctx context.Context, tmdbID string) (*MovieDetail,
 		} `json:"credits"`
 		ReleaseDates struct {
 			Results []struct {
-				Iso     string `json:"iso_3166_1"`
-				Dates   []struct {
+				Iso   string `json:"iso_3166_1"`
+				Dates []struct {
 					Certification string `json:"certification"`
 				} `json:"release_dates"`
 			} `json:"results"`

@@ -24,12 +24,12 @@ import (
 // meaningfully; the wanted/queue/history methods are present so the interface
 // compiles.
 type listMoviesRepo struct {
-	movies    map[int64]moviesdom.Movie
-	wanted    map[int64]*moviesdom.Wanted
-	editions  map[int64]moviesdom.Edition
-	files     []moviesdom.MovieFile
-	nextID    int64
-	nextEdID  int64
+	movies     map[int64]moviesdom.Movie
+	wanted     map[int64]*moviesdom.Wanted
+	editions   map[int64]moviesdom.Edition
+	files      []moviesdom.MovieFile
+	nextID     int64
+	nextEdID   int64
 	nextFileID int64
 }
 
