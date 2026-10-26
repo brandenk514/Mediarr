@@ -61,6 +61,47 @@ func (r *MovieRepo) CreateMovie(ctx context.Context, m movies.Movie) (int64, err
 	return id, nil
 }
 
+// FindMovieByTitleYear returns the id of an existing movie matching title +
+// year (the movie domain's identity), or found=false. Used by the Radarr
+// drop-in migration (R6) to report an already-imported movie as "exists"
+// instead of duplicating it.
+func (r *MovieRepo) FindMovieByTitleYear(ctx context.Context, title string, year int) (int64, bool) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM movies WHERE title = $1 AND year = $2 ORDER BY id LIMIT 1`,
+		title, year).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, false
+	}
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
+// UpsertEdition inserts an edition or updates its monitored/quality/size
+// when the (movie_id, label) key already exists, and reports whether the row
+// was newly created. Used by the Radarr drop-in migration (R6): the
+// 'Theatrical' edition seeded on movie create is updated, not duplicated.
+func (r *MovieRepo) UpsertEdition(ctx context.Context, movieID int64, label string, monitored bool, quality string, size int64) (int64, bool, error) {
+	var id int64
+	var created bool
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO editions (movie_id, label, monitored, quality, size)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (movie_id, label) DO UPDATE
+		SET monitored = EXCLUDED.monitored,
+		    quality   = EXCLUDED.quality,
+		    size      = EXCLUDED.size
+		RETURNING id, (xmax = 0)`,
+		movieID, label, monitored, quality, size,
+	).Scan(&id, &created)
+	if err != nil {
+		return 0, false, fmt.Errorf("movies: upsert edition: %w", err)
+	}
+	return id, created, nil
+}
+
 // GetMovie loads a movie by id.
 func (r *MovieRepo) GetMovie(ctx context.Context, id int64) (*movies.Movie, error) {
 	row := r.db.QueryRowContext(ctx, `

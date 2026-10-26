@@ -267,11 +267,14 @@ func boolOrTrue(b *bool) bool { return b == nil || *b }
 
 // MigrationRequest is the POST body (OpenAPI MigrationRequest).
 type MigrationRequest struct {
-	SourceURL string            `json:"source_url"`
-	APIKey    string            `json:"api_key"`
-	DryRun    bool              `json:"dry_run"`
-	Resume    bool              `json:"resume"`
-	Include   *MigrationInclude `json:"include,omitempty"`
+	SourceURL string `json:"source_url"`
+	// Source is the source application (R6: sonarr | radarr; "" = sonarr,
+	// the default — existing Sonarr requests are unchanged).
+	Source  string            `json:"source"`
+	APIKey  string            `json:"api_key"`
+	DryRun  bool              `json:"dry_run"`
+	Resume  bool              `json:"resume"`
+	Include *MigrationInclude `json:"include,omitempty"`
 }
 
 // MigrationItem is one migrated entity in the mapping report (OpenAPI

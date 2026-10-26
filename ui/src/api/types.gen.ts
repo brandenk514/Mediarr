@@ -1788,13 +1788,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Run the Sonarr drop-in migration.
-         * @description The drop-in moment: pulls a live Sonarr instance (series +
-         *     seasons/episodes + quality profiles + tags + indexers + download
-         *     client) via its v3 API and imports it into Mediarr, returning a
-         *     mapping report. dry_run reports what would be imported without
-         *     writing; the run is idempotent (re-runnable, no duplicates) and
-         *     resumable (a partial run can be continued).
+         * Run the drop-in migration (Sonarr or Radarr).
+         * @description The drop-in moment: pulls a live Sonarr or Radarr instance (Sonarr:
+         *     series + seasons/episodes; Radarr: movies + editions) plus quality
+         *     profiles + tags + indexers + download client (and, for Radarr, a
+         *     best-effort settings subset) via its v3 API and imports it into
+         *     Mediarr, returning a mapping report. dry_run reports what would be
+         *     imported without writing; the run is idempotent (re-runnable, no
+         *     duplicates) and resumable (a partial run can be continued).
          */
         post: operations["runMigration"];
         delete?: never;
@@ -3454,9 +3455,15 @@ export interface components {
             download_client?: boolean;
         };
         MigrationRequest: {
-            /** @description Base URL of the Sonarr instance (e.g. http://sonarr.local:8989). */
+            /** @description Base URL of the source instance (e.g. http://sonarr.local:8989 or https://radarr.local:7878). */
             source_url: string;
-            /** @description Sonarr API key (sent as X-Api-Key). */
+            /**
+             * @description The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance).
+             * @default sonarr
+             * @enum {string}
+             */
+            source: "sonarr" | "radarr";
+            /** @description Source API key (sent as X-Api-Key). */
             api_key?: string;
             /** @description Report only; add nothing. */
             dry_run: boolean;

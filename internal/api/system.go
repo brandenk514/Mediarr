@@ -41,8 +41,10 @@ type SystemDeps struct {
 	// Logs is the streaming log viewer source (nil = logs not wired).
 	Logs *system.LogService
 
-	// ---- Wave 3: Sonarr drop-in migration ----
-	Migration *system.Migrator
+	// ---- Wave 3: drop-in migration (Sonarr, and Radarr from R6) ----
+	// Migration routes the shared endpoints to the source selected by
+	// MigrationRequest.source (nil = migration not wired).
+	Migration *system.MigrationService
 }
 
 // SetSystem wires the System area endpoints. Called after construction,
