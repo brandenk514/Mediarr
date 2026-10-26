@@ -2706,13 +2706,24 @@ paths:
   /api/v1/calendar:
     get:
       tags: [calendar]
-      summary: Upcoming monitored air dates in [start, end] (Calendar page).
-      description: Monitored episodes whose provider air date falls within the
-        window and is in the future (today or later). A missing or invalid
-        start/end falls back to today .. today+30d. An empty window returns [].
+      summary: Upcoming monitored air dates (tv) or release dates (movie) in [start, end].
+      description: kind=tv (the default) is the Sonarr P4 behavior, unchanged.
+        Monitored episodes whose provider air date falls within the window and
+        is in the future (today or later). kind=movie (Radarr R4) lists
+        monitored movies whose release date falls within the window and is not
+        in the past. A missing or invalid start/end falls back to today ..
+        today+30d. An empty window returns [].
       operationId: listCalendar
       security: [bearerAuth: []]
       parameters:
+        - name: kind
+          in: query
+          required: false
+          description: Calendar kind. tv (default) or movie (R4 movie calendar).
+          schema:
+            type: string
+            enum: [tv, movie]
+            default: tv
         - name: start
           in: query
           required: false
@@ -2741,15 +2752,25 @@ paths:
   /calendar.ics:
     get:
       tags: [calendar]
-      summary: iCal feed of the upcoming monitored air dates.
+      summary: iCal feed of the upcoming monitored air dates (tv) or release dates (movie).
       description: RFC 5545 iCal document (a VCALENDAR wrapper with a VEVENT
-        per episode) for importing into Google/Apple Calendar. Auth via the
-        app's bearer token, sent either as a standard Authorization header or a
-        ?token= query param (the latter so a plain calendar-client / <a> link
-        works).
+        per entry) for importing into Google/Apple Calendar. kind=tv (the
+        default) keeps the P4 episode feed. kind=movie (Radarr R4) emits an
+        all-day VEVENT per movie on its release date, SUMMARY "Title (Year)".
+        Auth via the app's bearer token, sent either as a standard
+        Authorization header or a ?token= query param (the latter so a plain
+        calendar-client / <a> link works).
       operationId: calendarFeed
       security: [bearerAuth: []]
       parameters:
+        - name: kind
+          in: query
+          required: false
+          description: Calendar kind. tv (default) or movie (R4 movie calendar).
+          schema:
+            type: string
+            enum: [tv, movie]
+            default: tv
         - name: token
           in: query
           required: false
@@ -3441,6 +3462,12 @@ components:
             TMDB collection id when the movie belongs to one (persisted by
             the enricher, Radarr R3); null/"" when unknown. The collections
             page groups library movies by this.
+        ReleaseDate:
+          type: string
+          description: >-
+            Provider release date, "YYYY-MM-DD" (persisted by the enricher,
+            Radarr R4); "" when unknown (keyless dev). Feeds the movie
+            calendar and the "unreleased" status.
         Overview:
           type: string
           nullable: true
@@ -4517,12 +4544,14 @@ components:
       properties:
         kind:
           type: string
-          enum: [tv]
+          enum: [tv, movie]
         series_id:
           type: integer
           format: int64
+          description: The series id (kind=tv) or the movie id (kind=movie).
         series_title:
           type: string
+          description: The show title (kind=tv) or the movie title (kind=movie).
         season:
           type: integer
         episode:
@@ -4545,6 +4574,20 @@ components:
           type: string
           format: date-time
           description: Derived air end (air start + the default runtime).
+          # R4 (movie calendar). The movie variant's identifying extras;
+          # omitted on TV entries (the TV wire shape is byte-compatible).
+        year:
+          type: integer
+          nullable: true
+          description: The movie's year (kind=movie only; omitted on TV entries).
+        status:
+          type: string
+          nullable: true
+          description: The movie's derived status (kind=movie only; omitted on TV entries).
+        quality_profile:
+          type: string
+          nullable: true
+          description: The movie's quality profile name (kind=movie only; omitted on TV entries).
     WantedSearchRequest:
       type: object
       properties:

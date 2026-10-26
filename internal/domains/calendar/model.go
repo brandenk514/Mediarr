@@ -1,5 +1,6 @@
-// Package calendar is the P4 domain: it shapes upcoming monitored TV air
-// dates into the calendar page's rows and the iCal feed.
+// Package calendar is the P4/R4 domain: it shapes upcoming monitored TV air
+// dates (P4) and movie release dates (R4) into the calendar page's rows and
+// the iCal feed.
 //
 // The only I/O boundary is the Repo interface (implemented by the Postgres
 // store); everything else here is pure and unit-testable without a database.
@@ -9,6 +10,13 @@
 // derives a full time range from each date: start is the date at
 // DefaultAirTime (UTC) and end is start + DefaultRuntime. The feed and the
 // page both read from these derived values.
+//
+// Release dates (R4): movies carry a date-only release date
+// (movies.release_date, "YYYY-MM-DD", persisted by the TMDB enricher). The
+// movie calendar derives an all-day range per release (midnight .. 23:59
+// UTC) and reuses the Entry wire shape — SeriesID/SeriesTitle carry the
+// movie id/title and the Year/Status/QualityProfile extras hold the movie
+// variant's identifying fields.
 package calendar
 
 import (
@@ -16,10 +24,25 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
+)
+
+// Kind is which feed a calendar window is for.
+type Kind string
+
+const (
+	// KindTV is the P4 TV air-date calendar (the default).
+	KindTV Kind = "tv"
+	// KindMovie is the R4 movie release-date calendar.
+	KindMovie Kind = "movie"
 )
 
 // Entry is one upcoming air date, in the wire shape returned by
 // GET /api/v1/calendar (snake_case, matching the OpenAPI CalendarEntry).
+// The same shape carries movie entries (kind=movie, R4): SeriesID is the
+// movie id, SeriesTitle the movie title, season/episode/sxe are zero/"" and
+// the Year/Status/QualityProfile fields hold the movie's identifying extras.
 type Entry struct {
 	Kind         string     `json:"kind"`
 	SeriesID     int64      `json:"series_id"`
@@ -31,6 +54,12 @@ type Entry struct {
 	AirDate      *time.Time `json:"air_date"`
 	AirStart     time.Time  `json:"air_start"`
 	AirEnd       time.Time  `json:"air_end"`
+
+	// R4 movie-calendar extras. Zero/empty on TV entries; the omitempty
+	// tags keep the TV wire shape byte-compatible.
+	Year           int    `json:"year,omitempty"`
+	Status         string `json:"status,omitempty"`
+	QualityProfile string `json:"quality_profile,omitempty"`
 }
 
 // EpisodeRow is the repository shape: an episode with a known air date, plus
@@ -45,12 +74,34 @@ type EpisodeRow struct {
 	Monitored    bool
 }
 
-// Repo provides the episodes the calendar renders over.
+// MovieRow is the R4 repository shape: a movie with a known release date, its
+// monitor flag, and the state the status derivation needs (wanted
+// satisfaction + active queue entry), as selected by the store.
+type MovieRow struct {
+	ID    int64
+	Title string
+	Year  int
+	// ReleaseDate is nil when unknown or unparseable (such rows are
+	// excluded by BuildMovies).
+	ReleaseDate *time.Time
+	Monitored   bool
+	// WantedSatisfied/InQueue feed DeriveMovieStatus so the calendar agrees
+	// with the library's status chips.
+	WantedSatisfied bool
+	InQueue         bool
+	QualityProfile  string
+}
+
+// Repo provides the episodes and movies the calendar renders over.
 type Repo interface {
 	// Episodes returns every episode with a known air date, joined with its
 	// series title and monitor flag, ordered by air date then show, season,
 	// episode.
 	Episodes(ctx context.Context) ([]EpisodeRow, error)
+	// MovieRows returns every movie with a known (non-empty) release date,
+	// with its monitor flag and the status-derivation state, ordered by
+	// release date then title (R4 movie calendar).
+	MovieRows(ctx context.Context) ([]MovieRow, error)
 }
 
 var (
@@ -73,6 +124,15 @@ func AirRange(airDate time.Time) (start, end time.Time) {
 	y, m, d := airDate.Date()
 	start = time.Date(y, m, d, DefaultAirTime.Hour(), DefaultAirTime.Minute(), DefaultAirTime.Second(), 0, time.UTC)
 	return start, start.Add(DefaultRuntime)
+}
+
+// ReleaseRange derives the calendar time range from a movie's release date
+// (R4): start is the release day at midnight (UTC) and end is 23:59 on that
+// day — the all-day span the UI shows as 00:00–23:59.
+func ReleaseRange(releaseDate time.Time) (start, end time.Time) {
+	y, m, d := releaseDate.Date()
+	start = time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	return start, time.Date(y, m, d, 23, 59, 0, 0, time.UTC)
 }
 
 // utcDate truncates t to its UTC calendar date (midnight), so date-only
@@ -117,6 +177,45 @@ func Build(rows []EpisodeRow, start, end, now time.Time) []Entry {
 	return out
 }
 
+// BuildMovies filters the store rows into movie calendar entries (R4):
+// monitored movies whose release date is within [start, end] (inclusive,
+// date-based) and not in the past (on or after now's date — the same future
+// rule as TV). The entry's identifying fields carry the movie: SeriesID is
+// the movie id, SeriesTitle the title, and Year/Status/QualityProfile hold
+// the movie variant's extras. The status uses the movies domain's shared
+// derivation so the calendar agrees with the library's status chips. The
+// input order is preserved. The returned slice is never nil.
+func BuildMovies(rows []MovieRow, start, end, now time.Time) []Entry {
+	sd, ed, nd := utcDate(start), utcDate(end), utcDate(now)
+	out := make([]Entry, 0, len(rows))
+	for _, r := range rows {
+		if !r.Monitored || r.ReleaseDate == nil {
+			continue
+		}
+		rd := utcDate(*r.ReleaseDate)
+		if rd.Before(sd) || rd.After(ed) {
+			continue
+		}
+		if rd.Before(nd) {
+			continue // already released
+		}
+		as, ae := ReleaseRange(*r.ReleaseDate)
+		status := moviesdom.DeriveMovieStatus(r.WantedSatisfied, r.InQueue, r.Monitored, r.ReleaseDate, now)
+		out = append(out, Entry{
+			Kind:           string(KindMovie),
+			SeriesID:       r.ID,
+			SeriesTitle:    r.Title,
+			AirDate:        r.ReleaseDate,
+			AirStart:       as,
+			AirEnd:         ae,
+			Year:           r.Year,
+			Status:         string(status),
+			QualityProfile: r.QualityProfile,
+		})
+	}
+	return out
+}
+
 // icsStamp renders a time as an RFC 5545 UTC date-time (20060102T150405Z).
 func icsStamp(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z")
@@ -132,16 +231,26 @@ func icsText(s string) string {
 	return s
 }
 
-// icsUID returns a stable, unique identifier for an episode so calendar
+// icsUID returns a stable, unique identifier for an entry so calendar
 // clients de-duplicate it across feed refreshes.
 func icsUID(e Entry) string {
+	if e.Kind == string(KindMovie) {
+		return fmt.Sprintf("mediarr-movie-%d@mediarr", e.SeriesID)
+	}
 	return fmt.Sprintf("mediarr-tv-%d-s%02d-e%02d@mediarr", e.SeriesID, e.Season, e.Episode)
 }
 
+// movieSummary is the iCal SUMMARY for a movie entry: "Title (Year)".
+func movieSummary(e Entry) string {
+	return fmt.Sprintf("%s (%d)", e.SeriesTitle, e.Year)
+}
+
 // RenderICal renders the entries as an RFC 5545 iCal document: a VCALENDAR
-// wrapper (VERSION + PRODID) with one VEVENT per entry. Each event carries a
-// stable UID, a DTSTAMP (now), DTSTART/DTEND (the air range), and a SUMMARY of
-// "Show - Title". `now` is injected for a deterministic DTSTAMP in tests. The
+// wrapper (VERSION + PRODID) with one VEVENT per entry. TV entries carry a
+// stable UID, a DTSTAMP (now), DTSTART/DTEND (the air range) and a SUMMARY
+// of "Show - Title". Movie entries (R4) are all-day events on the release
+// date (DATE values, DTEND the exclusive day after) with SUMMARY "Title
+// (Year)". `now` is injected for a deterministic DTSTAMP in tests. The
 // output uses CRLF line endings and is directly importable by Google/Apple
 // Calendar.
 func RenderICal(entries []Entry, now time.Time) string {
@@ -155,10 +264,19 @@ func RenderICal(entries []Entry, now time.Time) string {
 		b.WriteString("BEGIN:VEVENT\r\n")
 		b.WriteString("UID:" + icsUID(e) + "\r\n")
 		b.WriteString("DTSTAMP:" + icsStamp(now) + "\r\n")
-		b.WriteString("DTSTART:" + icsStamp(e.AirStart) + "\r\n")
-		b.WriteString("DTEND:" + icsStamp(e.AirEnd) + "\r\n")
-		b.WriteString("SUMMARY:" + icsText(e.SeriesTitle+" - "+e.EpisodeTitle) + "\r\n")
-		b.WriteString("DESCRIPTION:" + icsText(e.SeriesTitle+" "+e.SXE) + "\r\n")
+		if e.Kind == string(KindMovie) {
+			// All-day event on the release date. RFC 5545: DATE values;
+			// DTEND is the exclusive day after, per the all-day rule.
+			b.WriteString("DTSTART;VALUE=DATE:" + e.AirStart.UTC().Format("20060102") + "\r\n")
+			b.WriteString("DTEND;VALUE=DATE:" + e.AirStart.UTC().AddDate(0, 0, 1).Format("20060102") + "\r\n")
+			b.WriteString("SUMMARY:" + icsText(movieSummary(e)) + "\r\n")
+			b.WriteString("DESCRIPTION:" + icsText(movieSummary(e)) + "\r\n")
+		} else {
+			b.WriteString("DTSTART:" + icsStamp(e.AirStart) + "\r\n")
+			b.WriteString("DTEND:" + icsStamp(e.AirEnd) + "\r\n")
+			b.WriteString("SUMMARY:" + icsText(e.SeriesTitle+" - "+e.EpisodeTitle) + "\r\n")
+			b.WriteString("DESCRIPTION:" + icsText(e.SeriesTitle+" "+e.SXE) + "\r\n")
+		}
 		b.WriteString("END:VEVENT\r\n")
 	}
 	b.WriteString("END:VCALENDAR\r\n")

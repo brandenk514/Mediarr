@@ -1,6 +1,7 @@
-// Package calendar is the P4 service layer. It owns the HTTP-facing behavior
-// of the calendar: it pulls the episode rows from the store and hands them to
-// the pure domain (domains/calendar) for the window/filter + iCal rendering.
+// Package calendar is the P4/R4 service layer. It owns the HTTP-facing
+// behavior of the calendar: it pulls the episode or movie rows from the
+// store and hands them to the pure domain (domains/calendar) for the
+// window/filter + iCal rendering.
 //
 // The service has no I/O of its own beyond the injected Repo; `now` is a
 // function (default time.Now) so the future cutoff is deterministic in tests.
@@ -24,22 +25,40 @@ func New(repo dom.Repo) *Service {
 	return &Service{repo: repo, now: time.Now}
 }
 
-// Calendar returns the upcoming monitored air dates in [start, end].
-func (s *Service) Calendar(ctx context.Context, start, end time.Time) ([]dom.Entry, error) {
+// Calendar returns the calendar entries for kind in [start, end]. kind=tv
+// (the default; an empty kind falls back to it) is the Sonarr P4 episode
+// calendar, unchanged. kind=movie (Radarr R4) is the movie release-date
+// calendar.
+func (s *Service) Calendar(ctx context.Context, kind dom.Kind, start, end time.Time) ([]dom.Entry, error) {
+	now := s.now()
+	if kind == dom.KindMovie {
+		rows, err := s.repo.MovieRows(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return dom.BuildMovies(rows, start, end, now), nil
+	}
 	rows, err := s.repo.Episodes(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return dom.Build(rows, start, end, s.now()), nil
+	return dom.Build(rows, start, end, now), nil
 }
 
-// ICal renders the upcoming monitored air dates in [start, end] as an iCal
+// ICal renders the calendar entries for kind in [start, end] as an iCal
 // document (VCALENDAR + a VEVENT per entry).
-func (s *Service) ICal(ctx context.Context, start, end time.Time) (string, error) {
+func (s *Service) ICal(ctx context.Context, kind dom.Kind, start, end time.Time) (string, error) {
+	now := s.now()
+	if kind == dom.KindMovie {
+		rows, err := s.repo.MovieRows(ctx)
+		if err != nil {
+			return "", err
+		}
+		return dom.RenderICal(dom.BuildMovies(rows, start, end, now), now), nil
+	}
 	rows, err := s.repo.Episodes(ctx)
 	if err != nil {
 		return "", err
 	}
-	now := s.now()
 	return dom.RenderICal(dom.Build(rows, start, end, now), now), nil
 }

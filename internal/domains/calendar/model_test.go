@@ -253,3 +253,114 @@ func TestRenderICal_Empty(t *testing.T) {
 		t.Errorf("empty feed must have no VEVENT:\n%s", out)
 	}
 }
+
+func TestReleaseRange_AllDaySpan(t *testing.T) {
+	start, end := ReleaseRange(time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC))
+	if !start.Equal(time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("start = %v", start)
+	}
+	if !end.Equal(time.Date(2026, 5, 20, 23, 59, 0, 0, time.UTC)) {
+		t.Errorf("end = %v", end)
+	}
+}
+
+func TestBuildMovies_FiltersAndShape(t *testing.T) {
+	future := time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)
+	past := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	unmon := time.Date(2026, 5, 21, 0, 0, 0, 0, time.UTC)
+	start, end, now := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	out := BuildMovies([]MovieRow{
+		{ID: 1, Title: "In", Year: 2026, ReleaseDate: &future, Monitored: true, QualityProfile: "HD-1080p"},
+		{ID: 2, Title: "Past", Year: 2020, ReleaseDate: &past, Monitored: true},
+		{ID: 3, Title: "Unmon", Year: 2026, ReleaseDate: &unmon, Monitored: false},
+		{ID: 4, Title: "NoDate", Year: 2026, ReleaseDate: nil, Monitored: true},
+	}, start, end, now)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 entry (monitored + in-window + future release), got %d: %+v", len(out), out)
+	}
+	e := out[0]
+	if e.Kind != "movie" || e.SeriesID != 1 || e.SeriesTitle != "In" {
+		t.Errorf("wrong entry: %+v", e)
+	}
+	if !e.AirStart.Equal(time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)) ||
+		!e.AirEnd.Equal(time.Date(2026, 5, 20, 23, 59, 0, 0, time.UTC)) {
+		t.Errorf("wrong all-day range: %v .. %v", e.AirStart, e.AirEnd)
+	}
+	if e.Year != 2026 || e.Status != "unreleased" || e.QualityProfile != "HD-1080p" {
+		t.Errorf("wrong extras: %+v", e)
+	}
+	if e.Season != 0 || e.Episode != 0 || e.SXE != "" || e.EpisodeTitle != "" {
+		t.Errorf("movie entries must not carry episode fields: %+v", e)
+	}
+}
+
+func TestBuildMovies_TodayReleaseIsNotPast(t *testing.T) {
+	today := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+	start, end, now := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	out := BuildMovies([]MovieRow{
+		{ID: 1, Title: "Today", Year: 2026, ReleaseDate: &today, Monitored: true},
+	}, start, end, now)
+	if len(out) != 1 {
+		t.Fatalf("a release on 'today' is not in the past and must appear, got %+v", out)
+	}
+	if out[0].Status != "unreleased" {
+		t.Errorf("status = %q, want unreleased", out[0].Status)
+	}
+}
+
+func TestBuildMovies_DownloadedAndQueuedStatuses(t *testing.T) {
+	future := time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)
+	start, end, now := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	out := BuildMovies([]MovieRow{
+		{ID: 1, Title: "Done", Year: 2026, ReleaseDate: &future, Monitored: true, WantedSatisfied: true},
+		{ID: 2, Title: "Queued", Year: 2026, ReleaseDate: &future, Monitored: true, InQueue: true},
+	}, start, end, now)
+	if len(out) != 2 {
+		t.Fatalf("expected 2 entries, got %+v", out)
+	}
+	if out[0].Status != "downloaded:monitored" {
+		t.Errorf("status = %q, want downloaded:monitored", out[0].Status)
+	}
+	if out[1].Status != "queued" {
+		t.Errorf("status = %q, want queued", out[1].Status)
+	}
+}
+
+func TestRenderICal_MovieAllDay(t *testing.T) {
+	start, end := ReleaseRange(time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC))
+	ics := RenderICal([]Entry{{
+		Kind: "movie", SeriesID: 7, SeriesTitle: "Dune 2", Year: 2026,
+		AirStart: start, AirEnd: end,
+	}}, time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC))
+	for _, want := range []string{
+		"UID:mediarr-movie-7@mediarr",
+		"DTSTART;VALUE=DATE:20260520",
+		"DTEND;VALUE=DATE:20260521",
+		"SUMMARY:Dune 2 (2026)",
+		"DTSTAMP:20260515T120000Z",
+	} {
+		if !strings.Contains(ics, want) {
+			t.Errorf("ICS missing %q\n%s", want, ics)
+		}
+	}
+}
+
+func TestRenderICal_TVUnchanged(t *testing.T) {
+	as, ae := AirRange(time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC))
+	ics := RenderICal([]Entry{{
+		Kind: "tv", SeriesID: 42, SeriesTitle: "Severance", Season: 1, Episode: 5,
+		EpisodeTitle: "Episode Title", SXE: "S01E05", AirStart: as, AirEnd: ae,
+	}}, time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC))
+	for _, want := range []string{
+		"UID:mediarr-tv-42-s01-e05@mediarr",
+		"DTSTART:20260520T210000Z",
+		"SUMMARY:Severance - Episode Title",
+	} {
+		if !strings.Contains(ics, want) {
+			t.Errorf("ICS missing %q\n%s", want, ics)
+		}
+	}
+	if strings.Contains(ics, "VALUE=DATE") {
+		t.Errorf("TV feed must not use all-day DATE values\n%s", ics)
+	}
+}

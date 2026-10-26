@@ -55,11 +55,14 @@ func parseCalendarWindow(r *http.Request, now time.Time) (start, end time.Time) 
 	return start, end
 }
 
-// ListCalendar handles GET /api/v1/calendar: the upcoming monitored air dates
-// in the requested window. An empty window is a valid 200 [].
+// ListCalendar handles GET /api/v1/calendar: the calendar entries for the
+// requested kind in the requested window. kind=tv (or omitted) is the P4
+// episode calendar; kind=movie (Radarr R4) is the movie release-date
+// calendar. An empty window is a valid 200 [].
 func (s *Server) ListCalendar(w http.ResponseWriter, r *http.Request) {
 	start, end := parseCalendarWindow(r, time.Now())
-	entries, err := s.calendarDeps.Svc.Calendar(r.Context(), start, end)
+	kind := calDom.Kind(r.URL.Query().Get("kind")) // default/empty = tv
+	entries, err := s.calendarDeps.Svc.Calendar(r.Context(), kind, start, end)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "loading calendar")
 		return
@@ -71,10 +74,13 @@ func (s *Server) ListCalendar(w http.ResponseWriter, r *http.Request) {
 }
 
 // CalendarFeed handles GET /calendar.ics: the RFC 5545 iCal document for the
-// window, served as a download (Content-Disposition: attachment).
+// kind and window, served as a download (Content-Disposition: attachment).
+// kind=tv (or omitted) is the P4 episode feed; kind=movie (Radarr R4) is
+// all-day events on the movies' release dates.
 func (s *Server) CalendarFeed(w http.ResponseWriter, r *http.Request) {
 	start, end := parseCalendarWindow(r, time.Now())
-	ics, err := s.calendarDeps.Svc.ICal(r.Context(), start, end)
+	kind := calDom.Kind(r.URL.Query().Get("kind")) // default/empty = tv
+	ics, err := s.calendarDeps.Svc.ICal(r.Context(), kind, start, end)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "building calendar feed")
 		return

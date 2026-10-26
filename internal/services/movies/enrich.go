@@ -2,7 +2,6 @@ package movies
 
 import (
 	"context"
-	"time"
 
 	dom "github.com/brandenk514/mediarr/internal/domains/movies"
 	"github.com/brandenk514/mediarr/internal/providers"
@@ -108,9 +107,8 @@ func (e *TMDBEnricher) apply(m *dom.Movie, d *providers.MovieDetail) {
 			m.Crew = append(m.Crew, dom.MovieCrew{Name: c.Name, Job: c.Job})
 		}
 	}
-	if d.ReleaseDate != "" {
-		if t, err := time.Parse("2006-01-02", d.ReleaseDate); err == nil {
-			m.ReleaseDate = &t
-		}
-	}
+	// R4: persist the provider release date on the movie ("YYYY-MM-DD") so
+	// the movie calendar works without a live TMDB call; a partial/malformed
+	// date normalizes to '' and is left unknown.
+	m.ReleaseDate = dom.NormalizeReleaseDate(d.ReleaseDate)
 }

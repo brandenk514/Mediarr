@@ -15,9 +15,18 @@ import (
 )
 
 // memCalendarRepo is an in-memory calendar.Repo for the endpoint contract tests.
-type memCalendarRepo struct{ rows []cdom.EpisodeRow }
+type memCalendarRepo struct {
+	rows   []cdom.EpisodeRow
+	movies []cdom.MovieRow
+}
 
-func (m *memCalendarRepo) Episodes(_ context.Context) ([]cdom.EpisodeRow, error) { return m.rows, nil }
+func (m *memCalendarRepo) Episodes(_ context.Context) ([]cdom.EpisodeRow, error) {
+	return m.rows, nil
+}
+
+func (m *memCalendarRepo) MovieRows(_ context.Context) ([]cdom.MovieRow, error) {
+	return m.movies, nil
+}
 
 // newCalendarTestServer wires a fresh server with a minted bearer token and a
 // calendar service over the in-memory repo. A new server per call avoids the
@@ -170,5 +179,133 @@ func TestCalendar_Feed_RequiresAuth(t *testing.T) {
 	rec = doReq(t, s.Handler(), http.MethodGet, "/calendar.ics?token=ma_invalid", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("invalid query token: got %d, want 401", rec.Code)
+	}
+}
+
+// movieCalendarRows returns R4 movie rows anchored to the real current time
+// (the handler's future cutoff is time.Now).
+func movieCalendarRows() []cdom.MovieRow {
+	now := time.Now().UTC()
+	rel := func(d int) *time.Time {
+		t := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, d)
+		return &t
+	}
+	return []cdom.MovieRow{
+		{ID: 1, Title: "MovieA", Year: 2026, ReleaseDate: rel(1), Monitored: true, QualityProfile: "HD-1080p"},
+		{ID: 2, Title: "MovieB", Year: 2026, ReleaseDate: rel(2), Monitored: true, QualityProfile: "HD-1080p"},
+		{ID: 3, Title: "MoviePast", Year: 2020, ReleaseDate: rel(-1), Monitored: true},
+		{ID: 4, Title: "MovieUnmon", Year: 2026, ReleaseDate: rel(1), Monitored: false},
+		{ID: 5, Title: "MovieNoDate", Year: 2026, ReleaseDate: nil, Monitored: true},
+	}
+}
+
+func TestCalendar_List_Movie(t *testing.T) {
+	now := time.Now().UTC()
+	q := "?kind=movie&start=" + now.Format(time.RFC3339) + "&end=" + now.AddDate(0, 0, 30).Format(time.RFC3339)
+	s, token := newCalendarTestServer(t, &memCalendarRepo{movies: movieCalendarRows()})
+	rec := doReq(t, s.Handler(), http.MethodGet, "/api/v1/calendar"+q, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body %s", rec.Code, rec.Body.String())
+	}
+	var entries []cdom.Entry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (monitored + in-window + future release), got %d: %+v", len(entries), entries)
+	}
+	if entries[0].Kind != "movie" {
+		t.Errorf("kind = %q, want movie", entries[0].Kind)
+	}
+	if entries[0].SeriesTitle != "MovieA" || entries[0].SeriesID != 1 {
+		t.Errorf("first entry = %+v, want MovieA / 1", entries[0])
+	}
+	if entries[0].Year != 2026 || entries[0].Status != "unreleased" || entries[0].QualityProfile != "HD-1080p" {
+		t.Errorf("movie extras = %+v, want year 2026 / unreleased / HD-1080p", entries[0])
+	}
+	if !entries[0].AirStart.Equal(entries[0].AirEnd.Add(-23*time.Hour - 59*time.Minute)) {
+		t.Errorf("all-day range not populated: %v .. %v", entries[0].AirStart, entries[0].AirEnd)
+	}
+	if entries[0].Season != 0 || entries[0].Episode != 0 || entries[0].SXE != "" {
+		t.Errorf("movie entries must not carry episode fields: %+v", entries[0])
+	}
+}
+
+func TestCalendar_List_MovieEmptyIs200Array(t *testing.T) {
+	// No release dates at all (keyless dev) -> a valid 200 [].
+	s, token := newCalendarTestServer(t, &memCalendarRepo{})
+	rec := doReq(t, s.Handler(), http.MethodGet, "/api/v1/calendar?kind=movie", token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body %s", rec.Code, rec.Body.String())
+	}
+	body := strings.TrimSpace(rec.Body.String())
+	if body != "[]" {
+		t.Fatalf("empty movie calendar body = %q, want []", body)
+	}
+}
+
+// TestCalendar_List_TVUnchanged pins the P4 wire regression at the endpoint:
+// an explicit kind=tv is byte-for-byte the pre-R4 episode calendar.
+func TestCalendar_List_TVUnchanged(t *testing.T) {
+	now := time.Now().UTC()
+	q := "?kind=tv&start=" + now.Format(time.RFC3339) + "&end=" + now.AddDate(0, 0, 30).Format(time.RFC3339)
+	s, token := newCalendarTestServer(t, &memCalendarRepo{rows: calendarRows()})
+	rec := doReq(t, s.Handler(), http.MethodGet, "/api/v1/calendar"+q, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body %s", rec.Code, rec.Body.String())
+	}
+	var entries []cdom.Entry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("kind=tv: expected the 2 episode entries, got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.Kind != "tv" || e.Year != 0 || e.Status != "" || e.QualityProfile != "" {
+			t.Errorf("TV entries must not carry movie extras: %+v", e)
+		}
+	}
+}
+
+func TestCalendar_Feed_Movie(t *testing.T) {
+	s, token := newCalendarTestServer(t, &memCalendarRepo{movies: movieCalendarRows()})
+	rec := doReq(t, s.Handler(), http.MethodGet, "/calendar.ics?kind=movie&token="+token, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"BEGIN:VCALENDAR",
+		"UID:mediarr-movie-1@mediarr",
+		"SUMMARY:MovieA (2026)",
+		"DTSTART;VALUE=DATE:",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("movie feed missing %q:\n%s", want, body)
+		}
+	}
+	// Only the 2 monitored + future releases become all-day events.
+	if n := strings.Count(body, "BEGIN:VEVENT"); n != 2 {
+		t.Errorf("expected 2 VEVENTs, got %d\n%s", n, body)
+	}
+}
+
+// TestCalendar_Feed_TVUnchanged pins the P4 feed regression: kind=tv (and
+// the omitted-kind default) still renders the dated episode events.
+func TestCalendar_Feed_TVUnchanged(t *testing.T) {
+	s, token := newCalendarTestServer(t, &memCalendarRepo{rows: calendarRows()})
+	rec := doReq(t, s.Handler(), http.MethodGet, "/calendar.ics?kind=tv&token="+token, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"UID:mediarr-tv-1-s01-e01@mediarr", "SUMMARY:ShowA - Pilot", "DTSTART:2"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("TV feed missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "VALUE=DATE") {
+		t.Errorf("TV feed must not use all-day DATE values:\n%s", body)
 	}
 }
