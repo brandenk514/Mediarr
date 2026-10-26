@@ -26,11 +26,11 @@ test('add a movie through the form and see it in the grid', async ({ page }) => 
 
   await expect(page).toHaveURL(/\/movies$/)
   await expect(page.getByTestId('movies-grid')).toBeVisible()
-  // Grid cards carry the title in their tooltip (the P2 grid design shows the
-  // monitored/quality footer, not the title text), so assert on the title
-  // attribute of the new movie's poster card.
+  // Grid cards carry the title in their tooltip (the R1 grid design shows the
+  // status ribbon + monitored/quality footer, not the title text), so assert
+  // on the title attribute of the new movie's poster cell.
   await expect(
-    page.getByTestId('movies-grid').locator(`button[title="${title}"]`)
+    page.getByTestId('movies-grid').locator(`.poster-cell[title="${title}"]`),
   ).toBeVisible()
 })
 
@@ -42,13 +42,17 @@ test('open a movie from the grid into its detail page', async ({ page }) => {
   await expect(page).toHaveURL(/\/movies$/)
 
   const grid = page.getByTestId('movies-grid')
+  // Wait for the list to resolve (grid or the empty state) before deciding
+  // whether this database has anything to open.
+  await expect(grid.or(page.getByText('No movies'))).toBeVisible()
   if (!(await grid.count())) return // no movies in this database — nothing to open
   const firstCard = page.locator('[data-testid^="movie-card-"]').first()
   await firstCard.click()
 
-  // The detail page: title header, toolbar, and the release (wanted) state.
+  // The R1 detail page: title header, the always-rendered Files section,
+  // and the per-card refresh/scan toolbar.
   await expect(page).toHaveURL(/\/movies\/\d+$/)
   await expect(page.getByTestId('movie-detail')).toBeVisible()
   await expect(page.getByTestId('movie-detail-header')).toBeVisible()
-  await expect(page.getByTestId('movie-detail-release')).toBeVisible()
+  await expect(page.getByTestId('movie-detail-files')).toBeVisible()
 })
