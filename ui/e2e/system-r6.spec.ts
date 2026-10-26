@@ -1,19 +1,10 @@
-import { expect, test, type Page } from '@playwright/test'
-import { E2E_PASSWORD, E2E_USER, signIn } from './login'
+import { expect, test } from '@playwright/test'
+import { signIn } from './login'
 
 // Radarr R6 e2e (minimal): the System page reaches the drop-in migration
 // panel and the source toggle (Sonarr | Radarr) is present. The full panel
 // flows (per-source helper text, the submitted payload) are covered by the
 // MigrationPanel vitest suite against mocked clients.
-
-async function apiToken(page: Page): Promise<string> {
-  const res = await page.request.post('/api/v1/auth/login', {
-    data: { username: E2E_USER, password: E2E_PASSWORD },
-  })
-  if (!res.ok()) throw new Error(`e2e login failed: ${res.status()}`)
-  const body = (await res.json()) as { token: string }
-  return body.token
-}
 
 test('system import panel renders with the R6 source toggle', async ({ page }) => {
   await page.goto('/system/import')
