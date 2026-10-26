@@ -29,9 +29,9 @@ vi.mock('../../api/client', () => {
   }
 })
 
-function renderPage() {
+function renderPage(initial = '/movies/add') {
   return render(
-    <MemoryRouter initialEntries={['/movies/add']}>
+    <MemoryRouter initialEntries={[initial]}>
       <Routes>
         <Route path="/movies/add" element={<MovieAddPage />} />
         <Route path="/movies" element={<div data-testid="movies-landing">Movie library</div>} />
@@ -191,5 +191,48 @@ describe('MovieAddPage (R2 two-pane)', () => {
   it('disables the add button until a title is present', () => {
     renderPage()
     expect(screen.getByTestId('movie-add-button')).toBeDisabled()
+  })
+})
+
+describe('MovieAddPage ?tmdb= preselect (R3 Discover link)', () => {
+  it('types tmdb:<id> into the search form and pre-selects the hit into the pane', async () => {
+    renderPage('/movies/add?tmdb=603')
+
+    // The search form carries the tmdb:<id> lookup (the R2 search mechanism).
+    expect(await screen.findByTestId('movie-search-input')).toHaveValue('tmdb:603')
+    // The first hit lands in the right pane: title/year filled, selected
+    // banner + More Info link, and the result row marked selected.
+    expect(await screen.findByTestId('movie-selected')).toHaveTextContent('Dune: Part Two (2024)')
+    expect(screen.getByTestId('movie-title-input')).toHaveValue('Dune: Part Two')
+    expect(screen.getByTestId('movie-year-input')).toHaveValue('2024')
+    expect(screen.getByTestId('movie-more-info')).toHaveAttribute(
+      'href',
+      'https://www.themoviedb.org/movie/603',
+    )
+    expect(screen.getByTestId('movie-result-603')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('no-ops the preselect when the search 503s (keyless) — manual entry still works', async () => {
+    // ApiError is exported from the mocked client module.
+    const { ApiError } = await import('../../api/client')
+    vi.mocked(client.searchMovies).mockRejectedValue(
+      new (ApiError as new (s: number, b: string) => Error)(503, 'tmdb is not configured'),
+    )
+    renderPage('/movies/add?tmdb=603')
+
+    // The search box greys out with the reason (the R2 unavailable pattern)…
+    expect(await screen.findByTestId('movie-search-unavailable')).toHaveTextContent(
+      'tmdb is not configured',
+    )
+    // …the pane stays un-preselected, and the title field is still usable.
+    expect(screen.queryByTestId('movie-selected')).not.toBeInTheDocument()
+    expect(screen.getByTestId('movie-title-input')).toHaveValue('')
+    expect(screen.getByTestId('movie-add-button')).toBeDisabled()
+  })
+
+  it('ignores malformed ?tmdb= params (no lookup, no preselect)', async () => {
+    renderPage('/movies/add?tmdb=not-a-number')
+    expect(await screen.findByTestId('movie-search-input')).toHaveValue('')
+    expect(screen.queryByTestId('movie-selected')).not.toBeInTheDocument()
   })
 })

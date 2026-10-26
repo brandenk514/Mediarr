@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { client } from '../../api/client'
 import type { AddMovieRequest, MovieSearchHit, RootFolder } from '../../api/types'
 import { Badge, BadgeRow } from '../../components/ui'
@@ -51,6 +51,27 @@ export function MovieAddPage() {
   useEffect(() => {
     loadRootFolders()
   }, [loadRootFolders])
+
+  // Radarr R3: /movies/add?tmdb=<id> (from the Discover page's 'Add
+  // Movie') types the tmdb:<id> query into the search form and
+  // pre-selects the first hit. Keyless: the search 503s, the preselect
+  // no-ops, and manual title entry still works.
+  const [searchParams] = useSearchParams()
+  const tmdbParam = searchParams.get('tmdb')
+  const preselectDone = useRef(false)
+
+  useEffect(() => {
+    if (!tmdbParam || !/^\d+$/.test(tmdbParam) || preselectDone.current) return
+    setText(`tmdb:${tmdbParam}`)
+  }, [tmdbParam, setText])
+
+  useEffect(() => {
+    if (!tmdbParam || preselectDone.current) return
+    if (state.phase !== 'results' || state.hits.length === 0) return
+    if (text !== `tmdb:${tmdbParam}`) return // user searched something else
+    preselectDone.current = true
+    pick(state.hits[0])
+  }, [state, text, tmdbParam])
 
   const { busy, error, submit } = useAddSubmit(async () => {
     const req: AddMovieRequest = {
