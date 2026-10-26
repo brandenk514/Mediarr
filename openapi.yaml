@@ -5631,7 +5631,7 @@ components:
             $ref: "#/components/schemas/ProviderAttempt"
     ImportList:
       type: object
-      required: [id, name, kind, url, enabled, api_key, api_key_set]
+      required: [id, name, kind, enabled, api_key, api_key_set]
       properties:
         id:
           type: integer
@@ -5639,15 +5639,21 @@ components:
           type: string
         kind:
           type: string
-          enum: [trakt, sonarr]
+          enum: [trakt, sonarr, radarr]
         url:
           type: string
-          description: Trakt list URL, or the base URL of a Sonarr instance.
+          description: Trakt list URL, or the base URL of a Sonarr instance. Required for trakt/sonarr kinds; radarr lists use host/port instead.
+        host:
+          type: string
+          description: Radarr instance host (kind radarr, R5a drop-in bridge); '' for other kinds.
+        port:
+          type: integer
+          description: Radarr instance port (kind radarr, R5a; 1-65535); 0 for other kinds.
         enabled:
           type: boolean
         api_key:
           type: string
-          description: Sonarr instance API key; write-only in practice (reads return empty string + api_key_set).
+          description: Sonarr instance API key (the Trakt client id for trakt lists); for radarr, the Radarr instance API key. Masked on read, write-only in practice.
         api_key_set:
           type: boolean
     ImportListsSettings:

@@ -755,16 +755,22 @@ func (m MetadataSourceSettings) Validate() string {
 // ---------------------------------------------------------------------------
 
 // ImportListKinds are the supported import-list sources.
-var ImportListKinds = []string{"trakt", "sonarr"}
+var ImportListKinds = []string{"trakt", "sonarr", "radarr"}
 
 // ImportList is one configured list. For trakt, URL is a Trakt list URL
 // (https://trakt.tv/users/<user>/lists/<slug>); for sonarr, URL is the base
-// URL of a Sonarr instance and APIKey its API key (masked on read).
+// URL of a Sonarr instance and APIKey its API key (masked on read). For
+// radarr (R5a drop-in bridge), the list points at a Radarr instance by
+// Host+Port and APIKey is its API key (masked on read, sent as a query
+// parameter to the instance's /api/v1/movies).
 type ImportList struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
-	URL       string `json:"url"`
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	URL  string `json:"url"`
+	// Radarr R5a (kind=radarr only): the Radarr instance to import from.
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
 	Enabled   bool   `json:"enabled"`
 	APIKey    string `json:"api_key"`
 	APIKeySet bool   `json:"api_key_set"`
@@ -793,11 +799,22 @@ func (i ImportListsSettings) Validate() string {
 		if !containsString(ImportListKinds, l.Kind) {
 			return fmt.Sprintf("lists[%d]: unknown kind %q", n, l.Kind)
 		}
-		if !isHTTPURLValue(l.URL) {
-			return fmt.Sprintf("lists[%d]: url must be an http/https URL", n)
-		}
-		if l.Kind == "trakt" && !strings.Contains(l.URL, "trakt.tv") {
-			return fmt.Sprintf("lists[%d]: trakt lists must use a trakt.tv URL", n)
+		if l.Kind == "radarr" {
+			// R5a drop-in bridge: the list names a Radarr instance by
+			// host+port (no URL); the fetch builds the endpoint from them.
+			if l.Host == "" {
+				return fmt.Sprintf("lists[%d]: host is required for radarr lists", n)
+			}
+			if l.Port < 1 || l.Port > 65535 {
+				return fmt.Sprintf("lists[%d]: port must be between 1 and 65535", n)
+			}
+		} else {
+			if !isHTTPURLValue(l.URL) {
+				return fmt.Sprintf("lists[%d]: url must be an http/https URL", n)
+			}
+			if l.Kind == "trakt" && !strings.Contains(l.URL, "trakt.tv") {
+				return fmt.Sprintf("lists[%d]: trakt lists must use a trakt.tv URL", n)
+			}
 		}
 	}
 	return ""

@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -465,6 +467,14 @@ func (s *Server) RunImportListImport(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := fetchImportList(r.Context(), *list, s.p5HTTP())
 	if err != nil {
+		// Radarr R5a: a non-2xx answer from the Radarr instance (bad key,
+		// wrong port, no such endpoint) is the caller's configuration
+		// problem → 400 with the reason. Trakt/Sonarr keep their 502.
+		var se *httpStatusError
+		if list.Kind == "radarr" && errors.As(err, &se) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusBadGateway, "failed to fetch import list: "+err.Error())
 		return
 	}
@@ -511,7 +521,11 @@ func (s *Server) applyImportEntry(r *http.Request, e importListEntry, dryRun boo
 			item.Status, item.Message = "skipped", "no movie library configured"
 			return item
 		}
-		exists, err := movieTitleIn(d.Movies, ctx, e.Title)
+		// R5a: radarr entries carry a TMDB id, and the movie domain
+		// identifies movies by title+year (TMDB ids are display metadata,
+		// not stored identity), so radarr entries match on title+year;
+		// trakt/sonarr entries keep the title-only match.
+		exists, err := movieIn(e, d.Movies, ctx)
 		if err != nil {
 			item.Status, item.Message = "error", err.Error()
 			return item
@@ -524,7 +538,13 @@ func (s *Server) applyImportEntry(r *http.Request, e importListEntry, dryRun boo
 			item.Status, item.Message = "skipped", "dry run: would add to movies"
 			return item
 		}
-		if _, err := d.Movies.AddMovie(ctx, moviesvc.AddMovieRequest{Title: e.Title, Year: e.Year}); err != nil {
+		// R5a: honor the source monitored state — an unmonitored source
+		// movie lands unmonitored here.
+		addReq := moviesvc.AddMovieRequest{Title: e.Title, Year: e.Year}
+		if !e.Monitored {
+			addReq.Monitor = "unmonitored"
+		}
+		if _, err := d.Movies.AddMovie(ctx, addReq); err != nil {
 			item.Status, item.Message = "error", err.Error()
 			return item
 		}
@@ -542,6 +562,30 @@ type importListEntry struct {
 	Title      string
 	Year       string
 	Kind       string // "tv" | "movie"
+	// R5a (radarr bridge): TMDBID is the source movie's TMDB id ("" for
+	// trakt/sonarr); Monitored carries the source monitored state (radarr
+	// only — trakt/sonarr entries default to monitored).
+	TMDBID    string
+	Monitored bool
+}
+
+// movieIn reports whether the entry's movie is already in the library:
+// title+year for radarr entries (the movie domain's identity, which has no
+// stored TMDB id), case-insensitive title-only for the others.
+func movieIn(e importListEntry, m MoviesImporter, ctx context.Context) (bool, error) {
+	if e.TMDBID != "" {
+		movies, err := m.ListMovies(ctx)
+		if err != nil {
+			return false, err
+		}
+		for _, mo := range movies {
+			if strings.EqualFold(mo.Title, e.Title) && (e.Year == "" || strconv.Itoa(mo.Year) == e.Year) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	return movieTitleIn(m, ctx, e.Title)
 }
 
 // seriesTitleIn reports whether a tv series with the (case-insensitive)
@@ -576,10 +620,50 @@ func movieTitleIn(m MoviesImporter, ctx context.Context, title string) (bool, er
 
 // fetchImportList pulls the list per its kind and normalizes the items.
 func fetchImportList(ctx context.Context, l settings.ImportList, httpc *http.Client) ([]importListEntry, error) {
-	if l.Kind == "trakt" {
+	switch l.Kind {
+	case "trakt":
 		return fetchTraktList(ctx, l, httpc)
+	case "radarr":
+		return fetchRadarrList(ctx, l, httpc)
+	default:
+		return fetchSonarrList(ctx, l, httpc)
 	}
-	return fetchSonarrList(ctx, l, httpc)
+}
+
+// fetchRadarrList pulls the movies from a Radarr instance (R5a drop-in
+// bridge): GET http://host:port/api/v1/movies?api_key=... with a 30s
+// timeout (longer than the 10s p5 default — the movies endpoint of a
+// heavily-populated instance can be slow). Non-2xx answers come back as
+// *httpStatusError so the endpoint maps them to a 400 with the reason.
+func fetchRadarrList(ctx context.Context, l settings.ImportList, httpc *http.Client) ([]importListEntry, error) {
+	u := fmt.Sprintf("http://%s:%d/api/v1/movies?api_key=%s", l.Host, l.Port, url.QueryEscape(l.APIKey))
+	c := *httpc // shallow copy: raise only the timeout for this pull
+	c.Timeout = 30 * time.Second
+	var raw []struct {
+		ID        int    `json:"id"`
+		Title     string `json:"title"`
+		Year      int    `json:"year"`
+		TmdbID    int    `json:"tmdbId"`
+		Monitored bool   `json:"monitored"`
+	}
+	if err := httpGetJSON(ctx, &c, u, "", "", &raw); err != nil {
+		return nil, err
+	}
+	out := make([]importListEntry, 0, len(raw))
+	for _, m := range raw {
+		if m.Title == "" {
+			continue
+		}
+		externalID := strconv.Itoa(m.ID)
+		if m.TmdbID > 0 {
+			externalID = strconv.Itoa(m.TmdbID)
+		}
+		out = append(out, importListEntry{
+			Kind: "movie", Title: m.Title, Year: yearString(m.Year),
+			ExternalID: externalID, TMDBID: strconv.Itoa(m.TmdbID), Monitored: m.Monitored,
+		})
+	}
+	return out, nil
 }
 
 // traktAPIBase is the Trakt API host (tests override it with a stub).
@@ -671,9 +755,17 @@ func parseTraktListURL(raw string) (string, string, bool) {
 	return parts[0], parts[2], true
 }
 
+// httpStatusError is a non-2xx response from a bridge target. Carrying the
+// status lets callers distinguish "the configured target rejected the
+// request" (a radarr bridge 401/404 → 400 back to the user, R5a) from
+// transport trouble (→ 502).
+type httpStatusError struct{ Status int }
+
+func (e *httpStatusError) Error() string { return fmt.Sprintf("target returned %d", e.Status) }
+
 // httpGetJSON does a GET with an auth header and decodes the JSON body.
-func httpGetJSON(ctx context.Context, httpc *http.Client, url, token, header string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func httpGetJSON(ctx context.Context, httpc *http.Client, reqURL, token, header string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return err
 	}
@@ -687,7 +779,7 @@ func httpGetJSON(ctx context.Context, httpc *http.Client, url, token, header str
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("target returned %d", resp.StatusCode)
+		return &httpStatusError{Status: resp.StatusCode}
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(out); err != nil {
 		return err
