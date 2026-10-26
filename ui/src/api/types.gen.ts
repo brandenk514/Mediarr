@@ -1346,7 +1346,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search movies via TMDB. */
+        /**
+         * Search movies via TMDB.
+         * @description Free-text TMDB search. A query of the form `tmdb:<id>` (e.g.
+         *     `tmdb:157336`) looks the movie up directly by TMDB id and returns a
+         *     single fully-enriched hit. Badge fields (poster, certification,
+         *     runtime, studio, genres, IMDb link) are enriched from a details
+         *     fetch; a details failure degrades a hit to empty badge fields
+         *     rather than failing the search.
+         */
         get: operations["searchMovies"];
         put?: never;
         post?: never;
@@ -1886,6 +1894,11 @@ export interface components {
             Monitored: boolean;
             /** Format: date-time */
             AddedAt: string;
+            /** @description Free-form movie tags (R2); empty when unset. */
+            Tags?: string[];
+            /** @description Root folder path for the movie's files (R2); '' when unset (server default). */
+            RootFolder?: string;
+            MinimumAvailability?: components["schemas"]["MovieMinimumAvailability"];
             /** @description Age rating (e.g. PG-13); null when unknown. */
             Certification?: string | null;
             /** @description Runtime in minutes; null when unknown. */
@@ -2009,10 +2022,37 @@ export interface components {
              */
             TotalSize: number;
         };
+        /**
+         * @description Add a movie. Omitted optional fields default: monitor=all, no minimum
+         *     availability, no tags, server default root folder, no search.
+         */
         AddMovieRequest: {
             title: string;
             year?: string;
             quality_profile?: string;
+            /**
+             * @description Edition-aware monitor mode (Radarr R2). all = movie + every edition
+             *     monitored; movie_only = movie monitored, editions unmonitored;
+             *     unmonitored = nothing monitored; all_except_3d = everything
+             *     monitored except editions whose label contains '3D'.
+             * @enum {string}
+             */
+            monitor?: "all" | "movie_only" | "unmonitored" | "all_except_3d";
+            /**
+             * @description Minimum availability before a search may pull the movie (Radarr R2); omitted = released (default).
+             * @default released
+             * @enum {string}
+             */
+            minimum_availability: "announced" | "posters" | "in_production" | "released";
+            /** @description Free-form movie tags (Radarr R2); omitted = none. */
+            tags?: string[];
+            /** @description Root folder path for the movie's files (Radarr R2); empty = server default. */
+            root_folder?: string;
+            /**
+             * @description Start a search for the movie after adding (Radarr R2); best-effort — a pipeline failure is recorded, never an add failure.
+             * @default false
+             */
+            start_search: boolean;
         };
         Series: {
             /** Format: int64 */
@@ -2132,6 +2172,11 @@ export interface components {
             Name: string;
             /** Format: date-time */
             CreatedAt: string;
+            /**
+             * Format: int64
+             * @description Free bytes on the volume holding the root folder; null when the backend cannot stat the path.
+             */
+            FreeSpace: number | null;
         };
         /** @description Omitted path/name keep their stored values (PUT). */
         RootFolderRequest: {
@@ -2677,6 +2722,44 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /**
+         * @description One enriched movie search hit for the add flow (Radarr R2). Badge
+         *     fields degrade to empty/zero when the TMDB details fetch failed;
+         *     `tmdb_pct` is null when the movie has no TMDB vote.
+         */
+        MovieSearchHit: {
+            /** @description TMDB id. */
+            id: string;
+            title: string;
+            /** @description Release year (0 when unknown). */
+            year: number;
+            /** @description Poster image URL; '' when unknown. */
+            poster: string;
+            /** @description Plot synopsis; '' when unknown. */
+            overview: string;
+            /** @description US MPAA rating when available (e.g. 'PG-13'). */
+            certification: string;
+            /** @description Runtime in minutes; 0 when unknown. */
+            runtime: number;
+            /** @description ISO 639-1 language code (e.g. 'en'). */
+            original_language: string;
+            studio: string;
+            genres: string[];
+            /** @description TMDB vote average scaled to 0-100; null when unknown. */
+            tmdb_pct: number | null;
+            /** @description IMDb URL; '' when unknown. */
+            imdb: string;
+            links: {
+                /** @description Canonical TMDB page URL. */
+                tmdb: string;
+            };
+        };
+        /**
+         * @description Minimum availability before a movie may be searched (Radarr R2).
+         *     Empty string when unset.
+         * @enum {string}
+         */
+        MovieMinimumAvailability: "announced" | "posters" | "in_production" | "released" | "";
         /** @enum {string} */
         ProfileKind: "movies" | "tv" | "music" | "books";
         ProfilesResponse: {
@@ -5839,13 +5922,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The hits (flat array, provider wire shape). */
+            /** @description The enriched movie search hits. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchResult"][];
+                    "application/json": components["schemas"]["MovieSearchHit"][];
                 };
             };
             401: components["responses"]["Unauthorized"];

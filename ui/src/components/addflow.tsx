@@ -24,9 +24,9 @@ export const MIN_SEARCH_CHARS = 2
 
 type Phase = 'idle' | 'loading' | 'results' | 'error' | 'unavailable'
 
-export interface SearchState {
+export interface SearchState<T = SearchResult> {
   phase: Phase
-  hits: SearchResult[]
+  hits: T[]
   error: string
 }
 
@@ -43,9 +43,9 @@ export function AddButton({ to, label, testId }: { to: string; label: string; te
 // useDebouncedSearch runs a debounced provider search whenever `term`
 // (trimmed) crosses MIN_SEARCH_CHARS. Stale responses are dropped so a slow
 // answer to "du" can never overwrite the results of "dune".
-export function useDebouncedSearch(search: (q: string) => Promise<SearchResult[]>) {
+export function useDebouncedSearch<T = SearchResult>(search: (q: string) => Promise<T[]>) {
   const [text, setText] = useState('')
-  const [state, setState] = useState<SearchState>({
+  const [state, setState] = useState<SearchState<T>>({
     phase: 'idle',
     hits: [],
     error: '',
@@ -98,7 +98,7 @@ export function useDebouncedSearch(search: (q: string) => Promise<SearchResult[]
 // SearchBox is the provider search input. It shows a spinner while a search
 // is in flight, the 503 reason (disabled box) when the provider is not
 // configured, and a retry-able error line for transient failures.
-export function SearchBox({
+export function SearchBox<T = SearchResult>({
   label,
   placeholder,
   text,
@@ -110,7 +110,7 @@ export function SearchBox({
   placeholder: string
   text: string
   onText: (s: string) => void
-  state: SearchState
+  state: SearchState<T>
   testId: string
 }) {
   const { phase } = state

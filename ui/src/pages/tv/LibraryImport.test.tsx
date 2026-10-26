@@ -35,7 +35,7 @@ const report: ImportReport = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(client.listRootFolders).mockResolvedValue([
-    { ID: 7, Path: '/media/tv', Name: 'TV', CreatedAt: '' },
+    { ID: 7, Path: '/media/tv', Name: 'TV', CreatedAt: '', FreeSpace: null },
   ])
   vi.mocked(client.importLibrary).mockResolvedValue(report)
 })

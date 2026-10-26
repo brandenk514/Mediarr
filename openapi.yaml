@@ -3573,8 +3573,9 @@ components:
           enum: [all, movie_only, unmonitored, all_except_3d]
         minimum_availability:
           type: string
-          description: Minimum availability before a search may pull the movie (Radarr R2); omitted = unset.
+          description: Minimum availability before a search may pull the movie (Radarr R2); omitted = released (default).
           enum: [announced, posters, in_production, released]
+          default: released
         tags:
           type: array
           description: Free-form movie tags (Radarr R2); omitted = none.

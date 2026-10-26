@@ -132,6 +132,11 @@ func (s *Service) AddMovie(ctx context.Context, req AddMovieRequest) (int64, err
 	default:
 		return 0, fmt.Errorf("%w: minimum_availability %q", ErrInvalidAddParams, req.MinimumAvailability)
 	}
+	// Radarr R2: minimum_availability defaults to 'released' for every add;
+	// pre-R2 movies in the database may still carry '' (unset).
+	if req.MinimumAvailability == "" {
+		req.MinimumAvailability = dom.AvailabilityReleased
+	}
 	m := dom.Movie{
 		Title:                strings.TrimSpace(req.Title),
 		Year:                 parseYear(req.Year),

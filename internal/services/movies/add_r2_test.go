@@ -128,6 +128,25 @@ func TestAddMoviePersistsR2Fields(t *testing.T) {
 	}
 }
 
+// TestAddMovieMinimumAvailabilityDefault asserts an omitted
+// minimum_availability defaults to 'released' (Radarr R2).
+func TestAddMovieMinimumAvailabilityDefault(t *testing.T) {
+	svc, repo := newAddTestService()
+	id, err := svc.AddMovie(context.Background(), AddMovieRequest{
+		Title: "Dune Part Two", Year: "2024",
+	})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	m, err := repo.GetMovie(context.Background(), id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if m.MinimumAvailability != "released" {
+		t.Errorf("minimum availability = %q, want released (the add default)", m.MinimumAvailability)
+	}
+}
+
 // TestAddMovieInvalidMonitor asserts an unknown monitor mode is rejected with
 // the sentinel the API maps to 400.
 func TestAddMovieInvalidMonitor(t *testing.T) {
