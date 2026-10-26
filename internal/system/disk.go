@@ -65,6 +65,21 @@ func syscallStatfs(path string) (total, used, free int64, err error) {
 	return fsInt64(totalU), fsInt64(usedU), fsInt64(freeU), nil
 }
 
+// FreeSpaceFor returns the free bytes on the volume containing path, or
+// (0, false) when the path is empty or cannot be stat'ed (missing path or a
+// filesystem without statfs support). Callers render null/omitted in that
+// case (Radarr R2 root-folder free space).
+func FreeSpaceFor(path string) (int64, bool) {
+	if path == "" {
+		return 0, false
+	}
+	_, _, free, err := syscallStatfs(path)
+	if err != nil {
+		return 0, false
+	}
+	return free, true
+}
+
 // BuildDisk assembles the disk report for the given configured paths,
 // deduped and preserving order (media root, downloads dir, then any
 // registered root folders). A missing path is reported with Exists=false and

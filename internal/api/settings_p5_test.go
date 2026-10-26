@@ -13,6 +13,7 @@ import (
 	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/health"
 	"github.com/brandenk514/mediarr/internal/providers"
+	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 	tvsvc "github.com/brandenk514/mediarr/internal/services/tv"
 	"github.com/brandenk514/mediarr/internal/settings"
 )
@@ -42,8 +43,8 @@ type fakeMoviesLib struct {
 	added  []string
 }
 
-func (f *fakeMoviesLib) AddMovie(_ context.Context, title, _, _ string) (int64, error) {
-	f.added = append(f.added, title)
+func (f *fakeMoviesLib) AddMovie(_ context.Context, req moviesvc.AddMovieRequest) (int64, error) {
+	f.added = append(f.added, req.Title)
 	return int64(len(f.added)), nil
 }
 

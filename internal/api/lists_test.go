@@ -52,10 +52,15 @@ func (r *listMoviesRepo) seed(m moviesdom.Movie) int64 {
 	}
 	r.movies[id] = m
 	// Mirror the postgres adapter: a fresh movie gets one 'Theatrical'
-	// edition (Radarr R1 default).
+	// edition (Radarr R1 default; R2 edition-aware monitor overrides the
+	// seeded edition's monitored state).
+	seeded := true
+	if m.SeedEditionMonitored != nil {
+		seeded = *m.SeedEditionMonitored
+	}
 	r.editions[r.nextEdID] = moviesdom.Edition{
 		ID: r.nextEdID, MovieID: id, Label: "Theatrical",
-		Monitored: true, Quality: m.QualityProfile, CreatedAt: time.Now().UTC(),
+		Monitored: seeded, Quality: m.QualityProfile, CreatedAt: time.Now().UTC(),
 	}
 	r.nextEdID++
 	return id

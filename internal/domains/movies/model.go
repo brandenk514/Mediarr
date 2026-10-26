@@ -3,6 +3,8 @@ package movies
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -48,9 +50,71 @@ type Movie struct {
 	Editions []Edition
 	Files    []MovieFile
 
+	// Add-flow fields (R2). Empty when unset: pre-R2 movies report empty
+	// tags, '' root folder and '' minimum availability.
+	Tags                []string
+	RootFolder          string // root folder path; '' = server default
+	MinimumAvailability string // see the Availability* constants; '' = unset
+
+	// SeedEditionMonitored is the monitored state the repository gives the
+	// 'Theatrical' edition it seeds on create (R2 edition-aware monitor).
+	// Nil keeps the R1 default (monitored). An input to create, not part of
+	// the API payload.
+	SeedEditionMonitored *bool `json:"-"`
+
 	// ReleaseDate is the provider release date (enrichment only, not part of
 	// the API payload); it feeds the 'unreleased' status derivation.
 	ReleaseDate *time.Time `json:"-"`
+}
+
+// Minimum-availability values for the R2 add flow (and ” when unset).
+const (
+	AvailabilityAnnounced    = "announced"
+	AvailabilityPosters      = "posters"
+	AvailabilityInProduction = "in_production"
+	AvailabilityReleased     = "released"
+)
+
+// MonitorMode is the edition-aware monitor selector of the R2 add flow.
+type MonitorMode string
+
+const (
+	MonitorAll         MonitorMode = "all"
+	MonitorMovieOnly   MonitorMode = "movie_only"
+	MonitorUnmonitored MonitorMode = "unmonitored"
+	MonitorAllExcept3D MonitorMode = "all_except_3d"
+)
+
+// MonitorPlan is one resolved add: the movie-level monitored flag plus the
+// per-edition monitored predicate (Radarr v6 edition semantics).
+type MonitorPlan struct {
+	MovieMonitored bool
+	// EditionMonitored decides the monitored state of seeded/created editions
+	// by their label (case-insensitive '3d' check for all_except_3d).
+	EditionMonitored func(label string) bool
+}
+
+// MonitorPlanFor resolves a monitor mode. An empty mode defaults to all
+// (the add-flow default); any other unknown mode errors so the API can map
+// it to a 400.
+func MonitorPlanFor(mode MonitorMode) (MonitorPlan, error) {
+	switch {
+	case mode == "" || mode == MonitorAll:
+		return MonitorPlan{MovieMonitored: true, EditionMonitored: func(string) bool { return true }}, nil
+	case mode == MonitorMovieOnly:
+		return MonitorPlan{MovieMonitored: true, EditionMonitored: func(string) bool { return false }}, nil
+	case mode == MonitorUnmonitored:
+		return MonitorPlan{MovieMonitored: false, EditionMonitored: func(string) bool { return false }}, nil
+	case mode == MonitorAllExcept3D:
+		return MonitorPlan{
+			MovieMonitored: true,
+			EditionMonitored: func(label string) bool {
+				return !strings.Contains(strings.ToLower(label), "3d")
+			},
+		}, nil
+	default:
+		return MonitorPlan{}, fmt.Errorf("movies: unknown monitor mode %q", mode)
+	}
 }
 
 // MovieScores are external ratings; every field nil when unknown.

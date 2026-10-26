@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	rfdom "github.com/brandenk514/mediarr/internal/domains/rootfolders"
+	"github.com/brandenk514/mediarr/internal/system"
 )
 
 // RootFoldersRepo is the Postgres-backed implementation of
@@ -46,6 +47,12 @@ func (r *RootFoldersRepo) List() ([]rfdom.RootFolder, error) {
 		rf, err := scanRootFolder(rows)
 		if err != nil {
 			return nil, fmt.Errorf("rootfolders: scan row: %w", err)
+		}
+		// R2: report free space for the add flow's root-folder dropdown;
+		// null when the path can't be stat'ed (e.g. a configured-but-absent
+		// root in a dev container).
+		if free, ok := system.FreeSpaceFor(rf.Path); ok {
+			rf.FreeSpace = &free
 		}
 		out = append(out, *rf)
 	}

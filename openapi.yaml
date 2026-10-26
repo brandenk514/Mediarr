@@ -2411,18 +2411,25 @@ paths:
     get:
       tags: [search]
       summary: Search movies via TMDB.
+      description: |-
+        Free-text TMDB search. A query of the form `tmdb:<id>` (e.g.
+        `tmdb:157336`) looks the movie up directly by TMDB id and returns a
+        single fully-enriched hit. Badge fields (poster, certification,
+        runtime, studio, genres, IMDb link) are enriched from a details
+        fetch; a details failure degrades a hit to empty badge fields
+        rather than failing the search.
       operationId: searchMovies
       parameters:
         - $ref: "#/components/parameters/SearchQuery"
       responses:
         "200":
-          description: The hits (flat array, provider wire shape).
+          description: The enriched movie search hits.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/SearchResult"
+                  $ref: "#/components/schemas/MovieSearchHit"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "502":
@@ -3320,6 +3327,18 @@ components:
         AddedAt:
           type: string
           format: date-time
+        # R2 add-flow fields (Radarr parity). Stored on the movie; empty when
+        # unset (the pre-R2 add flow predates them).
+        Tags:
+          type: array
+          items:
+            type: string
+          description: Free-form movie tags (R2); empty when unset.
+        RootFolder:
+          type: string
+          description: Root folder path for the movie's files (R2); '' when unset (server default).
+        MinimumAvailability:
+          $ref: "#/components/schemas/MovieMinimumAvailability"
         # R1 enrichment (Radarr parity). Display-only fields sourced from the
         # metadata provider (TMDB): null/empty when the provider is unconfigured
         # or the lookup failed — the UI renders em-dashes, never an error.
@@ -3533,6 +3552,9 @@ components:
           description: Total bytes across all movie files.
     AddMovieRequest:
       type: object
+      description: |-
+        Add a movie. Omitted optional fields default: monitor=all, no minimum
+        availability, no tags, server default root folder, no search.
       required: [title]
       properties:
         title:
@@ -3541,6 +3563,30 @@ components:
           type: string
         quality_profile:
           type: string
+        monitor:
+          type: string
+          description: |-
+            Edition-aware monitor mode (Radarr R2). all = movie + every edition
+            monitored; movie_only = movie monitored, editions unmonitored;
+            unmonitored = nothing monitored; all_except_3d = everything
+            monitored except editions whose label contains '3D'.
+          enum: [all, movie_only, unmonitored, all_except_3d]
+        minimum_availability:
+          type: string
+          description: Minimum availability before a search may pull the movie (Radarr R2); omitted = unset.
+          enum: [announced, posters, in_production, released]
+        tags:
+          type: array
+          description: Free-form movie tags (Radarr R2); omitted = none.
+          items:
+            type: string
+        root_folder:
+          type: string
+          description: Root folder path for the movie's files (Radarr R2); empty = server default.
+        start_search:
+          type: boolean
+          description: Start a search for the movie after adding (Radarr R2); best-effort — a pipeline failure is recorded, never an add failure.
+          default: false
     Series:
       type: object
       required: [ID, TVDBID, TMDBID, Title, Year, QualityProfile, Monitored, SeriesType, SeasonFolder, Tags, AddedAt]
@@ -3712,7 +3758,7 @@ components:
             $ref: "#/components/schemas/ImportCandidate"
     RootFolder:
       type: object
-      required: [ID, Path, Name, CreatedAt]
+      required: [ID, Path, Name, CreatedAt, FreeSpace]
       properties:
         ID:
           type: integer
@@ -3725,6 +3771,11 @@ components:
         CreatedAt:
           type: string
           format: date-time
+        FreeSpace:
+          type: integer
+          format: int64
+          nullable: true
+          description: Free bytes on the volume holding the root folder; null when the backend cannot stat the path.
     RootFolderRequest:
       type: object
       description: Omitted path/name keep their stored values (PUT).
@@ -4649,6 +4700,64 @@ components:
           description: Display-only detail per kind (overview+rating, country, author).
           additionalProperties:
             type: string
+    MovieSearchHit:
+      type: object
+      description: |-
+        One enriched movie search hit for the add flow (Radarr R2). Badge
+        fields degrade to empty/zero when the TMDB details fetch failed;
+        `tmdb_pct` is null when the movie has no TMDB vote.
+      required:
+        [id, title, year, poster, overview, certification, runtime, original_language, studio, genres, tmdb_pct, imdb, links]
+      properties:
+        id:
+          type: string
+          description: TMDB id.
+        title:
+          type: string
+        year:
+          type: integer
+          description: Release year (0 when unknown).
+        poster:
+          type: string
+          description: Poster image URL; '' when unknown.
+        overview:
+          type: string
+          description: Plot synopsis; '' when unknown.
+        certification:
+          type: string
+          description: US MPAA rating when available (e.g. 'PG-13').
+        runtime:
+          type: integer
+          description: Runtime in minutes; 0 when unknown.
+        original_language:
+          type: string
+          description: ISO 639-1 language code (e.g. 'en').
+        studio:
+          type: string
+        genres:
+          type: array
+          items:
+            type: string
+        tmdb_pct:
+          type: number
+          nullable: true
+          description: TMDB vote average scaled to 0-100; null when unknown.
+        imdb:
+          type: string
+          description: IMDb URL; '' when unknown.
+        links:
+          type: object
+          required: [tmdb]
+          properties:
+            tmdb:
+              type: string
+              description: Canonical TMDB page URL.
+    MovieMinimumAvailability:
+      type: string
+      description: |-
+        Minimum availability before a movie may be searched (Radarr R2).
+        Empty string when unset.
+      enum: [announced, posters, in_production, released, '']
     ProfileKind:
       type: string
       enum: [movies, tv, music, books]
