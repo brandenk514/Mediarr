@@ -50,9 +50,11 @@ export const KINDS: KindMeta[] = [
     addPath: '/movies/add',
     importPath: null,
     // Radarr R3: Collections + Discover are first-class movie sub-links.
+    // Radarr R4: the movie calendar (Radarr v6: Movies ▸ Calendar).
     extraLinks: [
       { to: '/movies/collections', label: 'Collections' },
       { to: '/movies/discover', label: 'Discover' },
+      { to: '/movies/calendar', label: 'Calendar' },
     ],
   },
   {

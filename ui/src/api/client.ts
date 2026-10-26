@@ -355,21 +355,25 @@ export const client = {
     request<ManualImportReport>('POST', '/import', req),
 
   // ---- P4: Calendar (upcoming monitored air dates + iCal feed) ----
-  // JSON list of the upcoming monitored TV air dates in [start, end].
-  listCalendar: (f?: { start?: string; end?: string }) => {
+  // R4: `kind` selects the calendar source; 'tv' (default, and the
+  // server-side default) is upcoming monitored air dates, 'movie' is
+  // upcoming monitored release dates.
+  listCalendar: (f?: { start?: string; end?: string; kind?: 'tv' | 'movie' }) => {
     const params = new URLSearchParams()
     if (f?.start) params.set('start', f.start)
     if (f?.end) params.set('end', f.end)
+    if (f?.kind) params.set('kind', f.kind)
     const s = params.toString()
     return request<CalendarEntry[]>('GET', `/calendar${s ? `?${s}` : ''}`)
   },
   // iCal feed URL for a plain link / new tab: /calendar.ics carries the app
   // token as ?token= because a browser navigation can't set the Authorization
-  // header, plus the optional window.
-  calendarICS: (f?: { start?: string; end?: string }) => {
+  // header, plus the optional window and kind (R4: ?kind=movie).
+  calendarICS: (f?: { start?: string; end?: string; kind?: 'tv' | 'movie' }) => {
     const params = new URLSearchParams()
     if (f?.start) params.set('start', f.start)
     if (f?.end) params.set('end', f.end)
+    if (f?.kind) params.set('kind', f.kind)
     const token = getToken()
     if (token) params.set('token', token)
     const s = params.toString()
