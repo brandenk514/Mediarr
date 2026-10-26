@@ -76,6 +76,10 @@ describe('MigrationPanel', () => {
     expect(screen.getByTestId('migration-status')).toHaveTextContent('idle')
     // The run button is disabled until a source URL is entered.
     expect((screen.getByTestId('migration-run-btn') as HTMLButtonElement).disabled).toBe(true)
+    // R6: the source toggle is present, defaulting to Sonarr.
+    const source = screen.getByTestId('migration-source') as HTMLSelectElement
+    expect(source.value).toBe('sonarr')
+    expect(screen.getByTestId('migration-source-help')).toHaveTextContent('Base URL of the Sonarr instance.')
   })
 
   it('submits a dry run and renders the mapping report', async () => {
@@ -89,6 +93,7 @@ describe('MigrationPanel', () => {
     await vi.waitFor(() =>
       expect(client.runMigration).toHaveBeenCalledWith({
         source_url: 'http://sonarr.local:8989',
+        source: 'sonarr',
         dry_run: true,
         include: ALL_INCLUDE,
       }),
@@ -112,6 +117,7 @@ describe('MigrationPanel', () => {
     await vi.waitFor(() =>
       expect(client.runMigration).toHaveBeenCalledWith({
         source_url: 'http://sonarr.local:8989',
+        source: 'sonarr',
         dry_run: false,
         include: ALL_INCLUDE,
       }),
@@ -132,10 +138,34 @@ describe('MigrationPanel', () => {
     await vi.waitFor(() =>
       expect(client.runMigration).toHaveBeenCalledWith({
         source_url: 'http://sonarr.local:8989',
+        source: 'sonarr',
         api_key: 'sekrit',
         dry_run: true,
         resume: true,
         include: { ...ALL_INCLUDE, episodes: false },
+      }),
+    )
+  })
+
+  it('switching the source to Radarr changes the helper text and the payload (R6)', async () => {
+    const user = userEvent.setup()
+    render(<MigrationPanel />)
+    await screen.findByTestId('migration-source-url')
+
+    // Default: the Sonarr helper text.
+    expect(screen.getByTestId('migration-source-help')).toHaveTextContent('Base URL of the Sonarr instance.')
+    await user.selectOptions(screen.getByTestId('migration-source'), 'radarr')
+    expect(screen.getByTestId('migration-source-help')).toHaveTextContent('Base URL of the Radarr instance.')
+
+    await user.type(screen.getByTestId('migration-source-url'), 'https://radarr.local:7878')
+    await user.click(screen.getByTestId('migration-run-btn'))
+
+    await vi.waitFor(() =>
+      expect(client.runMigration).toHaveBeenCalledWith({
+        source_url: 'https://radarr.local:7878',
+        source: 'radarr',
+        dry_run: true,
+        include: ALL_INCLUDE,
       }),
     )
   })
