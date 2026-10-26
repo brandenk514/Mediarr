@@ -42,9 +42,11 @@ export function ProfilesSection() {
   useEffect(() => {
     if (doc) {
       setProfiles(doc.profiles)
-      setMovieProfiles(doc.movie_profiles)
-      setDelayProfiles(doc.delay_profiles)
-      setReleaseProfiles(doc.release_profiles)
+      // Tolerate pre-R5 documents (and P5-shaped test fixtures) that predate
+      // the movie arrays: they arrive absent, not as empty arrays.
+      setMovieProfiles(doc.movie_profiles ?? [])
+      setDelayProfiles(doc.delay_profiles ?? [])
+      setReleaseProfiles(doc.release_profiles ?? [])
     }
   }, [doc])
 

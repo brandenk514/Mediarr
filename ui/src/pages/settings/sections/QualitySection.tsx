@@ -19,7 +19,7 @@ export function QualitySection() {
   useEffect(() => {
     if (doc) {
       setLevels(doc.levels)
-      setMovieLevels(doc.movie_levels)
+      setMovieLevels(doc.movie_levels ?? [])
     }
   }, [doc])
 
