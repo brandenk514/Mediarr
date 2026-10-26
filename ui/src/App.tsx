@@ -8,6 +8,8 @@ import { TvPage } from './pages/lists/Tv'
 import { MusicPage } from './pages/lists/Music'
 import { BooksPage } from './pages/lists/Books'
 import { MovieAddPage } from './pages/add/MovieAdd'
+import { MovieCollectionsPage } from './pages/movies/Collections'
+import { MovieDiscoverPage } from './pages/movies/Discover'
 import { TvAddPage } from './pages/add/TvAdd'
 import { ArtistAddPage } from './pages/add/ArtistAdd'
 import { BookAddPage } from './pages/add/BookAdd'
@@ -64,6 +66,11 @@ export default function App() {
         <Route path="/tv/add" element={<TvAddPage />} />
         <Route path="/music/add" element={<ArtistAddPage />} />
         <Route path="/books/add" element={<BookAddPage />} />
+        {/* Radarr R3: static collection/discover routes rank above the
+            /movies/:id deep route (same as /movies/add). */}
+        <Route path="/movies/collections" element={<MovieCollectionsPage />} />
+        <Route path="/movies/discover" element={<MovieDiscoverPage />} />
+
         {/* Movie deep route (static paths like /movies/add rank above). */}
         <Route path="/movies/:id" element={<MovieDetailPage />} />
         {/* TV deep routes (static paths rank above /tv/:id). */}

@@ -286,6 +286,21 @@ func (r *memRepo) GetMovieStats(ctx context.Context) (dom.MovieStats, error) {
 	return s, nil
 }
 
+func (r *memRepo) SetMovieCollection(ctx context.Context, id int64, collectionID, collectionName string) error {
+	m, ok := r.movies[id]
+	if !ok {
+		return dom.ErrMovieNotFound
+	}
+	m.CollectionID = collectionID
+	if collectionName != "" {
+		m.CollectionName = &collectionName
+	} else {
+		m.CollectionName = nil
+	}
+	r.movies[id] = m
+	return nil
+}
+
 var _ dom.Repo = (*memRepo)(nil)
 
 // TestPipeline_EndToEnd drives the full movie pipeline with an in-memory repo,

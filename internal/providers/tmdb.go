@@ -37,20 +37,31 @@ func (t *TMDB) baseURL() string {
 // Name implements Searcher.
 func (t *TMDB) Name() string { return "tmdb" }
 
+// tmdbSearchResult is one result row of the TMDB search and trending
+// endpoints (the two share a result shape — search fills title/
+// release_date, tv fills name/first_air_date).
+type tmdbSearchResult struct {
+	ID               int     `json:"id"`
+	Title            string  `json:"title"`
+	Name             string  `json:"name"`           // populated for /search/tv
+	ReleaseDate      string  `json:"release_date"`   // movies: "2020-09-03" or ""
+	FirstAir         string  `json:"first_air_date"` // tv: "2019-01-11" or ""
+	Overview         string  `json:"overview"`
+	VoteAverage      float64 `json:"vote_average"`
+	VoteCount        int     `json:"vote_count"`
+	PosterPath       string  `json:"poster_path"`
+	OriginalLanguage string  `json:"original_language"`
+	GenreIDs         []int   `json:"genre_ids"`
+}
+
 type tmdbSearchResponse struct {
-	Results []struct {
-		ID               int     `json:"id"`
-		Title            string  `json:"title"`
-		Name             string  `json:"name"`           // populated for /search/tv
-		ReleaseDate      string  `json:"release_date"`   // movies: "2020-09-03" or ""
-		FirstAir         string  `json:"first_air_date"` // tv: "2019-01-11" or ""
-		Overview         string  `json:"overview"`
-		VoteAverage      float64 `json:"vote_average"`
-		VoteCount        int     `json:"vote_count"`
-		PosterPath       string  `json:"poster_path"`
-		OriginalLanguage string  `json:"original_language"`
-		GenreIDs         []int   `json:"genre_ids"`
-	} `json:"results"`
+	Results []tmdbSearchResult `json:"results"`
+}
+
+// tmdbTrendingResponse is the /trending/{type}/{window} payload.
+type tmdbTrendingResponse struct {
+	Results      []tmdbSearchResult `json:"results"`
+	TotalResults int                `json:"total_results"`
 }
 
 // SearchMovies searches TMDB movies for q.
@@ -89,6 +100,7 @@ type MovieDetail struct {
 	Certification    string // US release rating (e.g. "PG-13"); "" when unknown
 	Studio           string // first production company; "" when unknown
 	Genres           []string
+	CollectionID     string // TMDB collection id; "" when not part of one (R3)
 	CollectionName   string
 	Cast             []CastCredit
 	Crew             []CrewCredit
@@ -116,6 +128,7 @@ func (t *TMDB) GetMovieDetail(ctx context.Context, tmdbID string) (*MovieDetail,
 		VoteAverage         float64 `json:"vote_average"`
 		ReleaseDate         string  `json:"release_date"`
 		BelongsToCollection struct {
+			ID   int    `json:"id"`
 			Name string `json:"name"`
 		} `json:"belongs_to_collection"`
 		ProductionCompanies []struct {
@@ -157,6 +170,9 @@ func (t *TMDB) GetMovieDetail(ctx context.Context, tmdbID string) (*MovieDetail,
 		VoteAverage:      resp.VoteAverage,
 		ReleaseDate:      resp.ReleaseDate,
 		CollectionName:   resp.BelongsToCollection.Name,
+	}
+	if resp.BelongsToCollection.ID > 0 {
+		d.CollectionID = strconv.Itoa(resp.BelongsToCollection.ID)
 	}
 	if len(resp.ProductionCompanies) > 0 {
 		d.Studio = resp.ProductionCompanies[0].Name
@@ -408,9 +424,17 @@ func (t *TMDB) SearchMovieHits(ctx context.Context, q string) ([]MovieSearchHit,
 	if err := t.getJSON(ctx, "/search/movie", values, &resp); err != nil {
 		return nil, err
 	}
+	return t.buildMovieHits(ctx, resp.Results), nil
+}
+
+// buildMovieHits folds raw TMDB search/trending results into the add-flow
+// hit shape: search-payload fields plus genre names, then detail badges for
+// the top movieHitDetailCap hits. A failed detail fetch degrades that hit
+// to empty badge fields — never an error (search and discover share this).
+func (t *TMDB) buildMovieHits(ctx context.Context, results []tmdbSearchResult) []MovieSearchHit {
 	genres := t.movieGenreNames(ctx)
-	hits := make([]MovieSearchHit, 0, len(resp.Results))
-	for _, r := range resp.Results {
+	hits := make([]MovieSearchHit, 0, len(results))
+	for _, r := range results {
 		if r.Title == "" {
 			continue
 		}
@@ -438,11 +462,11 @@ func (t *TMDB) SearchMovieHits(ctx context.Context, q string) ([]MovieSearchHit,
 	for i := 0; i < len(hits) && i < movieHitDetailCap; i++ {
 		d, err := t.fetchMovie(ctx, hits[i].ID)
 		if err != nil {
-			continue // detail failure degrades the hit, not the search
+			continue // detail failure degrades the hit, not the page
 		}
 		applyMovieBadges(&hits[i], d, true)
 	}
-	return hits, nil
+	return hits
 }
 
 // FindMovieHit fetches one movie by TMDB id (the add-flow tmdb:<id> query
@@ -473,4 +497,115 @@ func (t *TMDB) FindMovieHit(ctx context.Context, tmdbID string) (*MovieSearchHit
 	}
 	applyMovieBadges(&h, d, true)
 	return &h, nil
+}
+
+// ---- Discover + collections (Radarr R3) ----
+
+// ErrUnknownGenre is returned when a DiscoverQuery carries a genre name the
+// TMDB genre list doesn't know. The API maps it to 400.
+var ErrUnknownGenre = errors.New("providers: unknown movie genre")
+
+// DiscoverQuery selects a page of the TMDB trending-movie feed (Radarr R3
+// Discover). All filters are optional.
+type DiscoverQuery struct {
+	Page  int    // 1-based; <=0 becomes 1
+	Genre string // genre name (e.g. "Action"); "" = any
+	Year  int    // release year; <=0 = any
+}
+
+// DiscoverMovieHits fetches the TMDB trending-movies feed
+// (/trending/movie/week) with optional genre/year filters and enriches the
+// hits with detail badges exactly like SearchMovieHits. An unset API key
+// returns ErrNotConfigured; an unknown genre name returns ErrUnknownGenre;
+// a failed detail fetch degrades that hit, never the page. total is TMDB's
+// total_results for the active filter.
+func (t *TMDB) DiscoverMovieHits(ctx context.Context, q DiscoverQuery) ([]MovieSearchHit, int, error) {
+	if t.AuthHeader == "" {
+		return nil, 0, ErrNotConfigured
+	}
+	t.Base = t.baseURL()
+	page := q.Page
+	if page < 1 {
+		page = 1
+	}
+	values := url.Values{}
+	values.Set("page", strconv.Itoa(page))
+	values.Set("include_adult", "false")
+	if q.Genre != "" {
+		id, ok := t.movieGenreID(ctx, q.Genre)
+		if !ok {
+			return nil, 0, fmt.Errorf("%w: %q", ErrUnknownGenre, q.Genre)
+		}
+		values.Set("with_genres", strconv.Itoa(id))
+	}
+	if q.Year > 0 {
+		values.Set("primary_release_date.gte", fmt.Sprintf("%04d-01-01", q.Year))
+		values.Set("primary_release_date.lte", fmt.Sprintf("%04d-12-31", q.Year))
+	}
+	var resp tmdbTrendingResponse
+	if err := t.getJSON(ctx, "/trending/movie/week", values, &resp); err != nil {
+		return nil, 0, err
+	}
+	hits := t.buildMovieHits(ctx, resp.Results)
+	if hits == nil {
+		hits = []MovieSearchHit{}
+	}
+	return hits, resp.TotalResults, nil
+}
+
+// movieGenreID resolves a genre name to its TMDB id (the inverse of
+// movieGenreNames). A failed genre fetch or an unmatched name reports
+// ok=false (case-insensitive compare: TMDB names arrive title-cased, the
+// UI filter can send any casing).
+func (t *TMDB) movieGenreID(ctx context.Context, name string) (int, bool) {
+	names := t.movieGenreNames(ctx)
+	for id, n := range names {
+		if strings.EqualFold(n, name) {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
+// CollectionPart is one member of a TMDB collection (Radarr R3). The
+// library matches parts to movies on title+year (the v1 identity — the
+// library does not store TMDB ids); ID is informational.
+type CollectionPart struct {
+	ID    string // TMDB movie id
+	Title string
+	Year  int // 0 when unknown
+}
+
+// GetCollectionParts fetches a TMDB collection's member movies
+// (GET /collection/{id}). An unset API key returns ErrNotConfigured;
+// callers treat every error as "no data" (the collections page's missing
+// count stays 0 — the endpoint never fails on a collection fetch).
+func (t *TMDB) GetCollectionParts(ctx context.Context, collectionID string) ([]CollectionPart, error) {
+	collectionID = strings.TrimSpace(collectionID)
+	if collectionID == "" {
+		return nil, errors.New("providers: tmdb collection id required")
+	}
+	if t.AuthHeader == "" {
+		return nil, ErrNotConfigured
+	}
+	t.Base = t.baseURL()
+	var resp struct {
+		Parts []struct {
+			ID          int    `json:"id"`
+			Title       string `json:"title"`
+			ReleaseDate string `json:"release_date"`
+		} `json:"parts"`
+	}
+	if err := t.getJSON(ctx, "/collection/"+collectionID, nil, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]CollectionPart, 0, len(resp.Parts))
+	for _, p := range resp.Parts {
+		year := 0
+		if len(p.ReleaseDate) >= 4 {
+			year, _ = strconv.Atoi(p.ReleaseDate[:4])
+		}
+		out = append(out, CollectionPart{ID: strconv.Itoa(p.ID), Title: p.Title, Year: year})
+	}
+	return out, nil
 }

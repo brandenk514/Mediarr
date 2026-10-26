@@ -23,6 +23,12 @@ export interface KindMeta {
   addPath: string
   /** The per-kind library-import page (TV-only in P1). */
   importPath: string | null
+  /**
+   * Extra first-class sub-links for the kind's library section, rendered
+   * after 'Add New' / 'Library Import' (Radarr R3: Movies gets Collections
+   * and Discover; the other kinds' rails are untouched).
+   */
+  extraLinks?: RailLink[]
 }
 
 export const KINDS: KindMeta[] = [
@@ -43,6 +49,11 @@ export const KINDS: KindMeta[] = [
     libPath: '/movies',
     addPath: '/movies/add',
     importPath: null,
+    // Radarr R3: Collections + Discover are first-class movie sub-links.
+    extraLinks: [
+      { to: '/movies/collections', label: 'Collections' },
+      { to: '/movies/discover', label: 'Discover' },
+    ],
   },
   {
     id: 'music',

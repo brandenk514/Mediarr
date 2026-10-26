@@ -37,6 +37,7 @@ type Server struct {
 	musicDeps           *MusicDeps
 	booksDeps           *BooksDeps
 	searchDeps          *SearchDeps
+	discoverDeps        *DiscoverDeps
 	rootFolderDeps      *RootFolderDeps
 	historyDeps         *HistoryDeps
 	blocklistDeps       *BlocklistDeps

@@ -64,16 +64,22 @@ func (r *MovieRepo) CreateMovie(ctx context.Context, m movies.Movie) (int64, err
 func (r *MovieRepo) GetMovie(ctx context.Context, id int64) (*movies.Movie, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, title, year, quality_profile, monitored, added_at,
-		       tags, root_folder, minimum_availability
+		       tags, root_folder, minimum_availability,
+		       collection_id, collection_name
 		FROM movies WHERE id = $1`, id)
 	m := &movies.Movie{}
+	var collectionName sql.NullString
 	err := row.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
-		&m.Tags, &m.RootFolder, &m.MinimumAvailability)
+		&m.Tags, &m.RootFolder, &m.MinimumAvailability,
+		&m.CollectionID, &collectionName)
 	if err == sql.ErrNoRows {
 		return nil, movies.ErrMovieNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("movies: get: %w", err)
+	}
+	if collectionName.Valid && collectionName.String != "" {
+		m.CollectionName = &collectionName.String
 	}
 	return m, nil
 }
@@ -82,7 +88,8 @@ func (r *MovieRepo) GetMovie(ctx context.Context, id int64) (*movies.Movie, erro
 func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, title, year, quality_profile, monitored, added_at,
-		       tags, root_folder, minimum_availability
+		       tags, root_folder, minimum_availability,
+		       collection_id, collection_name
 		FROM movies ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("movies: list: %w", err)
@@ -91,9 +98,14 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 	var out []movies.Movie
 	for rows.Next() {
 		var m movies.Movie
+		var collectionName sql.NullString
 		if err := rows.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
-			&m.Tags, &m.RootFolder, &m.MinimumAvailability); err != nil {
+			&m.Tags, &m.RootFolder, &m.MinimumAvailability,
+			&m.CollectionID, &collectionName); err != nil {
 			return nil, fmt.Errorf("movies: scan: %w", err)
+		}
+		if collectionName.Valid && collectionName.String != "" {
+			m.CollectionName = &collectionName.String
 		}
 		out = append(out, m)
 	}
@@ -434,4 +446,20 @@ func (r *MovieRepo) GetMovieStats(ctx context.Context) (movies.MovieStats, error
 		return s, fmt.Errorf("movies: stats: %w", err)
 	}
 	return s, nil
+}
+
+// SetMovieCollection persists the movie's TMDB collection (Radarr R3). The
+// columns are NOT NULL with ” defaults, so "unknown" is stored as ”/”.
+func (r *MovieRepo) SetMovieCollection(ctx context.Context, id int64, collectionID, collectionName string) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE movies
+		SET collection_id = $2, collection_name = $3
+		WHERE id = $1`, id, collectionID, collectionName)
+	if err != nil {
+		return fmt.Errorf("movies: set collection: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return movies.ErrMovieNotFound
+	}
+	return nil
 }

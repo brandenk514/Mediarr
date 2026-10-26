@@ -165,7 +165,8 @@ export function Rail() {
         </div>
       </div>
 
-      {/* Library section (per kind): header + Add New / Library Import. */}
+      {/* Library section (per kind): header + Add New / Library Import +
+          the kind's extra first-class links (R3: Movies' Collections/Discover). */}
       <RailSection
         icon={meta.libIcon}
         label={meta.libLabel}
@@ -175,6 +176,7 @@ export function Rail() {
         sub={[
           { to: meta.addPath, label: 'Add New' },
           ...(meta.importPath ? [{ to: meta.importPath, label: 'Library Import' }] : []),
+          ...(meta.extraLinks ?? []),
         ]}
       />
 

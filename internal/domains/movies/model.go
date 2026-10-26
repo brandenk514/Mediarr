@@ -37,6 +37,7 @@ type Movie struct {
 	Genres            []string
 	OriginalLanguage  *string // ISO language code
 	CollectionName    *string
+	CollectionID      string // TMDB collection id; '' when unknown (persisted, R3)
 	Overview          *string
 	Scores            *MovieScores
 	Cast              []MovieCast
@@ -229,6 +230,22 @@ type MovieStats struct {
 	TotalSize        int64
 }
 
+// MovieCollection is a library view of one TMDB collection (Radarr R3
+// collections page): the library's member movies plus a best-effort count of
+// collection parts that are not in the library.
+type MovieCollection struct {
+	// ID is the TMDB collection id, or "unknown" when the library only knows
+	// the collection by name (no id was persisted).
+	ID string
+	// Name is the collection name; "" when unknown.
+	Name string
+	// Movies are the library members (full list-read objects).
+	Movies []Movie
+	// MissingCount is the number of collection parts not in the library;
+	// 0 when the collection id is unknown or TMDB is unavailable (keyless).
+	MissingCount int
+}
+
 // WantedStatus is the lifecycle of a movie's "we want a file" request.
 type WantedStatus string
 
@@ -332,4 +349,10 @@ type Repo interface {
 
 	// GetMovieStats computes the Movies-page stats bar in one query.
 	GetMovieStats(ctx context.Context) (MovieStats, error)
+
+	// SetMovieCollection persists the TMDB collection a movie belongs to
+	// (Radarr R3). Called by the enricher when the provider reports a
+	// collection. Best-effort: a failure must never fail the read that
+	// triggered it. ''/'' clears an unknown collection.
+	SetMovieCollection(ctx context.Context, id int64, collectionID, collectionName string) error
 }

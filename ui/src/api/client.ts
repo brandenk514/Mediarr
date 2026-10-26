@@ -85,7 +85,9 @@ import type {
   ConnectTestResult,
   MetadataSourceSearchRequest,
   MetadataSourceSearchResult,
+  MovieCollection,
   MovieSearchHit,
+  DiscoverMovies,
   ImportRunRequest,
   ImportRunResult,
   // P6: System area
@@ -192,6 +194,17 @@ export const client = {
   getMovieStats: () => request<MovieStats>('GET', '/movies/stats'),
   setMovieEditionMonitored: (id: number, editionId: number, monitored: boolean) =>
     request<MonitoredResult>('PUT', `/movies/${id}/editions/${editionId}`, { monitored }),
+  // Radarr R3: Collections page (library grouped by TMDB collection) and the
+  // Discover page (TMDB trending feed; 503 without a TMDB key).
+  listMovieCollections: () => request<MovieCollection[]>('GET', '/movies/collections'),
+  discoverMovies: (q: { page?: number; genre?: string; year?: number } = {}) => {
+    const params = new URLSearchParams()
+    if (q.page) params.set('page', String(q.page))
+    if (q.genre) params.set('genre', q.genre)
+    if (q.year) params.set('year', String(q.year))
+    const s = params.toString()
+    return request<DiscoverMovies>('GET', `/discover/movies${s ? `?${s}` : ''}`)
+  },
 
   // ---- tv ----
   listSeries: (q?: ListQuery) => request<PageSeries>('GET', `/tv${buildListQuery(q)}`),

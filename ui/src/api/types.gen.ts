@@ -135,6 +135,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/movies/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List movie collections (Radarr R3).
+         * @description The library's collections, sorted by name. Members are full Movie objects.
+         */
+        get: operations["listMovieCollections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/movies/{id}": {
         parameters: {
             query?: never;
@@ -1364,6 +1384,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/discover/movies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover movies (Radarr R3)
+         * @description The TMDB trending-movies feed (/trending/movie/week) with optional
+         *     genre/year filters — Radarr's Discover. Same enriched MovieSearchHit
+         *     shape as the search endpoint. Without a TMDB key: 503, the same
+         *     reason shape as /api/v1/search/movies.
+         */
+        get: operations["discoverMovies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search/tv": {
         parameters: {
             query?: never;
@@ -1911,6 +1954,8 @@ export interface components {
             OriginalLanguage?: string | null;
             /** @description Franchise/collection name; null when none. */
             CollectionName?: string | null;
+            /** @description TMDB collection id when the movie belongs to one (persisted by the enricher, Radarr R3); null/"" when unknown. The collections page groups library movies by this. */
+            CollectionID?: string | null;
             /** @description Plot overview; null when unknown. */
             Overview?: string | null;
             Scores?: components["schemas"]["MovieScores"];
@@ -1932,6 +1977,38 @@ export interface components {
             Editions?: components["schemas"]["MovieEdition"][];
             /** @description The movie's files; empty until imported. */
             Files?: components["schemas"]["MovieFile"][];
+        };
+        /**
+         * @description A library view of one TMDB collection (Radarr R3 Collections page).
+         *     `id` is the TMDB collection id, or "unknown" when the library only
+         *     knows the collection by name (no id persisted). `movie_count` is the
+         *     number of library members (the `movies` array); `missing_count` is
+         *     the number of collection parts that are not in the library, fetched
+         *     best-effort from TMDB (0 when the collection id is unknown or TMDB is
+         *     unavailable — keyless dev still groups by name).
+         */
+        MovieCollection: {
+            id: string;
+            /** @description Collection name; "" when unknown (UI shows "Unknown"). */
+            name: string;
+            /** @description Number of library members. */
+            movie_count: number;
+            /** @description Collection parts not in the library (best-effort). */
+            missing_count: number;
+            /** @description The library members as full Movie objects. */
+            movies: components["schemas"]["Movie"][];
+        };
+        /**
+         * @description One page of the Discover feed (Radarr R3): the TMDB trending-movies
+         *     feed with optional genre/year filters. `results` carries the same
+         *     enriched MovieSearchHit shape as the search endpoint (badges included).
+         */
+        DiscoverMovies: {
+            results: components["schemas"]["MovieSearchHit"][];
+            /** @description The (1-based) page that was fetched. */
+            page: number;
+            /** @description TMDB's total_results for the active filter. */
+            total: number;
         };
         /**
          * @description Derived status of a movie (Radarr v6 status chips). Derivation
@@ -3595,6 +3672,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MovieStats"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listMovieCollections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The library's collections, sorted by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovieCollection"][];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -5930,6 +6029,44 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MovieSearchHit"][];
                 };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    discoverMovies: {
+        parameters: {
+            query?: {
+                /** @description 1-based page (default 1). */
+                page?: number;
+                /** @description Genre name to filter by (e.g. "Action"); resolved to the TMDB genre id. Unknown names return 400. */
+                genre?: string;
+                /** @description Release year to filter by (0/absent = any). */
+                year?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the trending feed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoverMovies"];
+                };
+            };
+            /** @description Unknown genre name. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];

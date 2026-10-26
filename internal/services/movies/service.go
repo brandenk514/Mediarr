@@ -68,6 +68,14 @@ type Deps struct {
 	// (Radarr R1). Optional: nil (e.g. no TMDB key) leaves the fields empty
 	// and the UI degrades to em-dashes.
 	Enricher dom.MovieEnricher
+	// CollectionParts, when non-nil, provides TMDB collection parts for the
+	// collections page's missing counts (Radarr R3). Optional: nil (keyless)
+	// or a failing fetch leaves missing_count 0.
+	CollectionParts TMDBCollectionParter
+	// TMDB, when non-nil, backs the Discover page's trending feed (Radarr
+	// R3). Optional: nil (no TMDB key) makes Discover answer 503, the same
+	// keyless shape the search endpoints use.
+	TMDB TMDBDiscoverer
 }
 
 // Service implements the movie use-cases.
@@ -343,7 +351,15 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 			view.Size = &total
 		}
 		if enrich && s.deps.Enricher != nil {
+			preID, preName := view.CollectionID, collectionNameOf(view.CollectionName)
 			_ = s.deps.Enricher.EnrichMovie(ctx, &view) // best effort
+			// Radarr R3: persist the collection the provider reported so
+			// the collections page can group without a live TMDB call.
+			// Only write when the provider reported something new.
+			newID, newName := view.CollectionID, collectionNameOf(view.CollectionName)
+			if (newID != "" || newName != "") && (newID != preID || newName != preName) {
+				_ = s.deps.Repo.SetMovieCollection(ctx, view.ID, newID, newName)
+			}
 		}
 		w := wantByMovie[m.ID]
 		view.Status = dom.DeriveMovieStatus(
