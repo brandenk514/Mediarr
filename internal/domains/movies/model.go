@@ -98,14 +98,14 @@ type MonitorPlan struct {
 // (the add-flow default); any other unknown mode errors so the API can map
 // it to a 400.
 func MonitorPlanFor(mode MonitorMode) (MonitorPlan, error) {
-	switch {
-	case mode == "" || mode == MonitorAll:
+	switch mode {
+	case "", MonitorAll:
 		return MonitorPlan{MovieMonitored: true, EditionMonitored: func(string) bool { return true }}, nil
-	case mode == MonitorMovieOnly:
+	case MonitorMovieOnly:
 		return MonitorPlan{MovieMonitored: true, EditionMonitored: func(string) bool { return false }}, nil
-	case mode == MonitorUnmonitored:
+	case MonitorUnmonitored:
 		return MonitorPlan{MovieMonitored: false, EditionMonitored: func(string) bool { return false }}, nil
-	case mode == MonitorAllExcept3D:
+	case MonitorAllExcept3D:
 		return MonitorPlan{
 			MovieMonitored: true,
 			EditionMonitored: func(label string) bool {

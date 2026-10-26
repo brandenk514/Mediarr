@@ -41,8 +41,8 @@ describe('client.request', () => {
 
   it('throws ApiError with the server message on non-2xx', async () => {
     mockFetch(() => new Response(JSON.stringify({ error: 'title is required' }), { status: 400 }))
-    await expect(client.addMovie({ title: '', start_search: false })).rejects.toThrow('title is required')
-    await expect(client.addMovie({ title: '', start_search: false })).rejects.toSatisfy(
+    await expect(client.addMovie({ title: '', minimum_availability: 'released', start_search: false })).rejects.toThrow('title is required')
+    await expect(client.addMovie({ title: '', minimum_availability: 'released', start_search: false })).rejects.toSatisfy(
       (e: unknown) => e instanceof ApiError && e.status === 400,
     )
   })
