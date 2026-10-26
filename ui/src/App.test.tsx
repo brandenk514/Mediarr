@@ -29,6 +29,8 @@ vi.mock('./api/client', () => {
       me: vi.fn(),
       logout: vi.fn(),
       listSeries: vi.fn(),
+      listMovies: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 25 }),
+      getMovieStats: vi.fn().mockResolvedValue(null),
       getDashboard: vi.fn(),
       getSystemHealth: vi.fn(),
     },
@@ -67,16 +69,16 @@ describe('App', () => {
     expect(screen.getByTestId('password')).toBeInTheDocument()
   })
 
-  // P7 home decision: the default landing is the TV library (the Sonarr
+  // R7 home decision: the default landing is the Movies list (the Radarr
   // users' home), not the cross-kind Dashboard.
-  it('lands a signed-in user on the TV library from /', async () => {
+  it('lands a signed-in user on the Movies list from /', async () => {
     ;(getToken as ReturnType<typeof vi.fn>).mockReturnValue('tok')
     ;(client.me as ReturnType<typeof vi.fn>).mockResolvedValue({ username: 'admin' })
-    ;(client.listSeries as ReturnType<typeof vi.fn>).mockResolvedValue(EMPTY_PAGE)
+    ;(client.listMovies as ReturnType<typeof vi.fn>).mockResolvedValue(EMPTY_PAGE)
     ;(client.getSystemHealth as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('nope'))
 
     renderApp(['/'])
-    await expect(screen.findByTestId('tv-title')).resolves.toBeVisible()
+    await expect(screen.findByTestId('movies-title')).resolves.toBeVisible()
   })
 
   // The Dashboard stays reachable from the /dashboard route (the rail's

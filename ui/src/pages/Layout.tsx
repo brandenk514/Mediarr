@@ -145,7 +145,7 @@ export function Rail() {
   return (
     <nav className="rail" aria-label="Primary">
       {/* Mediarr extra (P7): the cross-library Dashboard, above the per-kind
-          sections. The TV list is the default landing; the Dashboard is how a
+          sections. The Movies list is the default landing; the Dashboard is how a
           Sonarr-shaped user finds the four-library overview. */}
       <SharedRailSection section={DASHBOARD_SECTION} pathname={pathname} />
 

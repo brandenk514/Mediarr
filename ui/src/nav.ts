@@ -105,7 +105,7 @@ export interface SharedSection {
 }
 
 // Mediarr's own extra section (not in Sonarr): the cross-library overview.
-// P7 home decision — the TV library is the default landing; the Dashboard
+// R7 home decision — the Movies list is the default landing; the Dashboard
 // stays reachable from this rail item (and the /dashboard route).
 export const DASHBOARD_SECTION: SharedSection = {
   id: 'dashboard',
