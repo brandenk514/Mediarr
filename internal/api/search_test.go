@@ -56,7 +56,10 @@ func stubProvider(t *testing.T, body string, status int) *httptest.Server {
 }
 
 func TestSearchMovies_HappyPath(t *testing.T) {
-	body := `{"results":[{"id":603,"title":"Dune: Part Two","release_date":"2024-03-01","overview":"Fremen.","vote_average":7.8}]}`
+	// The stub answers every path (search, genre list, movie detail) with
+	// the same search payload; the detail parse then yields no badges, so
+	// the hit keeps its search-payload fields and empty badge fields.
+	body := `{"results":[{"id":603,"title":"Dune: Part Two","release_date":"2024-03-01","overview":"Fremen.","vote_average":7.8,"vote_count":1234,"poster_path":"/abc.jpg","original_language":"en","genre_ids":[879]}]}`
 	stub := stubProvider(t, body, 0)
 	defer stub.Close()
 	deps := &SearchDeps{TMDB: providers.NewTMDB("k")}
@@ -67,15 +70,28 @@ func TestSearchMovies_HappyPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	var got []searchResult
+	var got []movieSearchHit
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "603" || got[0].Title != "Dune: Part Two" || got[0].Year != 2024 {
-		t.Fatalf("unexpected result: %+v", got)
+	if len(got) != 1 {
+		t.Fatalf("want 1 hit, got %d", len(got))
 	}
-	if got[0].Extra["overview"] != "Fremen." {
-		t.Fatalf("extra = %v", got[0].Extra)
+	h := got[0]
+	if h.ID != "603" || h.Title != "Dune: Part Two" || h.Year != 2024 {
+		t.Fatalf("unexpected hit: %+v", h)
+	}
+	if h.Overview != "Fremen." || h.Poster != "https://image.tmdb.org/t/p/w342/abc.jpg" || h.OriginalLanguage != "en" {
+		t.Fatalf("search-payload fields = %+v", h)
+	}
+	if h.TmdbPct == nil || *h.TmdbPct != 780 {
+		t.Fatalf("tmdb_pct = %v, want 780", h.TmdbPct)
+	}
+	if h.Links.TMDB != "https://www.themoviedb.org/movie/603" {
+		t.Fatalf("links.tmdb = %q", h.Links.TMDB)
+	}
+	if h.Genres == nil {
+		t.Fatal("genres must be a non-nil []")
 	}
 }
 
@@ -104,7 +120,7 @@ func TestSearchMovies_MissingQuery(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	var got []searchResult
+	var got []movieSearchHit
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}

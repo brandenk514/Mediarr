@@ -55,17 +55,22 @@ func (r *memRepo) CreateMovie(ctx context.Context, m dom.Movie) (int64, error) {
 	m.AddedAt = time.Now()
 	r.movies[m.ID] = m
 	// Mirror the postgres adapter: a fresh movie gets one 'Theatrical'
-	// edition, monitored, with the movie's quality profile (Radarr R1).
-	r.seedEdition(m.ID, m.QualityProfile)
+	// edition with the movie's quality profile (Radarr R1; the R2
+	// edition-aware monitor plan decides the seeded monitored state).
+	r.seedEdition(m.ID, m.QualityProfile, m.SeedEditionMonitored)
 	return m.ID, nil
 }
 
-func (r *memRepo) seedEdition(movieID int64, quality string) {
+func (r *memRepo) seedEdition(movieID int64, quality string, seeded *bool) {
+	monitored := true
+	if seeded != nil {
+		monitored = *seeded
+	}
 	e := dom.Edition{
 		ID:        r.nextEdition,
 		MovieID:   movieID,
 		Label:     "Theatrical",
-		Monitored: true,
+		Monitored: monitored,
 		Quality:   quality,
 	}
 	r.nextEdition++
@@ -315,7 +320,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Add the movie.
-	id, err := svc.AddMovie(ctx, "Dune Part Two", "2024", "HD-1080p")
+	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "HD-1080p"})
 	if err != nil {
 		t.Fatalf("add movie: %v", err)
 	}
@@ -407,7 +412,7 @@ func TestPipeline_NoMatch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	id, err := svc.AddMovie(ctx, "Dune Part Two", "2024", "HD-1080p")
+	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "HD-1080p"})
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -445,7 +450,7 @@ func TestPipeline_PicksBestRelease(t *testing.T) {
 		MediaRoot: mediaRoot,
 	})
 	ctx := context.Background()
-	id, _ := svc.AddMovie(ctx, "Dune Part Two", "2024", "HD-1080p")
+	id, _ := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "HD-1080p"})
 	if _, err := svc.RunPipeline(ctx, id); err != nil {
 		t.Fatalf("run pipeline: %v", err)
 	}

@@ -21,6 +21,10 @@ test('add a movie through the form and see it in the grid', async ({ page }) => 
   await signIn(page)
   await expect(page).toHaveURL(/\/movies\/add$/)
   await expect(page.getByTestId('movie-add-title')).toBeVisible()
+  // R2 two-pane: the right pane's edition-aware fields are present with the
+  // Radarr defaults (All / Released) — no live TMDB needed for this check.
+  await expect(page.getByTestId('movie-monitor')).toHaveValue('all')
+  await expect(page.getByTestId('movie-min-availability')).toHaveValue('released')
   await page.getByTestId('movie-title-input').fill(title)
   await page.getByTestId('movie-add-button').click()
 

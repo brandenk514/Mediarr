@@ -14,6 +14,7 @@ import (
 	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/notify"
 	"github.com/brandenk514/mediarr/internal/providers"
+	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 	tvsvc "github.com/brandenk514/mediarr/internal/services/tv"
 	"github.com/brandenk514/mediarr/internal/settings"
 )
@@ -53,7 +54,7 @@ type TVImporter interface {
 
 // MoviesImporter is the slice of the movies service import lists use.
 type MoviesImporter interface {
-	AddMovie(ctx context.Context, title, year, qualityProfile string) (int64, error)
+	AddMovie(ctx context.Context, req moviesvc.AddMovieRequest) (int64, error)
 	ListMovies(ctx context.Context) ([]moviesdom.Movie, error)
 }
 
@@ -523,7 +524,7 @@ func (s *Server) applyImportEntry(r *http.Request, e importListEntry, dryRun boo
 			item.Status, item.Message = "skipped", "dry run: would add to movies"
 			return item
 		}
-		if _, err := d.Movies.AddMovie(ctx, e.Title, e.Year, ""); err != nil {
+		if _, err := d.Movies.AddMovie(ctx, moviesvc.AddMovieRequest{Title: e.Title, Year: e.Year}); err != nil {
 			item.Status, item.Message = "error", err.Error()
 			return item
 		}

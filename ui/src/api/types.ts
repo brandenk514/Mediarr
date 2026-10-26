@@ -81,6 +81,7 @@ export type DownloadClientRequest = components["schemas"]["DownloadClientRequest
 export type LibraryOverride = components["schemas"]["LibraryOverride"]
 export type LibraryOverrides = components["schemas"]["LibraryOverrides"]
 export type SearchResult = components["schemas"]["SearchResult"]
+export type MovieSearchHit = components["schemas"]["MovieSearchHit"]
 export type ProfileKind = components["schemas"]["ProfileKind"]
 export type ProfilesResponse = components["schemas"]["ProfilesResponse"]
 export type EventFrame = components["schemas"]["EventFrame"]

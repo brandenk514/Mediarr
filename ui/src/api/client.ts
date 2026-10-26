@@ -85,6 +85,7 @@ import type {
   ConnectTestResult,
   MetadataSourceSearchRequest,
   MetadataSourceSearchResult,
+  MovieSearchHit,
   ImportRunRequest,
   ImportRunResult,
   // P6: System area
@@ -430,7 +431,9 @@ export const client = {
   // Provider search: debounced by the UI; each call is one provider round
   // trip. The endpoints answer 503 when the provider isn't configured — the
   // add-flow UI greys the search box with that reason.
-  searchMovies: (q: string) => request<SearchResult[]>('GET', `/search/movies?query=${encodeURIComponent(q)}`),
+  // Radarr R2: /search/movies returns enriched MovieSearchHit rows (badges
+  // from the TMDB search + details payload).
+  searchMovies: (q: string) => request<MovieSearchHit[]>('GET', `/search/movies?query=${encodeURIComponent(q)}`),
   searchTv: (q: string) => request<SearchResult[]>('GET', `/search/tv?query=${encodeURIComponent(q)}`),
   searchTvTmdb: (q: string) => request<SearchResult[]>('GET', `/search/tv-tmdb?query=${encodeURIComponent(q)}`),
   searchArtists: (q: string) =>

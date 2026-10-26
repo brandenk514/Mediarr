@@ -283,7 +283,7 @@ func (c *queueCollector) stateSequence() []string {
 // runPipeline drives add → pipeline and returns the movie id and import path.
 func (h *harness) runPipeline(t *testing.T, svc *moviesvc.Service, title, year string) (int64, string) {
 	t.Helper()
-	id, err := svc.AddMovie(h.ctx, title, year, "HD-1080p")
+	id, err := svc.AddMovie(h.ctx, moviesvc.AddMovieRequest{Title: title, Year: year, QualityProfile: "HD-1080p"})
 	if err != nil {
 		t.Fatalf("add movie: %v", err)
 	}

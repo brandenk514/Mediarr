@@ -17,6 +17,9 @@ type RootFolder struct {
 	Path      string
 	Name      string // optional label; defaults to ""
 	CreatedAt time.Time
+	// FreeSpace is the free bytes on the volume holding the root folder;
+	// nil when the backend cannot stat it (Radarr R2).
+	FreeSpace *int64
 }
 
 // Sentinel errors for the registry.

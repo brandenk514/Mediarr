@@ -34,20 +34,27 @@ func (r *MovieRepo) CreateMovie(ctx context.Context, m movies.Movie) (int64, err
 		return 0, fmt.Errorf("movies: create: %w", err)
 	}
 	err = r.db.QueryRowContext(ctx, `
-		INSERT INTO movies (title, year, quality_profile, monitored)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO movies (title, year, quality_profile, monitored,
+		                   tags, root_folder, minimum_availability)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id`,
 		m.Title, m.Year, m.QualityProfile, m.Monitored,
+		nullSafeTags(m.Tags), m.RootFolder, m.MinimumAvailability,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("movies: create: %w", err)
 	}
-	// Radarr parity (R1): a freshly added movie gets one 'Theatrical' edition,
-	// monitored, with the movie's quality profile.
+	// Radarr parity (R1): a freshly added movie gets one 'Theatrical' edition
+	// with the movie's quality profile; its monitored state follows the R2
+	// edition-aware monitor plan (default: monitored).
+	seeded := true
+	if m.SeedEditionMonitored != nil {
+		seeded = *m.SeedEditionMonitored
+	}
 	if _, err := r.db.ExecContext(ctx, `
 		INSERT INTO editions (movie_id, label, monitored, quality)
-		VALUES ($1, 'Theatrical', true, $2)
-		ON CONFLICT (movie_id, label) DO NOTHING`, id, m.QualityProfile); err != nil {
+		VALUES ($1, 'Theatrical', $2, $3)
+		ON CONFLICT (movie_id, label) DO NOTHING`, id, seeded, m.QualityProfile); err != nil {
 		return 0, fmt.Errorf("movies: seed edition: %w", err)
 	}
 	return id, nil
@@ -56,10 +63,12 @@ func (r *MovieRepo) CreateMovie(ctx context.Context, m movies.Movie) (int64, err
 // GetMovie loads a movie by id.
 func (r *MovieRepo) GetMovie(ctx context.Context, id int64) (*movies.Movie, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, title, year, quality_profile, monitored, added_at
+		SELECT id, title, year, quality_profile, monitored, added_at,
+		       tags, root_folder, minimum_availability
 		FROM movies WHERE id = $1`, id)
 	m := &movies.Movie{}
-	err := row.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt)
+	err := row.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
+		&m.Tags, &m.RootFolder, &m.MinimumAvailability)
 	if err == sql.ErrNoRows {
 		return nil, movies.ErrMovieNotFound
 	}
@@ -72,7 +81,8 @@ func (r *MovieRepo) GetMovie(ctx context.Context, id int64) (*movies.Movie, erro
 // ListMovies returns all movies, oldest first.
 func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, title, year, quality_profile, monitored, added_at
+		SELECT id, title, year, quality_profile, monitored, added_at,
+		       tags, root_folder, minimum_availability
 		FROM movies ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("movies: list: %w", err)
@@ -81,7 +91,8 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 	var out []movies.Movie
 	for rows.Next() {
 		var m movies.Movie
-		if err := rows.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
+			&m.Tags, &m.RootFolder, &m.MinimumAvailability); err != nil {
 			return nil, fmt.Errorf("movies: scan: %w", err)
 		}
 		out = append(out, m)

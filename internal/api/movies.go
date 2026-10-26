@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -27,14 +28,25 @@ func (s *Server) SetMovies(deps *MoviesDeps) {
 	s.register("POST /api/v1/movies/{id}/pipeline", s.requireAuth(s.RunMoviePipeline))
 }
 
-// addMovieRequest is the body for POST /api/v1/movies.
+// addMovieRequest is the body of POST /api/v1/movies (Radarr R2 two-pane
+// add). The R2 fields are optional: omitted ones keep pre-R2 behavior
+// (monitor=all, no tags, server default root folder, no search).
 type addMovieRequest struct {
-	Title          string `json:"title"`
-	Year           string `json:"year"`
-	QualityProfile string `json:"quality_profile"`
+	Title               string   `json:"title"`
+	Year                string   `json:"year"`
+	QualityProfile      string   `json:"quality_profile"`
+	Monitor             string   `json:"monitor"`
+	MinimumAvailability string   `json:"minimum_availability"`
+	Tags                []string `json:"tags"`
+	RootFolder          string   `json:"root_folder"`
+	StartSearch         bool     `json:"start_search"`
 }
 
-// AddMovie handles POST /api/v1/movies.
+// AddMovie handles POST /api/v1/movies (Radarr R2 two-pane add). The
+// edition-aware monitor mode, tags, root folder, minimum availability and
+// the best-effort start-search flag are honored by the service; invalid enum
+// values map to 400 (ErrInvalidAddParams), any other service failure stays a
+// 409 conflict.
 func (s *Server) AddMovie(w http.ResponseWriter, r *http.Request) {
 	var req addMovieRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -45,8 +57,21 @@ func (s *Server) AddMovie(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title is required")
 		return
 	}
-	id, err := s.moviesDeps.Svc.AddMovie(r.Context(), req.Title, req.Year, req.QualityProfile)
+	id, err := s.moviesDeps.Svc.AddMovie(r.Context(), moviesvc.AddMovieRequest{
+		Title:               req.Title,
+		Year:                req.Year,
+		QualityProfile:      req.QualityProfile,
+		Monitor:             req.Monitor,
+		MinimumAvailability: req.MinimumAvailability,
+		Tags:                req.Tags,
+		RootFolder:          req.RootFolder,
+		StartSearch:         req.StartSearch,
+	})
 	if err != nil {
+		if errors.Is(err, moviesvc.ErrInvalidAddParams) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}

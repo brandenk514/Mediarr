@@ -83,34 +83,97 @@ func New(deps Deps) *Service {
 	return &Service{deps: deps}
 }
 
-// AddMovie creates a movie (if new), ensures a pending wanted row, and records
-// the add in history. Returns the movie id.
-func (s *Service) AddMovie(ctx context.Context, title, year string, qualityProfile string) (int64, error) {
-	if strings.TrimSpace(title) == "" {
+// ErrInvalidAddParams is returned when the add request carries a monitor
+// mode or minimum availability that is not one of the known values (R2);
+// the API maps it to a 400.
+var ErrInvalidAddParams = errors.New("movies: invalid add-movie parameter")
+
+// AddMovieRequest is the movie add use-case input (Radarr R2 two-pane add).
+// Omitted optional fields keep their pre-R2 behavior: monitor "" means "all",
+// empty tags/root folder/minimum availability are stored as-is (unset).
+type AddMovieRequest struct {
+	Title          string
+	Year           string
+	QualityProfile string
+	// Monitor is the edition-aware monitor mode (R2): all | movie_only |
+	// unmonitored | all_except_3d; "" defaults to all.
+	Monitor string
+	// MinimumAvailability: announced | posters | in_production | released;
+	// '' when unset.
+	MinimumAvailability string
+	// Tags are free-form labels (R2); nil = none.
+	Tags []string
+	// RootFolder is a root folder path (R2); '' = server default.
+	RootFolder string
+	// StartSearch runs the pipeline best-effort after the add (R2).
+	StartSearch bool
+}
+
+// AddMovie creates a movie (if new), resolves the edition-aware monitor plan
+// (R2), ensures a pending wanted row when the movie ends up monitored, and
+// records the add in history. With StartSearch it additionally runs the
+// pipeline best-effort: a pipeline failure is recorded in history and never
+// fails the add — the movie stays in the library (Radarr R2).
+func (s *Service) AddMovie(ctx context.Context, req AddMovieRequest) (int64, error) {
+	if strings.TrimSpace(req.Title) == "" {
 		return 0, fmt.Errorf("movies: title is required")
 	}
-	if qualityProfile == "" {
-		qualityProfile = s.deps.DefaultProfile
+	if req.QualityProfile == "" {
+		req.QualityProfile = s.deps.DefaultProfile
+	}
+	plan, err := dom.MonitorPlanFor(dom.MonitorMode(req.Monitor))
+	if err != nil {
+		return 0, fmt.Errorf("%w: %v", ErrInvalidAddParams, err)
+	}
+	switch req.MinimumAvailability {
+	case "",
+		dom.AvailabilityAnnounced, dom.AvailabilityPosters,
+		dom.AvailabilityInProduction, dom.AvailabilityReleased:
+	default:
+		return 0, fmt.Errorf("%w: minimum_availability %q", ErrInvalidAddParams, req.MinimumAvailability)
+	}
+	// Radarr R2: minimum_availability defaults to 'released' for every add;
+	// pre-R2 movies in the database may still carry '' (unset).
+	if req.MinimumAvailability == "" {
+		req.MinimumAvailability = dom.AvailabilityReleased
 	}
 	m := dom.Movie{
-		Title:          strings.TrimSpace(title),
-		Year:           parseYear(year),
-		QualityProfile: qualityProfile,
-		Monitored:      true,
+		Title:                strings.TrimSpace(req.Title),
+		Year:                 parseYear(req.Year),
+		QualityProfile:       req.QualityProfile,
+		Monitored:            plan.MovieMonitored,
+		Tags:                 req.Tags,
+		RootFolder:           req.RootFolder,
+		MinimumAvailability:  req.MinimumAvailability,
+		SeedEditionMonitored: boolPtr(plan.EditionMonitored("Theatrical")),
 	}
 	id, err := s.deps.Repo.CreateMovie(ctx, m)
 	if err != nil {
 		return 0, err
 	}
-	if err := s.deps.Repo.EnsureWanted(ctx, id); err != nil {
-		return 0, err
+	// An unmonitored movie (R2 "unmonitored" mode) is not wanted: no pending
+	// wanted row. Monitored movies keep the pre-R2 behavior.
+	if plan.MovieMonitored {
+		if err := s.deps.Repo.EnsureWanted(ctx, id); err != nil {
+			return 0, err
+		}
 	}
 	_ = s.deps.Repo.AddHistory(ctx, dom.HistoryEntry{
 		MovieID: id, Event: "added", Detail: "movie added to library",
 	})
 	s.emitHistory(ctx, id, "added", "movie added to library")
+	if req.StartSearch {
+		// Best-effort pipeline run (R2): the add already succeeded, so a
+		// failure here is only recorded — the movie stays as missing.
+		if _, perr := s.RunPipeline(ctx, id); perr != nil {
+			s.record(ctx, id, "start-search-failed", perr.Error())
+		}
+	}
 	return id, nil
 }
+
+// boolPtr wraps a bool for the pointer-typed SeedEditionMonitored field.
+func boolPtr(b bool) *bool { return &b }
 
 // ListMovies returns all movies (used by GET /api/v1/movies).
 func (s *Service) ListMovies(ctx context.Context) ([]dom.Movie, error) {
