@@ -397,6 +397,10 @@ func run(logSvc *system.LogService) error {
 		DownloadsDir:   cfg.DownloadsDir,
 		Events:         events,
 		Metrics:        m,
+		// Radarr R1: display enrichment on the detail read. Keyless (empty
+		// TMDB_API_KEY) degrades gracefully: the enricher returns nil and
+		// the UI shows em-dashes.
+		Enricher: &moviesvc.TMDBEnricher{Client: providers.NewTMDB(cfg.Providers.TMDBAPIKey)},
 	})
 	srv.SetMovies(&api.MoviesDeps{Svc: movieSvc})
 	logger.Info("movie pipeline ready",
