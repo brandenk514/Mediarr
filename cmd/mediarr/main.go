@@ -411,6 +411,7 @@ func run(logSvc *system.LogService) error {
 		TMDB: tmdbClient,
 	})
 	srv.SetMovies(&api.MoviesDeps{Svc: movieSvc})
+	srv.SetDiscover(&api.DiscoverDeps{Svc: movieSvc})
 	logger.Info("movie pipeline ready",
 		"media_root", cfg.MediaRoot,
 		"downloads_dir", cfg.DownloadsDir,
