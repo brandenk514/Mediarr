@@ -50,6 +50,12 @@ function freshDoc(section: string): unknown {
           { id: 2, name: '720p', source: 'web', resolution: '720p', size_limit_mb: 0 },
           { id: 3, name: '1080p', source: 'web', resolution: '1080p', size_limit_mb: 0 },
         ],
+        // Radarr R5a: the doc carries the movie ladder (100+ id space) too.
+        movie_levels: [
+          { id: 100, name: '480p', source: 'dvd', resolution: '480p', size_limit_mb: 1024 },
+          { id: 104, name: '1080p WEB', source: 'webrip', resolution: '1080p', size_limit_mb: 1536 },
+          { id: 105, name: '1080p', source: 'blu-ray', resolution: '1080p', size_limit_mb: 4096 },
+        ],
       }
     case 'profiles':
       return {
@@ -79,11 +85,19 @@ function freshDoc(section: string): unknown {
           author: 'Author',
           title: 'Title',
         },
+        // Radarr R5a: the Radarr movie-naming block.
+        movie_naming: {
+          rename_movies: true,
+          replace_illegal_characters: true,
+          colon_replacement: '',
+          standard_format: '{movie-title} ({year}) {quality} {edition}',
+        },
         file_management: {
           min_file_age_hours: 0,
           remove_empty_dirs: true,
           import_extra_files: false,
           rename_series: false,
+          unmonitor_deleted_movies: true,
         },
         remote_path_mappings: [{ source: '/srv/torrents', destination: '/data/torrents' }],
       }
@@ -180,8 +194,39 @@ describe('QualitySection', () => {
             { id: 2, name: '720p', source: 'web', resolution: '720p', size_limit_mb: 0 },
             { id: 3, name: '1080p', source: 'web', resolution: '1080p', size_limit_mb: 0 },
           ],
-          movie_levels: [],
+          // The movie ladder round-trips untouched when only TV levels change.
+          movie_levels: [
+            { id: 100, name: '480p', source: 'dvd', resolution: '480p', size_limit_mb: 1024 },
+            { id: 104, name: '1080p WEB', source: 'webrip', resolution: '1080p', size_limit_mb: 1536 },
+            { id: 105, name: '1080p', source: 'blu-ray', resolution: '1080p', size_limit_mb: 4096 },
+          ],
         },
+      ),
+    )
+  })
+
+  it('renders the movie quality definitions and saves a renamed movie level (R5b)', async () => {
+    const user = userEvent.setup()
+    renderSection(<QualitySection />)
+    // The Radarr movie ladder renders in its own table (100+ id space).
+    expect(await screen.findByTestId('movie-quality-name-100')).toHaveValue('480p')
+    expect(screen.getByTestId('movie-quality-name-105')).toHaveValue('1080p')
+    expect(screen.getByTestId('movie-quality-source-104')).toHaveValue('webrip')
+    expect(screen.getByTestId('movie-quality-size-104')).toHaveValue(1536)
+
+    await user.clear(screen.getByTestId('movie-quality-name-100'))
+    await user.type(screen.getByTestId('movie-quality-name-100'), '480p-R')
+    await user.click(screen.getByTestId('quality-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'quality',
+        expect.objectContaining({
+          movie_levels: [
+            expect.objectContaining({ id: 100, name: '480p-R' }),
+            expect.objectContaining({ id: 104, name: '1080p WEB' }),
+            expect.objectContaining({ id: 105, name: '1080p' }),
+          ],
+        }),
       ),
     )
   })
@@ -290,5 +335,58 @@ describe('MediaManagementSection', () => {
     await user.type(screen.getByTestId('mm-map-dest'), '/data/in')
     await user.click(screen.getByTestId('mm-map-add'))
     expect(await screen.findByTestId('mm-mappings')).toHaveTextContent('/tmp/in')
+  })
+
+  it('renders the Radarr movie naming block and saves its edits (R5b)', async () => {
+    const user = userEvent.setup()
+    renderSection(<MediaManagementSection />)
+    const format = await screen.findByTestId('mm-movie-format')
+    // The document loads async; wait for the seeded template to apply.
+    await waitFor(() =>
+      expect(format).toHaveValue('{movie-title} ({year}) {quality} {edition}'),
+    )
+    expect(screen.getByTestId('mm-movie-rename')).toBeChecked()
+    expect(screen.getByTestId('mm-movie-illegal')).toBeChecked()
+    expect(screen.getByTestId('mm-movie-colon')).toHaveValue('')
+
+    // Uncheck Rename Movies, set a colon replacement, and swap the format.
+    await user.click(screen.getByTestId('mm-movie-rename'))
+    await user.type(screen.getByTestId('mm-movie-colon'), '’')
+    // Braces break userEvent key-sequence parsing; set the template directly.
+    fireEvent.change(format, {
+      target: { value: '{movie-title} ({year}) {quality}' },
+    })
+    await user.click(screen.getByTestId('media-management-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'media-management',
+        expect.objectContaining({
+          movie_naming: {
+            rename_movies: false,
+            replace_illegal_characters: true,
+            colon_replacement: '’',
+            standard_format: '{movie-title} ({year}) {quality}',
+          },
+        }),
+      ),
+    )
+  })
+
+  it('toggles Unmonitor Deleted Movies in file management and saves (R5b)', async () => {
+    const user = userEvent.setup()
+    renderSection(<MediaManagementSection />)
+    // The seeded default is on; click turns it off.
+    expect(await screen.findByTestId('mm-unmonitor')).toBeChecked()
+
+    await user.click(screen.getByTestId('mm-unmonitor'))
+    await user.click(screen.getByTestId('media-management-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'media-management',
+        expect.objectContaining({
+          file_management: expect.objectContaining({ unmonitor_deleted_movies: false }),
+        }),
+      ),
+    )
   })
 })

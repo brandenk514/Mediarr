@@ -3,17 +3,21 @@ import { client } from '../../../api/client'
 import type {
   FileManagement,
   MediaManagementSettings,
+  MovieNaming,
   NamingTemplate,
   RemotePathMapping,
   RootFolder,
 } from '../../../api/types'
 import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 
-// MediaManagementSection is the media-management section: naming templates per
-// media kind (TV parity first), the file-management options, remote path
-// mappings (indexer/download paths -> local), and the root-folder list (read
-// here — root folders are owned by the P2 root-folders domain and the add
-// flow).
+// MediaManagementSection is the media-management section: naming templates
+// per media kind (TV parity first), the Radarr movie-naming block (R5b:
+// Rename Movies / Replace Illegal Characters / Colon Replacement / Standard
+// Movie Format — separate from the per-kind 'Movie' template row, which is
+// the TV-era NamingTemplate.movie), the file-management options (including
+// Unmonitor Deleted Movies), remote path mappings (indexer/download paths ->
+// local), and the root-folder list (read here — root folders are owned by
+// the P2 root-folders domain and the add flow).
 const TEMPLATE_FIELDS: { field: keyof NamingTemplate; label: string }[] = [
   { field: 'series', label: 'Series' },
   { field: 'episode', label: 'Episode' },
@@ -28,6 +32,7 @@ export function MediaManagementSection() {
   const { doc, loading, error, authLost, refresh } = useSectionDoc<MediaManagementSettings>('media-management')
 
   const [naming, setNaming] = useState<NamingTemplate | null>(null)
+  const [movieNaming, setMovieNaming] = useState<MovieNaming | null>(null)
   const [fileMgmt, setFileMgmt] = useState<FileManagement | null>(null)
   const [mappings, setMappings] = useState<RemotePathMapping[]>([])
   const [mapSource, setMapSource] = useState('')
@@ -39,7 +44,13 @@ export function MediaManagementSection() {
   useEffect(() => {
     if (!doc) return
     setNaming(doc.naming)
-    setFileMgmt(doc.file_management)
+    setMovieNaming(doc.movie_naming)
+    // The server defaults unmonitor_deleted_movies to true (R5a); normalise a
+    // missing stored value so the toggle round-trips the default explicitly.
+    setFileMgmt({
+      ...doc.file_management,
+      unmonitor_deleted_movies: doc.file_management.unmonitor_deleted_movies ?? true,
+    })
     setMappings(doc.remote_path_mappings)
   }, [doc])
 
@@ -75,6 +86,11 @@ export function MediaManagementSection() {
     setNaming({ ...naming, [field]: value })
   }
 
+  function patchMovieNaming(patch: Partial<MovieNaming>) {
+    if (!movieNaming) return
+    setMovieNaming({ ...movieNaming, ...patch })
+  }
+
   function patchFileMgmt(patch: Partial<FileManagement>) {
     if (!fileMgmt) return
     setFileMgmt({ ...fileMgmt, ...patch })
@@ -92,18 +108,11 @@ export function MediaManagementSection() {
   }
 
   function handleSave() {
-    if (!naming || !fileMgmt) return
+    if (!naming || !fileMgmt || !movieNaming) return
     void submit(async () => {
       const next: MediaManagementSettings = {
         naming,
-        // Radarr R5a: movie_naming is a required doc field; the page keeps
-        // sending the Radarr defaults until R5b renders the movie naming form.
-        movie_naming: {
-          rename_movies: true,
-          replace_illegal_characters: true,
-          colon_replacement: '',
-          standard_format: '{movie-title} ({year}) {quality} {edition}',
-        },
+        movie_naming: movieNaming,
         file_management: fileMgmt,
         remote_path_mappings: mappings,
       }
@@ -132,6 +141,46 @@ export function MediaManagementSection() {
             />
           </div>
         ))}
+      </div>
+
+      <h4>Movie naming</h4>
+      <div data-testid="mm-movie-naming">
+        <label className="check" htmlFor="mm-movie-rename">
+          <input
+            id="mm-movie-rename"
+            type="checkbox"
+            checked={movieNaming?.rename_movies ?? true}
+            onChange={(e) => patchMovieNaming({ rename_movies: e.target.checked })}
+            data-testid="mm-movie-rename"
+          />
+          Rename Movies
+        </label>
+        <label className="check" htmlFor="mm-movie-illegal">
+          <input
+            id="mm-movie-illegal"
+            type="checkbox"
+            checked={movieNaming?.replace_illegal_characters ?? true}
+            onChange={(e) => patchMovieNaming({ replace_illegal_characters: e.target.checked })}
+            data-testid="mm-movie-illegal"
+          />
+          Replace Illegal Characters
+        </label>
+        <label htmlFor="mm-movie-colon">Colon Replacement</label>
+        <input
+          id="mm-movie-colon"
+          value={movieNaming?.colon_replacement ?? ''}
+          maxLength={1}
+          placeholder="e.g. '"
+          onChange={(e) => patchMovieNaming({ colon_replacement: e.target.value.slice(-1) })}
+          data-testid="mm-movie-colon"
+        />
+        <label htmlFor="mm-movie-format">Standard Movie Format</label>
+        <input
+          id="mm-movie-format"
+          value={movieNaming?.standard_format ?? ''}
+          onChange={(e) => patchMovieNaming({ standard_format: e.target.value })}
+          data-testid="mm-movie-format"
+        />
       </div>
 
       <h4>File management</h4>
@@ -172,6 +221,16 @@ export function MediaManagementSection() {
           data-testid="mm-rename"
         />
         Rename series on import
+      </label>
+      <label className="check" htmlFor="mm-unmonitor">
+        <input
+          id="mm-unmonitor"
+          type="checkbox"
+          checked={fileMgmt?.unmonitor_deleted_movies ?? true}
+          onChange={(e) => patchFileMgmt({ unmonitor_deleted_movies: e.target.checked })}
+          data-testid="mm-unmonitor"
+        />
+        Unmonitor Deleted Movies
       </label>
 
       <h4>Remote path mappings</h4>
@@ -242,7 +301,7 @@ export function MediaManagementSection() {
       )}
       <button
         onClick={handleSave}
-        disabled={busy || loading || !naming || !fileMgmt}
+        disabled={busy || loading || !naming || !fileMgmt || !movieNaming}
         data-testid="media-management-save"
       >
         {busy ? 'Saving…' : 'Save media management'}
