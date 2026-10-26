@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
 	"github.com/brandenk514/mediarr/internal/paging"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 )
@@ -21,6 +22,7 @@ func (s *Server) SetMovies(deps *MoviesDeps) {
 	s.register("POST /api/v1/movies", s.requireAuth(s.AddMovie))
 	s.register("GET /api/v1/movies", s.requireAuth(s.ListMovies))
 	s.register("GET /api/v1/movies/stats", s.requireAuth(s.GetMovieStats))
+	s.register("GET /api/v1/movies/collections", s.requireAuth(s.ListMovieCollections))
 	s.register("GET /api/v1/movies/{id}", s.requireAuth(s.GetMovie))
 	s.register("PUT /api/v1/movies/{id}", s.requireAuth(s.SetMovieMonitored))
 	s.register("PUT /api/v1/movies/{id}/editions/{editionId}", s.requireAuth(s.SetMovieEditionMonitored))
@@ -128,6 +130,44 @@ func (s *Server) GetMovieStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, st)
+}
+
+// movieCollection is the wire shape of /api/v1/movies/collections (Radarr
+// R3): the spec's lowercase MovieCollection schema (unlike the Movie schema,
+// which follows Go's default PascalCase marshaling).
+type movieCollection struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	MovieCount   int               `json:"movie_count"`
+	MissingCount int               `json:"missing_count"`
+	Movies       []moviesdom.Movie `json:"movies"`
+}
+
+// ListMovieCollections handles GET /api/v1/movies/collections (Radarr R3
+// collections page): the library grouped by TMDB collection, sorted by name.
+// Keyless dev works (groups by the persisted collection fields; missing
+// counts stay 0).
+func (s *Server) ListMovieCollections(w http.ResponseWriter, r *http.Request) {
+	cols, err := s.moviesDeps.Svc.ListCollections(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]movieCollection, 0, len(cols))
+	for _, c := range cols {
+		members := c.Movies
+		if members == nil {
+			members = []moviesdom.Movie{}
+		}
+		out = append(out, movieCollection{
+			ID:           c.ID,
+			Name:         c.Name,
+			MovieCount:   len(members),
+			MissingCount: c.MissingCount,
+			Movies:       members,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // SetMovieEditionMonitored handles PUT /api/v1/movies/{id}/editions/{editionId}

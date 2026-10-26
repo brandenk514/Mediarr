@@ -388,6 +388,7 @@ func run(logSvc *system.LogService) error {
 	} else {
 		logger.Warn("download client init failed; movie pipeline disabled", "error", clientErr)
 	}
+	tmdbClient := providers.NewTMDB(cfg.Providers.TMDBAPIKey)
 	movieSvc := moviesvc.New(moviesvc.Deps{
 		Repo:           postgres.NewMovieRepo(pg.DB()),
 		Indexers:       indexersFor(fake),
@@ -400,7 +401,14 @@ func run(logSvc *system.LogService) error {
 		// Radarr R1: display enrichment on the detail read. Keyless (empty
 		// TMDB_API_KEY) degrades gracefully: the enricher returns nil and
 		// the UI shows em-dashes.
-		Enricher: &moviesvc.TMDBEnricher{Client: providers.NewTMDB(cfg.Providers.TMDBAPIKey)},
+		Enricher: &moviesvc.TMDBEnricher{Client: tmdbClient},
+		// Radarr R3: collection parts for the collections page's missing
+		// counts. Keyless: GetCollectionParts returns ErrNotConfigured,
+		// which the service treats as "no data" (missing_count 0).
+		CollectionParts: tmdbClient,
+		// Radarr R3: the Discover page's trending feed. Keyless: Discover
+		// answers 503 (same shape as /search/movies).
+		TMDB: tmdbClient,
 	})
 	srv.SetMovies(&api.MoviesDeps{Svc: movieSvc})
 	logger.Info("movie pipeline ready",

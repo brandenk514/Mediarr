@@ -83,6 +83,9 @@ func (e *TMDBEnricher) apply(m *dom.Movie, d *providers.MovieDetail) {
 	if d.OriginalLanguage != "" {
 		m.OriginalLanguage = &d.OriginalLanguage
 	}
+	if d.CollectionID != "" {
+		m.CollectionID = d.CollectionID
+	}
 	if d.CollectionName != "" {
 		m.CollectionName = &d.CollectionName
 	}

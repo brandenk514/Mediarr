@@ -235,6 +235,25 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/movies/collections:
+    get:
+      tags: [movies]
+      summary: List movie collections (Radarr R3).
+      operationId: listMovieCollections
+      description: The library's collections, sorted by name. Members are full Movie objects.
+      responses:
+        "200":
+          description: The library's collections, sorted by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MovieCollection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/movies/{id}:
     get:
       tags: [movies]
@@ -2438,6 +2457,54 @@ paths:
           $ref: "#/components/responses/ServiceUnavailable"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/discover/movies:
+    get:
+      tags: [movies]
+      summary: Discover movies (Radarr R3)
+      operationId: discoverMovies
+      description: |
+        The TMDB trending-movies feed (/trending/movie/week) with optional
+        genre/year filters — Radarr's Discover. Same enriched MovieSearchHit
+        shape as the search endpoint. Without a TMDB key: 503, the same
+        reason shape as /api/v1/search/movies.
+      parameters:
+        - name: page
+          in: query
+          description: 1-based page (default 1).
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: genre
+          in: query
+          description: >-
+            Genre name to filter by (e.g. "Action"); resolved to the TMDB
+            genre id. Unknown names return 400.
+          schema:
+            type: string
+        - name: year
+          in: query
+          description: Release year to filter by (0/absent = any).
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: One page of the trending feed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverMovies"
+        "400":
+          description: Unknown genre name.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/search/tv:
     get:
       tags: [search]
@@ -3367,6 +3434,13 @@ components:
           type: string
           nullable: true
           description: Franchise/collection name; null when none.
+        CollectionID:
+          type: string
+          nullable: true
+          description: >-
+            TMDB collection id when the movie belongs to one (persisted by
+            the enricher, Radarr R3); null/"" when unknown. The collections
+            page groups library movies by this.
         Overview:
           type: string
           nullable: true
@@ -3410,6 +3484,52 @@ components:
           items:
             $ref: "#/components/schemas/MovieFile"
           description: The movie's files; empty until imported.
+    MovieCollection:
+      type: object
+      required: [id, name, movie_count, missing_count, movies]
+      description: |
+        A library view of one TMDB collection (Radarr R3 Collections page).
+        `id` is the TMDB collection id, or "unknown" when the library only
+        knows the collection by name (no id persisted). `movie_count` is the
+        number of library members (the `movies` array); `missing_count` is
+        the number of collection parts that are not in the library, fetched
+        best-effort from TMDB (0 when the collection id is unknown or TMDB is
+        unavailable — keyless dev still groups by name).
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          description: Collection name; "" when unknown (UI shows "Unknown").
+        movie_count:
+          type: integer
+          description: Number of library members.
+        missing_count:
+          type: integer
+          description: Collection parts not in the library (best-effort).
+        movies:
+          type: array
+          items:
+            $ref: "#/components/schemas/Movie"
+          description: The library members as full Movie objects.
+    DiscoverMovies:
+      type: object
+      required: [results, page, total]
+      description: |
+        One page of the Discover feed (Radarr R3): the TMDB trending-movies
+        feed with optional genre/year filters. `results` carries the same
+        enriched MovieSearchHit shape as the search endpoint (badges included).
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieSearchHit"
+        page:
+          type: integer
+          description: The (1-based) page that was fetched.
+        total:
+          type: integer
+          description: TMDB's total_results for the active filter.
     MovieStatus:
       type: string
       description: |

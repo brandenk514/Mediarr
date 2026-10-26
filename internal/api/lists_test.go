@@ -191,6 +191,21 @@ func (r *listMoviesRepo) GetMovieStats(ctx context.Context) (moviesdom.MovieStat
 	return s, nil
 }
 
+func (r *listMoviesRepo) SetMovieCollection(ctx context.Context, id int64, collectionID, collectionName string) error {
+	m, ok := r.movies[id]
+	if !ok {
+		return moviesdom.ErrMovieNotFound
+	}
+	m.CollectionID = collectionID
+	if collectionName != "" {
+		m.CollectionName = &collectionName
+	} else {
+		m.CollectionName = nil
+	}
+	r.movies[id] = m
+	return nil
+}
+
 // newListTestServer returns an authenticated movies server plus a valid bearer
 // token, so the contract tests can hit the real requireAuth-wrapped routes.
 func newListTestServer(t *testing.T, repo moviesdom.Repo) (*Server, string) {
