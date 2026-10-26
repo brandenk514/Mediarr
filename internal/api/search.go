@@ -85,12 +85,81 @@ func (s *Server) searchMovies(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "tmdb is not configured (missing API key)")
 		return
 	}
-	results, err := s.searchDeps.TMDB.SearchMovies(r.Context(), r.URL.Query().Get("query"))
+	q := strings.TrimSpace(r.URL.Query().Get("query"))
+	if strings.HasPrefix(q, "tmdb:") {
+		// Direct lookup by TMDB id (Radarr R2): one hit from /movie/{id}.
+		id := strings.TrimSpace(strings.TrimPrefix(q, "tmdb:"))
+		if id == "" {
+			writeError(w, http.StatusBadRequest, "invalid tmdb:<id> query")
+			return
+		}
+		h, err := s.searchDeps.TMDB.FindMovieHit(r.Context(), id)
+		if err != nil {
+			writeSearchError(w, "tmdb", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, []movieSearchHit{toMovieHit(*h)})
+		return
+	}
+	hits, err := s.searchDeps.TMDB.SearchMovieHits(r.Context(), q)
 	if err != nil {
 		writeSearchError(w, "tmdb", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toWire(results))
+	out := make([]movieSearchHit, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, toMovieHit(h))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// movieSearchHit is the wire shape of /api/v1/search/movies (Radarr R2).
+// tmdb_pct is null when TMDB has no vote for the movie.
+type movieSearchHit struct {
+	ID               string        `json:"id"`
+	Title            string        `json:"title"`
+	Year             int           `json:"year"`
+	Poster           string        `json:"poster"`
+	Overview         string        `json:"overview"`
+	Certification    string        `json:"certification"`
+	Runtime          int           `json:"runtime"`
+	OriginalLanguage string        `json:"original_language"`
+	Studio           string        `json:"studio"`
+	Genres           []string      `json:"genres"`
+	TmdbPct          *float64      `json:"tmdb_pct"`
+	Imdb             string        `json:"imdb"`
+	Links            movieHitLinks `json:"links"`
+}
+
+type movieHitLinks struct {
+	TMDB string `json:"tmdb"`
+}
+
+func toMovieHit(h providers.MovieSearchHit) movieSearchHit {
+	genres := h.Genres
+	if genres == nil {
+		genres = []string{}
+	}
+	var pct *float64
+	if h.VoteAverage > 0 {
+		v := h.VoteAverage * 100
+		pct = &v
+	}
+	return movieSearchHit{
+		ID:               h.ID,
+		Title:            h.Title,
+		Year:             h.Year,
+		Poster:           h.Poster,
+		Overview:         h.Overview,
+		Certification:    h.Certification,
+		Runtime:          h.Runtime,
+		OriginalLanguage: h.OriginalLanguage,
+		Studio:           h.Studio,
+		Genres:           genres,
+		TmdbPct:          pct,
+		Imdb:             h.ImdbURL,
+		Links:            movieHitLinks{TMDB: "https://www.themoviedb.org/movie/" + h.ID},
+	}
 }
 
 // searchTV searches TVDB series. The response carries tvdb_id; tmdb_id is
