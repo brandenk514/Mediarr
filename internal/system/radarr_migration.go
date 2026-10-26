@@ -315,8 +315,23 @@ type RadarrEditionRef struct {
 type RadarrMigrationTarget interface {
 	EnsureMovieProfile(ctx context.Context, p RadarrQualityProfile) (id int64, action TargetAction, err error)
 	EnsureTag(ctx context.Context, t RadarrTag) (id int64, action TargetAction, err error)
+	EnsureIndexer(ctx context.Context, ix RadarrIndexer) (id int64, action TargetAction, err error)
+	SetDownloadClient(ctx context.Context, c RadarrDownloadClient) (action TargetAction, err error)
+	// ApplyMediaManagement maps the best-effort media-management subset and
+	// returns the number of fields written.
+	ApplyMediaManagement(ctx context.Context, mm RadarrMediaManagement) (int, error)
 	EnsureMovie(ctx context.Context, ref RadarrMovieRef) (id int64, action TargetAction, err error)
 	EnsureEditions(ctx context.Context, movieID int64, eds []RadarrEditionRef) (created int, err error)
+}
+
+// RadarrIndexerStore is the indexer-write surface (the R5a per-indexer
+// booleans travel with the create). main.go adapts the Postgres indexer repo
+// to it.
+type RadarrIndexerStore interface {
+	// FindIndexer returns the id of the indexer named name, or found=false.
+	FindIndexer(ctx context.Context, name string) (id int64, found bool)
+	// CreateIndexer inserts a new indexer definition and returns its id.
+	CreateIndexer(ctx context.Context, name, kind, baseURL, apiKey string, enabled, enableRss, enableAutomatic, enableInteractive bool) (int64, error)
 }
 
 // RadarrMovieStore is the movie-domain write surface. main.go adapts the
@@ -509,7 +524,85 @@ func (m *RadarrMigrator) runLocked(ctx context.Context, req MigrationRequest) (*
 		}
 	}
 
-	// 3. Movies + editions (include.series -> movies, include.episodes ->
+	// 3. Indexers (the Radarr R5a per-indexer booleans: enableRss -> rss,
+	// enableAutomatic -> auto_search, enableInteractive -> interactive_search).
+	if inc.wantIndexers() {
+		indexers, err := src.GetIndexers(ctx)
+		if err != nil {
+			return result, err
+		}
+		for _, ix := range indexers {
+			if req.DryRun {
+				result.Items = append(result.Items, MigrationItem{Entity: "indexer", ExternalID: fmt.Sprint(ix.ID), SourceTitle: ix.Name, Action: "dry-run"})
+				result.Counts.Total++
+				continue
+			}
+			id, action, err := m.Target.EnsureIndexer(ctx, ix)
+			if err != nil {
+				result.Counts.Total++
+				result.Counts.Errors++
+				result.Items = append(result.Items, MigrationItem{Entity: "indexer", ExternalID: fmt.Sprint(ix.ID), SourceTitle: ix.Name, Action: "error", Message: err.Error()})
+				return result, err
+			}
+			addMigrated(result, MigrationItem{Entity: "indexer", ExternalID: fmt.Sprint(ix.ID), SourceTitle: ix.Name, Action: string(action), TargetID: id})
+		}
+	}
+
+	// 4. Download client (single config, like Sonarr).
+	if inc.wantDownloadClient() {
+		clients, err := src.GetDownloadClients(ctx)
+		if err != nil {
+			return result, err
+		}
+		if len(clients) > 0 {
+			dc := clients[0]
+			if req.DryRun {
+				result.Items = append(result.Items, MigrationItem{Entity: "download_client", ExternalID: fmt.Sprint(dc.ID), SourceTitle: dc.Name, Action: "dry-run"})
+				result.Counts.Total++
+			} else {
+				action, err := m.Target.SetDownloadClient(ctx, dc)
+				if err != nil {
+					result.Counts.Total++
+					result.Counts.Errors++
+					result.Items = append(result.Items, MigrationItem{Entity: "download_client", ExternalID: fmt.Sprint(dc.ID), SourceTitle: dc.Name, Action: "error", Message: err.Error()})
+					return result, err
+				}
+				addMigrated(result, MigrationItem{Entity: "download_client", ExternalID: fmt.Sprint(dc.ID), SourceTitle: dc.Name, Action: string(action)})
+			}
+		}
+	}
+
+	// 5. Settings (Radarr R6 only; a best-effort subset: media management
+	// fields the Mediarr document can hold + an importexport note). A
+	// failure degrades to a report note and never fails the run.
+	if req.DryRun {
+		result.Items = append(result.Items, MigrationItem{Entity: "settings", Action: "dry-run"})
+		result.Counts.Total++
+	} else {
+		notes := make([]string, 0, 2)
+		action := TargetAction("exists")
+		if mm, err := src.GetMediaManagement(ctx); err != nil {
+			notes = append(notes, "media management unavailable: "+err.Error())
+		} else if n, err := m.Target.ApplyMediaManagement(ctx, *mm); err != nil {
+			notes = append(notes, "media management failed: "+err.Error())
+			result.Counts.Errors++
+		} else {
+			if n > 0 {
+				action = ActionUpdated
+			}
+			notes = append(notes, fmt.Sprintf("media management: %d fields mapped", n))
+		}
+		if ie, err := src.GetImportExport(ctx); err != nil {
+			notes = append(notes, "importexport unavailable: "+err.Error())
+		} else if ie != nil {
+			notes = append(notes, "importexport: script configured on source (not portable; import manually)")
+		} else {
+			notes = append(notes, "importexport: not configured on source")
+		}
+		addMigrated(result, MigrationItem{Entity: "settings", Action: string(action), Message: strings.Join(notes, "; ")})
+	}
+
+	// 6. Movies + editions (include.series -> movies, include.episodes ->
 	// editions).
 	if inc.wantSeries() {
 		movies, err := src.GetMovies(ctx)

@@ -47,6 +47,10 @@ func sampleRadarr() *fakeRadarr {
 			}},
 		},
 		tags: []RadarrTag{{ID: 1, Label: "4k"}, {ID: 2, Label: "kids"}},
+		indexers: []RadarrIndexer{
+			{ID: 1, Name: "RAR", Enable: true, EnableRss: true, EnableAutomatic: false, EnableInteractive: true, IndexerType: "indexer", BaseURL: "https://rar.example"},
+		},
+		dcs: []RadarrDownloadClient{{ID: 1, Name: "qbit", Enable: true, ClientKey: "qBittorrent"}},
 		movies: []RadarrMovie{
 			{
 				ID: 10, Title: "Movie A", OriginalTitle: "Movie A", SortTitle: "movie a",
@@ -73,9 +77,15 @@ type fakeRadarrTarget struct {
 	movieProfiles   map[string]int64
 	createdProfiles map[string]bool
 	tags            map[int]int64 // source id -> target id
+	indexersByName  map[string]int64
+	indexers        map[string]RadarrIndexer
+	dcSet           bool
+	dc              RadarrDownloadClient
+	mediaMgmt       int // fields reported applied by ApplyMediaManagement
 	movies          map[string]int64
 	editions        map[int64]map[string]bool // movieID -> labels
 	seededMonitored map[int64]bool
+	failMovies      int // if >0, EnsureMovie fails once this many movies exist
 	nextID          int64
 }
 
@@ -84,6 +94,8 @@ func newFakeRadarrTarget() *fakeRadarrTarget {
 		movieProfiles:   map[string]int64{},
 		createdProfiles: map[string]bool{},
 		tags:            map[int]int64{},
+		indexersByName:  map[string]int64{},
+		indexers:        map[string]RadarrIndexer{},
 		movies:          map[string]int64{},
 		editions:        map[int64]map[string]bool{},
 		seededMonitored: map[int64]bool{},
@@ -110,6 +122,28 @@ func (f *fakeRadarrTarget) EnsureTag(ctx context.Context, t RadarrTag) (int64, T
 	f.tags[t.ID] = id
 	return id, ActionCreated, nil
 }
+func (f *fakeRadarrTarget) EnsureIndexer(ctx context.Context, ix RadarrIndexer) (int64, TargetAction, error) {
+	if id, ok := f.indexersByName[ix.Name]; ok {
+		return id, ActionExists, nil
+	}
+	id := f.next()
+	f.indexersByName[ix.Name] = id
+	f.indexers[ix.Name] = ix
+	return id, ActionCreated, nil
+}
+func (f *fakeRadarrTarget) SetDownloadClient(ctx context.Context, c RadarrDownloadClient) (TargetAction, error) {
+	if f.dcSet {
+		f.dc = c
+		return ActionUpdated, nil
+	}
+	f.dcSet = true
+	f.dc = c
+	return ActionCreated, nil
+}
+func (f *fakeRadarrTarget) ApplyMediaManagement(ctx context.Context, mm RadarrMediaManagement) (int, error) {
+	f.mediaMgmt = 6
+	return 6, nil
+}
 func (f *fakeRadarrTarget) TagLabels(ctx context.Context, ids []int) ([]string, error) {
 	// The fake target does not keep the label alongside the id; resolve the
 	// way the real target does would need the label — the migrator test
@@ -124,6 +158,9 @@ func (f *fakeRadarrTarget) EnsureMovie(ctx context.Context, ref RadarrMovieRef) 
 	key := fmt.Sprintf("movie:%s|%d", ref.Title, ref.Year)
 	if id, ok := f.movies[key]; ok {
 		return id, ActionExists, nil
+	}
+	if f.failMovies > 0 && len(f.movies) >= f.failMovies {
+		return 0, "", fmt.Errorf("target: simulated failure on movie %q", ref.Title)
 	}
 	id := f.next()
 	f.movies[key] = id
@@ -166,7 +203,7 @@ func TestRadarrMigrationDryRunReportsWithoutWriting(t *testing.T) {
 		t.Fatalf("dry-run must not write to the target: movies=%d profiles=%d tags=%d",
 			len(target.movies), len(target.movieProfiles), len(target.tags))
 	}
-	// Every item is a dry-run action; all four entity classes present.
+	// Every item is a dry-run action; all seven entity classes present.
 	if len(res.Items) == 0 {
 		t.Fatal("expected mapping items")
 	}
@@ -177,14 +214,15 @@ func TestRadarrMigrationDryRunReportsWithoutWriting(t *testing.T) {
 		}
 		entities[it.Entity] = true
 	}
-	for _, want := range []string{"quality_profile", "tag", "movie", "edition"} {
+	for _, want := range []string{"quality_profile", "tag", "indexer", "download_client", "settings", "movie", "edition"} {
 		if !entities[want] {
 			t.Errorf("mapping report missing entity class %q", want)
 		}
 	}
-	// Counts: 2 profiles + 2 tags + 2 movies + 3 editions = 9.
-	if res.Counts.Total != 9 {
-		t.Errorf("total = %d, want 9", res.Counts.Total)
+	// Counts: 2 profiles + 2 tags + 1 indexer + 1 dc + 1 settings + 2 movies
+	// + 3 editions = 12.
+	if res.Counts.Total != 12 {
+		t.Errorf("total = %d, want 12", res.Counts.Total)
 	}
 	if !res.DryRun {
 		t.Error("expected dry_run=true")
@@ -231,12 +269,45 @@ func TestRadarrMigrationHappyPath(t *testing.T) {
 	if len(target.editions[movieB]) != 1 {
 		t.Errorf("movie B editions = %d, want 1", len(target.editions[movieB]))
 	}
-	// Report counts: 2 profiles + 2 tags + 2 movies + 3 editions = 9, all created.
-	if res.Counts.Total != 9 {
-		t.Errorf("total = %d, want 9", res.Counts.Total)
+	// Indexers: the R5a toggles carried through to the target.
+	ix, ok := target.indexers["RAR"]
+	if !ok {
+		t.Fatal("indexer RAR not imported")
 	}
-	if res.Counts.Created != 9 {
-		t.Errorf("created = %d, want 9", res.Counts.Created)
+	if !ix.Enable || !ix.EnableRss || ix.EnableAutomatic || !ix.EnableInteractive {
+		t.Errorf("indexer toggles = %+v, want enable/rss on, automatic off, interactive on", ix)
+	}
+	// Download client: mapped (qBittorrent).
+	if !target.dcSet || target.dc.ClientKey != "qBittorrent" {
+		t.Errorf("download client = %+v, want qBittorrent", target.dc)
+	}
+	// Settings: best-effort subset applied + noted in the report.
+	if target.mediaMgmt != 6 {
+		t.Errorf("media management fields = %d, want 6", target.mediaMgmt)
+	}
+	var settingsNote string
+	for _, it := range res.Items {
+		if it.Entity == "settings" {
+			settingsNote = it.Message
+		}
+	}
+	if !strings.Contains(settingsNote, "media management: 6 fields mapped") {
+		t.Errorf("settings note = %q, want the media-management mapping note", settingsNote)
+	}
+	if !strings.Contains(settingsNote, "importexport: not configured") {
+		t.Errorf("settings note = %q, want the importexport note", settingsNote)
+	}
+	// Report counts: 2 profiles + 2 tags + 1 indexer + 1 dc + 1 settings +
+	// 2 movies + 3 editions = 12 total; the settings item is an update
+	// (existing bucket), everything else created.
+	if res.Counts.Total != 12 {
+		t.Errorf("total = %d, want 12", res.Counts.Total)
+	}
+	if res.Counts.Created != 11 {
+		t.Errorf("created = %d, want 11", res.Counts.Created)
+	}
+	if res.Counts.Existing != 1 {
+		t.Errorf("existing = %d, want 1 (the settings apply)", res.Counts.Existing)
 	}
 	// Status reflects the run.
 	if st := m.Status(); st.Status != "completed" || st.Total != 2 || st.Done != 2 {
@@ -290,6 +361,106 @@ func TestRadarrMigrationUnknownProfileCreatedAndNoted(t *testing.T) {
 	}
 	if !noteFound {
 		t.Error("expected a profile-fallback note on the movie item")
+	}
+}
+
+// ---- W2 tests: idempotent + resumable ----
+
+func TestRadarrMigrationIdempotentNoDupes(t *testing.T) {
+	src := sampleRadarr()
+	target := newFakeRadarrTarget()
+	m := &RadarrMigrator{NewSource: func(b, k string) RadarrClient { return src }, Target: target}
+	req := MigrationRequest{SourceURL: "https://radarr.local:7878", Source: SourceRadarr}
+
+	// First run: everything created (plus the settings apply).
+	res1, err := m.Run(context.Background(), req)
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	firstCreated := res1.Counts.Created
+	if firstCreated == 0 {
+		t.Fatal("expected created > 0 on first run")
+	}
+	movieCount1, indexerCount1 := len(target.movies), len(target.indexersByName)
+
+	// Second run (same source, same target): everything exists, nothing new.
+	res2, err := m.Run(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if res2.Counts.Created != 0 {
+		t.Errorf("second run created = %d, want 0 (idempotent)", res2.Counts.Created)
+	}
+	if len(target.movies) != movieCount1 {
+		t.Errorf("movie count changed: %d -> %d (dupes)", movieCount1, len(target.movies))
+	}
+	if len(target.indexersByName) != indexerCount1 {
+		t.Errorf("indexer count changed: %d -> %d (dupes)", indexerCount1, len(target.indexersByName))
+	}
+	// Spot-check: a movie item is "exists" on the second run, and its
+	// editions report "exists" too (0 newly created).
+	for _, it := range res2.Items {
+		if it.Entity == "movie" && it.Action != "exists" {
+			t.Errorf("movie %s action = %q, want exists", it.ExternalID, it.Action)
+		}
+		if it.Entity == "edition" && it.Action != "exists" {
+			t.Errorf("edition %s action = %q, want exists", it.ExternalID, it.Action)
+		}
+	}
+}
+
+func TestRadarrMigrationResumablePartialThenResume(t *testing.T) {
+	src := sampleRadarr()
+	target := newFakeRadarrTarget()
+	target.failMovies = 1 // fail after the first movie is created
+
+	m := &RadarrMigrator{NewSource: func(b, k string) RadarrClient { return src }, Target: target}
+	req := MigrationRequest{SourceURL: "https://radarr.local:7878", Source: SourceRadarr}
+
+	// First run: partial (movie 1 created, movie 2 fails).
+	res1, err := m.Run(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected an error from the partial run")
+	}
+	if res1 == nil || !res1.Resumable {
+		t.Fatalf("expected a resumable partial result, got %+v", res1)
+	}
+	if st := m.Status(); st.Status != "partial" {
+		t.Errorf("status = %q, want partial", st.Status)
+	}
+	if len(target.movies) != 1 {
+		t.Fatalf("expected 1 movie created before failure, got %d", len(target.movies))
+	}
+
+	// Clear the failure and resume: movie 1 is skipped, movie 2 is created.
+	target.failMovies = 0
+	res2, err := m.Run(context.Background(), MigrationRequest{SourceURL: "https://radarr.local:7878", Source: SourceRadarr, Resume: true})
+	if err != nil {
+		t.Fatalf("resume run: %v", err)
+	}
+	if res2 == nil {
+		t.Fatal("resume returned no result")
+	}
+	skipped, created := 0, 0
+	for _, it := range res2.Items {
+		if it.Entity != "movie" {
+			continue
+		}
+		switch it.Action {
+		case "skipped":
+			skipped++
+		case "created":
+			created++
+		}
+	}
+	if skipped != 1 || created != 1 {
+		t.Errorf("resume: skipped=%d created=%d, want 1/1", skipped, created)
+	}
+	if len(target.movies) != 2 {
+		t.Errorf("after resume, movies = %d, want 2", len(target.movies))
+	}
+	if m.Status().Status != "completed" {
+		t.Errorf("final status = %q, want completed", m.Status().Status)
 	}
 }
 

@@ -32,11 +32,12 @@ import (
 type RadarrPostgresTarget struct {
 	Settings SettingsStore
 	Movies   RadarrMovieStore
+	Indexers RadarrIndexerStore
 }
 
 // NewRadarrPostgresTarget builds the Radarr drop-in import sink.
-func NewRadarrPostgresTarget(st SettingsStore, movies RadarrMovieStore) *RadarrPostgresTarget {
-	return &RadarrPostgresTarget{Settings: st, Movies: movies}
+func NewRadarrPostgresTarget(st SettingsStore, movies RadarrMovieStore, ix RadarrIndexerStore) *RadarrPostgresTarget {
+	return &RadarrPostgresTarget{Settings: st, Movies: movies, Indexers: ix}
 }
 
 // EnsureMovieProfile upserts a Radarr movie quality profile into the
@@ -302,6 +303,113 @@ func (t *RadarrPostgresTarget) EnsureEditions(ctx context.Context, movieID int64
 		}
 	}
 	return created, nil
+}
+
+// EnsureIndexer upserts a Radarr indexer into the indexer definition store.
+// The Radarr R5a per-indexer booleans map onto the R5a indexer settings:
+// enableRss -> rss, enableAutomatic -> auto_search,
+// enableInteractive -> interactive_search.
+func (t *RadarrPostgresTarget) EnsureIndexer(ctx context.Context, ix RadarrIndexer) (int64, TargetAction, error) {
+	if t.Indexers == nil {
+		return 0, "", fmt.Errorf("migration: indexer store not wired")
+	}
+	if id, found := t.Indexers.FindIndexer(ctx, ix.Name); found {
+		return id, ActionExists, nil
+	}
+	kind := ix.IndexerType
+	if kind == "" {
+		kind = "indexer"
+	}
+	id, err := t.Indexers.CreateIndexer(ctx, ix.Name, kind, ix.BaseURL, ix.APIKey, ix.Enable, ix.EnableRss, ix.EnableAutomatic, ix.EnableInteractive)
+	if err != nil {
+		return 0, "", err
+	}
+	return id, ActionCreated, nil
+}
+
+// SetDownloadClient maps a Radarr download client onto the Mediarr
+// download-client config (best-effort: qBittorrent and SABnzbd field names,
+// the same mapping as the Sonarr run).
+func (t *RadarrPostgresTarget) SetDownloadClient(ctx context.Context, c RadarrDownloadClient) (TargetAction, error) {
+	existing, err := t.Settings.GetDownloadClient(ctx)
+	if err != nil {
+		return "", err
+	}
+	prevSet := existing != nil && existing.Kind != "" && existing.Kind != "mock"
+	dc := &settings.DownloadClient{Kind: "mock"}
+	switch {
+	case strings.Contains(strings.ToLower(c.ClientKey), "qbit"):
+		dc.Kind = "qbittorrent"
+		dc.QBBase = sonarrURLField(c.Fields, "host", "port", "url", "baseUrl")
+		dc.QBUsername = sonarrStringField(c.Fields, "username")
+		dc.QBPassword = sonarrStringField(c.Fields, "password")
+		dc.QBAPIKey = sonarrStringField(c.Fields, "apikey", "api_key")
+	case strings.Contains(strings.ToLower(c.ClientKey), "sab"):
+		dc.Kind = "sabnzbd"
+		dc.SABBase = sonarrStringField(c.Fields, "host", "serverhost", "url", "baseUrl")
+		dc.SABAPIKey = sonarrStringField(c.Fields, "apikey", "api_key")
+		dc.SABCompleteDir = sonarrStringField(c.Fields, "completeDir", "complete_dir")
+		dc.QBPassword = sonarrStringField(c.Fields, "password") // unused for sab; keep zero
+	}
+	if !c.Enable {
+		// A disabled client is stored as the mock kind (Mediarr has no
+		// per-client enable flag); the mapping report records the intent.
+		dc.Kind = "mock"
+	}
+	if err := t.Settings.PutDownloadClient(ctx, dc); err != nil {
+		return "", err
+	}
+	if prevSet {
+		return ActionUpdated, nil
+	}
+	return ActionCreated, nil
+}
+
+// ApplyMediaManagement maps the Radarr media-management config onto the
+// Mediarr media-management document (the best-effort subset: the fields the
+// document can hold) and returns the number of fields written. An empty
+// document starts from the defaults.
+func (t *RadarrPostgresTarget) ApplyMediaManagement(ctx context.Context, mm RadarrMediaManagement) (int, error) {
+	raw, err := t.Settings.GetSectionDocument(ctx, settings.SectionMediaManagement)
+	if err != nil {
+		return 0, err
+	}
+	d, err := settings.SectionMediaManagement.DecodeDocument(raw)
+	if err != nil {
+		return 0, fmt.Errorf("decode media management: %w", err)
+	}
+	doc := d.(*settings.MediaManagementSettings)
+	applied := 0
+	doc.MovieNaming.RenameMovies = mm.MovieNaming.RenameMovies
+	applied++
+	doc.MovieNaming.ReplaceIllegalCharacters = mm.MovieNaming.ReplaceIllegalCharacters
+	applied++
+	if mm.MovieNaming.ColonReplacement != "" {
+		doc.MovieNaming.ColonReplacement = mm.MovieNaming.ColonReplacement
+		applied++
+	}
+	if mm.MovieNaming.StandardFormat != "" {
+		doc.MovieNaming.StandardFormat = mm.MovieNaming.StandardFormat
+		applied++
+	}
+	doc.Management.ImportExtraFiles = mm.FileManagement.ImportExtraFiles
+	applied++
+	doc.Management.UnmonitorDeletedMovies = mm.FileManagement.UnmonitorDeletedMovies
+	applied++
+	// Radarr stores the min file age in minutes; the Mediarr document in
+	// whole hours — only map a clean conversion.
+	if mm.FileManagement.MinFileAgeMinutes > 0 && mm.FileManagement.MinFileAgeMinutes%60 == 0 {
+		doc.Management.MinFileAgeHours = mm.FileManagement.MinFileAgeMinutes / 60
+		applied++
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return 0, err
+	}
+	if err := t.Settings.PutSectionDocument(ctx, settings.SectionMediaManagement, out); err != nil {
+		return 0, err
+	}
+	return applied, nil
 }
 
 var _ RadarrMigrationTarget = (*RadarrPostgresTarget)(nil)

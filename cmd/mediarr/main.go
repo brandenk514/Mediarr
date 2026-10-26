@@ -642,8 +642,9 @@ func run(logSvc *system.LogService) error {
 		// profiles section's movie_profiles array, and tags onto the tags
 		// section. The source is the live Radarr v3 API (admin-configured URL
 		// + API key).
+		migrationRadarrIndexers := &migrationRadarrIndexerStore{repo: indexerRepo}
 		migrationRadarrMovies := &migrationRadarrMovieStore{repo: postgres.NewMovieRepo(pg.DB())}
-		radarrTarget := system.NewRadarrPostgresTarget(settingsRepo, migrationRadarrMovies)
+		radarrTarget := system.NewRadarrPostgresTarget(settingsRepo, migrationRadarrMovies, migrationRadarrIndexers)
 
 		// P6 Wave 2: the System depth services. Backup exports/imports the
 		// configuration over the settings repo (queue / series snapshots are
@@ -772,6 +773,33 @@ func (s *migrationIndexerStore) CreateIndexer(ctx context.Context, name, kind, b
 	return s.repo.Create(ctx, indexers.Definition{
 		Name: name, Kind: kind, BaseURL: baseURL, APIKey: apiKey, Enabled: enabled,
 	})
+}
+
+// migrationRadarrIndexerStore adapts the Postgres indexer repo to the
+// Radarr migration target's indexer seam (system.RadarrIndexerStore),
+// carrying the R5a per-indexer toggles in the definition's settings bag.
+type migrationRadarrIndexerStore struct {
+	repo *postgres.IndexersRepo
+}
+
+func (s *migrationRadarrIndexerStore) FindIndexer(ctx context.Context, name string) (int64, bool) {
+	def, err := s.repo.GetByName(ctx, name)
+	if err != nil {
+		return 0, false
+	}
+	return def.ID, true
+}
+
+func (s *migrationRadarrIndexerStore) CreateIndexer(ctx context.Context, name, kind, baseURL, apiK string, enabled, enableRss, enableAutomatic, enableInteractive bool) (int64, error) {
+	def := indexers.Definition{
+		Name: name, Kind: kind, BaseURL: baseURL, APIKey: apiK, Enabled: enabled,
+		SettingsJSON: indexers.WithIndexerToggles("", indexers.IndexerSettings{
+			RSS:               enableRss,
+			AutoSearch:        enableAutomatic,
+			InteractiveSearch: enableInteractive,
+		}),
+	}
+	return s.repo.Create(ctx, def)
 }
 
 // migrationRadarrMovieStore adapts the Postgres movie repo to the Radarr
