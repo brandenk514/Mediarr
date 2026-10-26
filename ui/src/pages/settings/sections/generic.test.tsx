@@ -223,7 +223,11 @@ describe('TagsSection', () => {
   it('renders tags with usage and adds a tag', async () => {
     const user = userEvent.setup()
     renderSection(<TagsSection />)
-    expect(await screen.findByTestId('tag-usage-1')).toHaveTextContent('3 series, 42 episodes')
+    // The usage cell renders before the per-tag usage fetch settles (the row
+    // appears with '—'), so wait for the text itself — a plain findByTestId +
+    // sync assertion races the mock's promise and flakes intermittently.
+    const usageCell = await screen.findByTestId('tag-usage-1')
+    await waitFor(() => expect(usageCell).toHaveTextContent('3 series, 42 episodes'))
 
     await user.type(screen.getByTestId('tag-new-label'), 'kids')
     await user.type(screen.getByTestId('tag-new-desc'), 'Kids TV')

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	movies "github.com/brandenk514/mediarr/internal/domains/movies"
@@ -40,6 +41,14 @@ func (r *MovieRepo) CreateMovie(ctx context.Context, m movies.Movie) (int64, err
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("movies: create: %w", err)
+	}
+	// Radarr parity (R1): a freshly added movie gets one 'Theatrical' edition,
+	// monitored, with the movie's quality profile.
+	if _, err := r.db.ExecContext(ctx, `
+		INSERT INTO editions (movie_id, label, monitored, quality)
+		VALUES ($1, 'Theatrical', true, $2)
+		ON CONFLICT (movie_id, label) DO NOTHING`, id, m.QualityProfile); err != nil {
+		return 0, fmt.Errorf("movies: seed edition: %w", err)
 	}
 	return id, nil
 }
@@ -254,4 +263,164 @@ func (r *MovieRepo) ListHistory(ctx context.Context, limit int) ([]movies.Histor
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// CreateEdition inserts an edition for a movie and returns its id. The
+// (movie_id, label) unique key makes a re-create a no-op.
+func (r *MovieRepo) CreateEdition(ctx context.Context, e movies.Edition) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO editions (movie_id, label, monitored, quality, size)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (movie_id, label) DO NOTHING
+		RETURNING id`,
+		e.MovieID, e.Label, e.Monitored, e.Quality, e.Size,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		// A same-named edition already exists: return it.
+		err = r.db.QueryRowContext(ctx, `
+			SELECT id FROM editions WHERE movie_id = $1 AND label = $2`,
+			e.MovieID, e.Label).Scan(&id)
+		if err != nil {
+			return 0, fmt.Errorf("movies: create edition: %w", err)
+		}
+		return id, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("movies: create edition: %w", err)
+	}
+	return id, nil
+}
+
+// GetEdition loads an edition by id.
+func (r *MovieRepo) GetEdition(ctx context.Context, id int64) (*movies.Edition, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, movie_id, label, monitored, quality, size, created_at
+		FROM editions WHERE id = $1`, id)
+	e := &movies.Edition{}
+	err := row.Scan(&e.ID, &e.MovieID, &e.Label, &e.Monitored, &e.Quality, &e.Size, &e.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, movies.ErrEditionNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("movies: get edition: %w", err)
+	}
+	return e, nil
+}
+
+// ListEditions returns every edition, ordered by movie_id then id.
+func (r *MovieRepo) ListEditions(ctx context.Context) ([]movies.Edition, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, movie_id, label, monitored, quality, size, created_at
+		FROM editions ORDER BY movie_id, id`)
+	if err != nil {
+		return nil, fmt.Errorf("movies: list editions: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []movies.Edition
+	for rows.Next() {
+		var e movies.Edition
+		if err := rows.Scan(&e.ID, &e.MovieID, &e.Label, &e.Monitored, &e.Quality, &e.Size, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("movies: scan edition: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// SetEditionMonitored toggles an edition's monitored flag.
+func (r *MovieRepo) SetEditionMonitored(ctx context.Context, id int64, monitored bool) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE editions SET monitored = $2 WHERE id = $1`, id, monitored)
+	if err != nil {
+		return fmt.Errorf("movies: set edition monitored: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return movies.ErrEditionNotFound
+	}
+	return nil
+}
+
+// CreateMovieFile records an imported movie file and returns its id.
+// Languages and formats are stored as JSON text (the columns' '[]' default).
+func (r *MovieRepo) CreateMovieFile(ctx context.Context, f movies.MovieFile) (int64, error) {
+	languages, err := json.Marshal(f.Languages)
+	if err != nil {
+		return 0, fmt.Errorf("movies: create file: %w", err)
+	}
+	formats, err := json.Marshal(f.Formats)
+	if err != nil {
+		return 0, fmt.Errorf("movies: create file: %w", err)
+	}
+	var editionID any
+	if f.EditionID != nil {
+		editionID = *f.EditionID
+	}
+	var id int64
+	err = r.db.QueryRowContext(ctx, `
+		INSERT INTO movie_files
+			(movie_id, edition_id, relative_path, video_codec, audio_info,
+			 size, languages, quality, release_group, formats)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id`,
+		f.MovieID, editionID, f.RelativePath, f.VideoCodec, f.AudioInfo,
+		f.Size, string(languages), f.Quality, f.ReleaseGroup, string(formats),
+	).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("movies: create file: %w", err)
+	}
+	return id, nil
+}
+
+// ListMovieFiles returns every movie file, ordered by movie_id then id.
+func (r *MovieRepo) ListMovieFiles(ctx context.Context) ([]movies.MovieFile, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, movie_id, edition_id, relative_path, video_codec, audio_info,
+			size, languages, quality, release_group, formats
+		FROM movie_files ORDER BY movie_id, id`)
+	if err != nil {
+		return nil, fmt.Errorf("movies: list files: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []movies.MovieFile
+	for rows.Next() {
+		var (
+			f  movies.MovieFile
+			ed sql.NullInt64
+			la string
+			fo string
+		)
+		if err := rows.Scan(&f.ID, &f.MovieID, &ed, &f.RelativePath, &f.VideoCodec, &f.AudioInfo,
+			&f.Size, &la, &f.Quality, &f.ReleaseGroup, &fo); err != nil {
+			return nil, fmt.Errorf("movies: scan file: %w", err)
+		}
+		if ed.Valid {
+			f.EditionID = &ed.Int64
+		}
+		if err := json.Unmarshal([]byte(la), &f.Languages); err != nil {
+			f.Languages = []string{}
+		}
+		if err := json.Unmarshal([]byte(fo), &f.Formats); err != nil {
+			f.Formats = []string{}
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// GetMovieStats computes the Movies-page stats bar in one query.
+func (r *MovieRepo) GetMovieStats(ctx context.Context) (movies.MovieStats, error) {
+	var s movies.MovieStats
+	err := r.db.QueryRowContext(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM movies),
+			(SELECT COUNT(*) FROM movie_files),
+			(SELECT COUNT(*) FROM movies WHERE monitored),
+			(SELECT COUNT(*) FROM movies WHERE NOT monitored),
+			(COALESCE((SELECT SUM(size) FROM movie_files), 0))`).
+		Scan(&s.MovieCount, &s.FileCount, &s.MonitoredCount, &s.UnmonitoredCount, &s.TotalSize)
+	if err != nil {
+		return s, fmt.Errorf("movies: stats: %w", err)
+	}
+	return s, nil
 }

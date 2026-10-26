@@ -1853,3 +1853,220 @@ button.danger:hover {
   padding: 0.45rem 0.6rem;
   border-top: 1px solid var(--border);
 }
+
+/* ---- Radarr R1: movie grid ribbons, hover controls, chips, stats bar ---- */
+
+.poster-cell {
+  position: relative;
+  display: flex;
+}
+
+.poster-cell .poster-card {
+  width: 100%;
+  text-align: inherit;
+}
+
+.ribbon.ok {
+  background: var(--ok);
+}
+
+.ribbon.warn {
+  background: var(--warn);
+}
+
+.ribbon.muted {
+  background: #6b7280;
+}
+
+.card-actions {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  display: flex;
+  gap: 0.3rem;
+  z-index: 3;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.poster-cell:hover .card-actions,
+.poster-cell:focus-within .card-actions {
+  opacity: 1;
+}
+
+.icon-btn {
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text, #e6edf3);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stats-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  padding: 0.45rem 0.8rem;
+  margin: 0.4rem 0 0.6rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--dim);
+}
+
+.stats-bar b {
+  color: var(--text, #e6edf3);
+  font-weight: 600;
+}
+
+.status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.7rem;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 0.22rem 0.7rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+}
+
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06251f;
+  font-weight: 600;
+}
+
+/* ---- Radarr R1: movie detail ---- */
+
+.detail-header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.detail-poster {
+  flex: 0 0 auto;
+  width: 6.5rem;
+  aspect-ratio: 2 / 3;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  color: var(--dim);
+}
+
+.detail-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.nav-arrow {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--dim);
+  border-radius: 6px;
+  width: 1.6rem;
+  height: 1.6rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.nav-arrow:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem 1rem;
+  margin-top: 0.8rem;
+}
+
+@media (max-width: 900px) {
+  .field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.field-grid .fg-label {
+  display: block;
+  color: var(--dim);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.field-grid .fg-value {
+  font-size: 0.9rem;
+  word-break: break-word;
+}
+
+.score-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.edition-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.edition-row .ed-label {
+  font-weight: 600;
+  min-width: 8rem;
+}
+
+.edition-row .ed-meta {
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+.credit-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.2rem 1rem;
+}
+
+.credit-list .credit-name {
+  font-weight: 600;
+}
+
+.credit-list .credit-role {
+  color: var(--dim);
+  font-size: 0.85rem;
+}

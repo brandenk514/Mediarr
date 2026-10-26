@@ -13,6 +13,7 @@ vi.mock('../api/client', () => ({
     me: vi.fn(),
     logout: vi.fn(),
     listMovies: vi.fn(),
+    getMovieStats: vi.fn().mockRejectedValue(new Error('stats unavailable')),
     getSystemHealth: vi.fn().mockResolvedValue({ checks: [], ok: 0, warning: 0, error: 0 }),
   },
 }))

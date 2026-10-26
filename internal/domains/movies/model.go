@@ -14,6 +14,12 @@ import (
 // Movie is a tracked movie. v1 identifies a movie by title + year. Provider
 // metadata (TMDB/IMDB ids) is added with the providers layer in a later
 // milestone; until then title+year is the identity.
+//
+// R1 (Radarr parity): the enrichment fields (Certification .. AlternativeTitles)
+// are display-only, filled by the metadata provider (TMDB) on the detail read
+// path — they stay zero/nil without a provider key, and the UI renders
+// em-dashes. Editions/Files/Status/Path/Size are the Radarr-v6-style embedded
+// file state (a fresh movie has one seeded 'Theatrical' edition and no files).
 type Movie struct {
 	ID             int64
 	Title          string
@@ -21,6 +27,142 @@ type Movie struct {
 	QualityProfile string // name of a quality profile (see BuiltInProfiles)
 	Monitored      bool
 	AddedAt        time.Time
+
+	// Enrichment (TMDB detail fetch; nil/empty without a provider).
+	Certification     *string
+	Runtime           *int // minutes
+	Studio            *string
+	Genres            []string
+	OriginalLanguage  *string // ISO language code
+	CollectionName    *string
+	Overview          *string
+	Scores            *MovieScores
+	Cast              []MovieCast
+	Crew              []MovieCrew
+	AlternativeTitles []AlternativeTitle
+
+	// File/edition state (R1).
+	Path     *string     // relative file path under the media root; nil when no file
+	Status   MovieStatus // derived; see DeriveMovieStatus
+	Size     *int64      // total bytes of the movie's files; nil when no file
+	Editions []Edition
+	Files    []MovieFile
+
+	// ReleaseDate is the provider release date (enrichment only, not part of
+	// the API payload); it feeds the 'unreleased' status derivation.
+	ReleaseDate *time.Time `json:"-"`
+}
+
+// MovieScores are external ratings; every field nil when unknown.
+type MovieScores struct {
+	TmdbPct        *float64 // vote average scaled to 0-100
+	Imdb           *float64 // 0-10 scale
+	RottenTomatoes *float64 // 0-100
+	Metacritic     *float64 // 0-100
+}
+
+// MovieCast is one credited cast member.
+type MovieCast struct {
+	Name string
+	Role string
+}
+
+// MovieCrew is one key crew member.
+type MovieCrew struct {
+	Name string
+	Job  string
+}
+
+// AlternativeTitle is an also-known-as title.
+type AlternativeTitle struct {
+	Title string
+	Type  string
+}
+
+// MovieStatus is a movie's derived status (Radarr v6 status chips).
+type MovieStatus string
+
+const (
+	StatusDownloadedMonitored   MovieStatus = "downloaded:monitored"
+	StatusDownloadedUnmonitored MovieStatus = "downloaded:unmonitored"
+	StatusMissingMonitored      MovieStatus = "missing:monitored"
+	StatusMissingUnmonitored    MovieStatus = "missing:unmonitored"
+	StatusQueued                MovieStatus = "queued"
+	StatusUnreleased            MovieStatus = "unreleased"
+)
+
+// DeriveMovieStatus computes a movie's status from its wanted/queue/file
+// state and (optionally) the provider release date. Precedence:
+//  1. downloaded — the wanted row is satisfied (a file was imported),
+//     split by the movie's monitored flag;
+//  2. queued — an active (queued/downloading) queue entry exists;
+//  3. unreleased — the provider release date is in the future (no key, no
+//     fetch, or a past date simply skips this case);
+//  4. missing — everything else, split by the monitored flag.
+func DeriveMovieStatus(wantedSatisfied, inQueue, monitored bool, releaseDate *time.Time, now time.Time) MovieStatus {
+	if wantedSatisfied {
+		if monitored {
+			return StatusDownloadedMonitored
+		}
+		return StatusDownloadedUnmonitored
+	}
+	if inQueue {
+		return StatusQueued
+	}
+	if releaseDate != nil && releaseDate.After(now) {
+		return StatusUnreleased
+	}
+	if monitored {
+		return StatusMissingMonitored
+	}
+	return StatusMissingUnmonitored
+}
+
+// MovieEnricher fills the display-only enrichment fields on a movie from a
+// metadata provider (TMDB detail + credits + external ids). Optional: the
+// read paths run without one (nil Enricher in the service deps), in which
+// case the enrichment fields stay empty and the UI degrades to em-dashes.
+// Implementations must be tolerant of partial data and never fail the read
+// for a missing key.
+type MovieEnricher interface {
+	EnrichMovie(ctx context.Context, m *Movie) error
+}
+
+// Edition is a distinct edition of a movie (Radarr v6 editions). A freshly
+// added movie is seeded with one 'Theatrical' edition, monitored, with the
+// movie's quality profile.
+type Edition struct {
+	ID        int64
+	MovieID   int64
+	Label     string
+	Monitored bool
+	Quality   string // quality profile name for this edition
+	Size      int64  // total bytes of the edition's files; 0 when none
+	CreatedAt time.Time
+}
+
+// MovieFile is an imported movie file (Radarr v6 movie-file shape).
+type MovieFile struct {
+	ID           int64
+	MovieID      int64
+	EditionID    *int64 // nil = unassigned to an edition
+	RelativePath string // relative to the media root
+	VideoCodec   string
+	AudioInfo    string
+	Size         int64
+	Languages    []string
+	Quality      string // parsed quality label (e.g. 1080p)
+	ReleaseGroup string
+	Formats      []string
+}
+
+// MovieStats is the Movies-page stats bar.
+type MovieStats struct {
+	MovieCount       int64
+	FileCount        int64
+	MonitoredCount   int64
+	UnmonitoredCount int64
+	TotalSize        int64
 }
 
 // WantedStatus is the lifecycle of a movie's "we want a file" request.
@@ -76,6 +218,10 @@ type HistoryEntry struct {
 // ErrMovieNotFound is returned when a movie id does not exist.
 var ErrMovieNotFound = errors.New("movies: movie not found")
 
+// ErrEditionNotFound is returned when an edition id does not exist (or does
+// not belong to the movie it was requested for).
+var ErrEditionNotFound = errors.New("movies: edition not found")
+
 // Repo is the persistence surface the movie pipeline needs. Implemented by the
 // postgres adapter; tests can satisfy it with a fake. The service programs
 // against this interface, never against *sql.DB.
@@ -97,4 +243,29 @@ type Repo interface {
 
 	AddHistory(ctx context.Context, e HistoryEntry) error
 	ListHistory(ctx context.Context, limit int) ([]HistoryEntry, error)
+
+	// CreateEdition inserts an edition for a movie and returns its id.
+	// (movie_id, label) is unique — the create path uses DO NOTHING so a
+	// re-create is a no-op.
+	CreateEdition(ctx context.Context, e Edition) (int64, error)
+
+	// GetEdition returns the edition with the given id, or ErrEditionNotFound.
+	GetEdition(ctx context.Context, id int64) (*Edition, error)
+
+	// ListEditions returns every edition (all movies), ordered by
+	// movie_id then id. The service groups them per movie in memory.
+	ListEditions(ctx context.Context) ([]Edition, error)
+
+	// SetEditionMonitored toggles an edition's monitored flag.
+	SetEditionMonitored(ctx context.Context, id int64, monitored bool) error
+
+	// CreateMovieFile records an imported movie file and returns its id.
+	CreateMovieFile(ctx context.Context, f MovieFile) (int64, error)
+
+	// ListMovieFiles returns every movie file (all movies), ordered by
+	// movie_id then id.
+	ListMovieFiles(ctx context.Context) ([]MovieFile, error)
+
+	// GetMovieStats computes the Movies-page stats bar in one query.
+	GetMovieStats(ctx context.Context) (MovieStats, error)
 }

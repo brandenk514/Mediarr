@@ -39,6 +39,7 @@ import type {
   Me,
   MonitoredResult,
   Movie,
+  MovieStats,
   MediaKind,
   MovieWanted,
   PageArtist,
@@ -186,6 +187,10 @@ export const client = {
   setMovieMonitored: (id: number, monitored: boolean) =>
     request<MonitoredResult>('PUT', `/movies/${id}`, { monitored }),
   runMoviePipeline: (id: number) => request<{ imported: string }>('POST', `/movies/${id}/pipeline`),
+  // Radarr R1: stats bar + per-edition monitoring.
+  getMovieStats: () => request<MovieStats>('GET', '/movies/stats'),
+  setMovieEditionMonitored: (id: number, editionId: number, monitored: boolean) =>
+    request<MonitoredResult>('PUT', `/movies/${id}/editions/${editionId}`, { monitored }),
 
   // ---- tv ----
   listSeries: (q?: ListQuery) => request<PageSeries>('GET', `/tv${buildListQuery(q)}`),

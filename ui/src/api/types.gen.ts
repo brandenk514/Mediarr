@@ -115,6 +115,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/movies/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library stats for the Movies page stats bar.
+         * @description Movie counts, monitored counts and total file size (R1 stats bar).
+         */
+        get: operations["getMovieStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/movies/{id}": {
         parameters: {
             query?: never;
@@ -126,6 +146,26 @@ export interface paths {
         get: operations["getMovie"];
         /** Toggle movie monitoring. */
         put: operations["setMovieMonitored"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/movies/{id}/editions/{editionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Toggle an edition's monitoring (Radarr v6 edition semantics).
+         * @description Per-edition monitor toggle — Radarr v6 semantics (R1).
+         */
+        put: operations["setMovieEditionMonitored"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1846,6 +1886,128 @@ export interface components {
             Monitored: boolean;
             /** Format: date-time */
             AddedAt: string;
+            /** @description Age rating (e.g. PG-13); null when unknown. */
+            Certification?: string | null;
+            /** @description Runtime in minutes; null when unknown. */
+            Runtime?: number | null;
+            /** @description Primary production company; null when unknown. */
+            Studio?: string | null;
+            /** @description Genre names; empty when unknown. */
+            Genres?: string[];
+            /** @description ISO language code (e.g. en); null when unknown. */
+            OriginalLanguage?: string | null;
+            /** @description Franchise/collection name; null when none. */
+            CollectionName?: string | null;
+            /** @description Plot overview; null when unknown. */
+            Overview?: string | null;
+            Scores?: components["schemas"]["MovieScores"];
+            /** @description Top cast (name + role); empty when unknown. */
+            Cast?: components["schemas"]["MovieCast"][];
+            /** @description Key crew (name + job); empty when unknown. */
+            Crew?: components["schemas"]["MovieCrew"][];
+            /** @description Also-known-as titles; empty when none. */
+            AlternativeTitles?: components["schemas"]["AlternativeTitle"][];
+            /** @description Relative file path under the media root when a file is imported; null when no file. */
+            Path?: string | null;
+            Status?: components["schemas"]["MovieStatus"];
+            /**
+             * Format: int64
+             * @description Total bytes of the movie's files; null when no file.
+             */
+            Size?: number | null;
+            /** @description The movie's editions (one, 'Theatrical', seeded on add). */
+            Editions?: components["schemas"]["MovieEdition"][];
+            /** @description The movie's files; empty until imported. */
+            Files?: components["schemas"]["MovieFile"][];
+        };
+        /**
+         * @description Derived status of a movie (Radarr v6 status chips). Derivation
+         *     (in order): downloaded when the wanted row is satisfied (split by the
+         *     monitored flag); queued when an active queue entry exists; unreleased
+         *     when the provider release date is in the future; otherwise missing
+         *     (split by the monitored flag).
+         * @enum {string}
+         */
+        MovieStatus: "downloaded:monitored" | "downloaded:unmonitored" | "missing:monitored" | "missing:unmonitored" | "queued" | "unreleased";
+        /** @description External scores; the whole object is null until a metadata provider fills it. */
+        MovieScores: {
+            /** @description TMDB vote average scaled to 0-100. */
+            TmdbPct?: number | null;
+            /** @description IMDb rating (0-10 scale). */
+            Imdb?: number | null;
+            /** @description Rotten Tomatoes Tomatometer (0-100). */
+            RottenTomatoes?: number | null;
+            /** @description Metacritic score (0-100). */
+            Metacritic?: number | null;
+        } | null;
+        MovieCast: {
+            Name: string;
+            /** @description Character played; empty when unknown. */
+            Role: string;
+        };
+        MovieCrew: {
+            Name: string;
+            /** @description Crew job (director, screenwriter, ...). */
+            Job: string;
+        };
+        AlternativeTitle: {
+            Title: string;
+            /** @description Source of the alternative title; empty when unknown. */
+            Type: string;
+        };
+        /**
+         * @description A distinct edition of a movie (Radarr v6 editions: theatrical,
+         *     extended, ...). A freshly added movie gets one 'Theatrical' edition
+         *     monitored with the movie's quality profile.
+         */
+        MovieEdition: {
+            /** Format: int64 */
+            ID: number;
+            /** @description Edition label (e.g. Theatrical). */
+            Label: string;
+            Monitored: boolean;
+            /** @description Quality profile name for this edition. */
+            Quality: string;
+            /**
+             * Format: int64
+             * @description Total bytes of the edition's files; 0 when none.
+             */
+            Size: number;
+        };
+        /** @description An imported movie file (Radarr v6 movie-file shape). */
+        MovieFile: {
+            /** @description Path of the file relative to the media root. */
+            RelativePath: string;
+            /** @description Detected video codec (h264/h265/...); empty when unknown. */
+            VideoCodec?: string;
+            /** @description Audio summary (codec/language/channels); empty when unknown. */
+            AudioInfo?: string;
+            /** Format: int64 */
+            Size: number;
+            /** @description Language codes found in the release; empty when unknown. */
+            Languages: string[];
+            /** @description Parsed quality label (e.g. 1080p). */
+            Quality: string;
+            /** @description Releasing group; empty when unknown. */
+            ReleaseGroup?: string;
+            /** @description Format tags (WEB-DL, BluRay, ...); empty when unknown. */
+            Formats?: string[];
+        };
+        /** @description Library stats bar (Movies page). */
+        MovieStats: {
+            /** Format: int64 */
+            MovieCount: number;
+            /** Format: int64 */
+            FileCount: number;
+            /** Format: int64 */
+            MonitoredCount: number;
+            /** Format: int64 */
+            UnmonitoredCount: number;
+            /**
+             * Format: int64
+             * @description Total bytes across all movie files.
+             */
+            TotalSize: number;
         };
         AddMovieRequest: {
             title: string;
@@ -3126,6 +3288,7 @@ export interface components {
     };
     parameters: {
         PathID: number;
+        PathEditionID: number;
         PathSeason: number;
         PathEpisode: number;
         PathDisc: number;
@@ -3333,6 +3496,28 @@ export interface operations {
             500: components["responses"]["Internal"];
         };
     };
+    getMovieStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stats. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovieStats"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
     getMovie: {
         parameters: {
             query?: never;
@@ -3363,6 +3548,37 @@ export interface operations {
             header?: never;
             path: {
                 id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetMonitored"];
+            };
+        };
+        responses: {
+            /** @description The toggled state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonitoredResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    setMovieEditionMonitored: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+                editionId: components["parameters"]["PathEditionID"];
             };
             cookie?: never;
         };

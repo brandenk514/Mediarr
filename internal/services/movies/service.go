@@ -34,6 +34,10 @@ var ErrNoMatch = fmt.Errorf("movies: no release matched the quality profile")
 // can map it to 404 without importing the domain directly.
 var ErrMovieNotFound = dom.ErrMovieNotFound
 
+// ErrEditionNotFound is re-exported from the pure domain so API/transport
+// layers can map it to 404 without importing the domain directly.
+var ErrEditionNotFound = dom.ErrEditionNotFound
+
 // Deps bundles the Service's collaborators. Everything is an interface (or
 // the pure domain), so the service is testable with a fake indexer, a mock
 // download client, and either a real Postgres repo or an in-memory fake.
@@ -59,6 +63,11 @@ type Deps struct {
 	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
 	// Nil-safe: the pipeline runs identically without it.
 	Metrics *metrics.Metrics
+	// Enricher, when non-nil, fills the display-only movie detail fields
+	// (TMDB overview/scores/cast/crew/release date) on the detail read path
+	// (Radarr R1). Optional: nil (e.g. no TMDB key) leaves the fields empty
+	// and the UI degrades to em-dashes.
+	Enricher dom.MovieEnricher
 }
 
 // Service implements the movie use-cases.
@@ -111,15 +120,24 @@ func (s *Service) ListMovies(ctx context.Context) ([]dom.Movie, error) {
 // ListMoviesQuery returns a server-side filtered and paginated page of
 // movies (M6 #41). It reads the full list and applies the query in memory;
 // the dataset is small (thousands, not millions) so a single read is cheaper
-// than a per-query parameterized SQL build.
+// than a per-query parameterized SQL build. R1: each page item also carries
+// its embedded editions/files/status (the grid renders status ribbons).
+// No provider enrichment here — that is detail-only, to keep the grid cheap
+// without a TMDB key.
 func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Movie], error) {
 	all, err := s.deps.Repo.ListMovies(ctx)
 	if err != nil {
 		return paging.Page[dom.Movie]{}, err
 	}
-	return paging.Apply(all, q, func(m dom.Movie) (string, bool) {
+	page := paging.Apply(all, q, func(m dom.Movie) (string, bool) {
 		return m.Title, m.Monitored
-	}), nil
+	})
+	views, err := s.buildViews(ctx, page.Items, false)
+	if err != nil {
+		return paging.Page[dom.Movie]{}, err
+	}
+	page.Items = views
+	return page, nil
 }
 
 // SetMovieMonitored toggles a movie's monitoring (M6 #41). On toggle-on it
@@ -142,9 +160,139 @@ func (s *Service) SetMovieMonitored(ctx context.Context, id int64, monitored boo
 	return nil
 }
 
-// GetMovie loads a movie (used by GET /api/v1/movies/{id}).
+// GetMovie loads a movie with its Radarr-R1 read state (editions, files,
+// derived status) plus provider enrichment when an Enricher is configured
+// (used by GET /api/v1/movies/{id}, the detail page).
 func (s *Service) GetMovie(ctx context.Context, id int64) (*dom.Movie, error) {
-	return s.deps.Repo.GetMovie(ctx, id)
+	m, err := s.deps.Repo.GetMovie(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	views, err := s.buildViews(ctx, []dom.Movie{*m}, true)
+	if err != nil {
+		return nil, err
+	}
+	return &views[0], nil
+}
+
+// GetStats returns the Movies-page stats bar (Radarr R1).
+func (s *Service) GetStats(ctx context.Context) (dom.MovieStats, error) {
+	return s.deps.Repo.GetMovieStats(ctx)
+}
+
+// SetEditionMonitored toggles one edition's monitoring (Radarr v6 edition
+// semantics, R1). The edition must exist and belong to the movie.
+func (s *Service) SetEditionMonitored(ctx context.Context, movieID, editionID int64, monitored bool) (*dom.Edition, error) {
+	if _, err := s.deps.Repo.GetMovie(ctx, movieID); err != nil {
+		return nil, err
+	}
+	e, err := s.deps.Repo.GetEdition(ctx, editionID)
+	if err != nil {
+		return nil, err
+	}
+	if e.MovieID != movieID {
+		return nil, dom.ErrEditionNotFound
+	}
+	if err := s.deps.Repo.SetEditionMonitored(ctx, editionID, monitored); err != nil {
+		return nil, err
+	}
+	e.Monitored = monitored
+	s.record(ctx, movieID, "edition-monitored",
+		fmt.Sprintf("edition %q monitored=%v", e.Label, monitored))
+	return e, nil
+}
+
+// buildViews fills each movie's Radarr-R1 read state: its editions, files,
+// derived Path/Size and status. With enrich=true (the detail read) it also
+// asks the optional metadata provider for the display enrichment; list reads
+// skip it so the grid stays cheap. A failing enrichment never fails the read
+// (keyless TMDB degrades gracefully — em-dashes in the UI).
+func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) ([]dom.Movie, error) {
+	editions, err := s.deps.Repo.ListEditions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	files, err := s.deps.Repo.ListMovieFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	wantedRows, err := s.deps.Repo.ListWanted(ctx)
+	if err != nil {
+		return nil, err
+	}
+	queueRows, err := s.deps.Repo.ListQueue(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	edByMovie := map[int64][]dom.Edition{}
+	for _, e := range editions {
+		edByMovie[e.MovieID] = append(edByMovie[e.MovieID], e)
+	}
+	fileByMovie := map[int64][]dom.MovieFile{}
+	for _, f := range files {
+		fileByMovie[f.MovieID] = append(fileByMovie[f.MovieID], f)
+	}
+	wantByMovie := map[int64]*dom.Wanted{}
+	for i := range wantedRows {
+		wantByMovie[wantedRows[i].MovieID] = &wantedRows[i]
+	}
+	activeQueue := map[int64]bool{}
+	for _, q := range queueRows {
+		if q.State == dom.QueueQueued || q.State == dom.QueueDownloading {
+			activeQueue[q.MovieID] = true
+		}
+	}
+
+	out := make([]dom.Movie, 0, len(in))
+	for _, m := range in {
+		view := m
+		// Arrays must serialize as [] (Radarr parity; the OpenAPI contract
+		// declares them non-nullable) — never null.
+		if view.Genres == nil {
+			view.Genres = []string{}
+		}
+		if view.Cast == nil {
+			view.Cast = []dom.MovieCast{}
+		}
+		if view.Crew == nil {
+			view.Crew = []dom.MovieCrew{}
+		}
+		if view.AlternativeTitles == nil {
+			view.AlternativeTitles = []dom.AlternativeTitle{}
+		}
+		ed := edByMovie[m.ID]
+		if ed == nil {
+			ed = []dom.Edition{}
+		}
+		view.Editions = ed
+		fl := fileByMovie[m.ID]
+		if fl == nil {
+			fl = []dom.MovieFile{}
+		}
+		view.Files = fl
+		if len(fl) > 0 {
+			view.Path = &fl[0].RelativePath
+			var total int64
+			for _, f := range fl {
+				total += f.Size
+			}
+			view.Size = &total
+		}
+		if enrich && s.deps.Enricher != nil {
+			_ = s.deps.Enricher.EnrichMovie(ctx, &view) // best effort
+		}
+		w := wantByMovie[m.ID]
+		view.Status = dom.DeriveMovieStatus(
+			w != nil && w.Status == dom.WantedSatisfied,
+			activeQueue[m.ID],
+			m.Monitored,
+			view.ReleaseDate,
+			time.Now(),
+		)
+		out = append(out, view)
+	}
+	return out, nil
 }
 
 // GetWanted loads a movie's wanted (release) row (used by
@@ -397,6 +545,23 @@ func (s *Service) importRelease(ctx context.Context, m *dom.Movie, bm bestMatch,
 	}
 	s.emitQueue(ctx, qe)
 
+	// R1: record the imported file so the movie's Files/Path/Size reflect it
+	// (best effort — a file-recording failure must not fail the import).
+	if size := fileSizeOf(plan.DestPath); size > 0 {
+		if rel, rerr := filepath.Rel(s.deps.MediaRoot, plan.DestPath); rerr == nil {
+			if _, ferr := s.deps.Repo.CreateMovieFile(ctx, dom.MovieFile{
+				MovieID:      m.ID,
+				RelativePath: rel,
+				VideoCodec:   codecFor(bm.Parsed),
+				Size:         size,
+				Quality:      bm.Parsed.QualityName,
+				Formats:      formatsFor(bm.Parsed),
+			}); ferr != nil {
+				s.record(ctx, m.ID, "file-record-failed", ferr.Error())
+			}
+		}
+	}
+
 	// Removal after import: only when the client opted in (a mock or a
 	// keep-for-seeding client doesn't implement Remover, so this is skipped).
 	// A removal error is not fatal — the file is already imported safely; a
@@ -409,6 +574,33 @@ func (s *Service) importRelease(ctx context.Context, m *dom.Movie, bm bestMatch,
 		}
 	}
 	return plan.DestPath, nil
+}
+
+// fileSizeOf returns a file's size in bytes (0 when it can't be stat'ed).
+func fileSizeOf(path string) int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
+// codecFor normalizes a parsed release codec to a display value
+// ("any"/empty → "").
+func codecFor(p dom.ParsedRelease) string {
+	if p.Codec == dom.CodecAny || p.Codec == "" {
+		return ""
+	}
+	return p.Codec
+}
+
+// formatsFor derives format tags from the parsed release source (e.g. the
+// "web" container hint).
+func formatsFor(p dom.ParsedRelease) []string {
+	if p.Source == "" || p.Source == dom.SourceAny {
+		return []string{}
+	}
+	return []string{p.Source}
 }
 
 // markFailed records a queue failure (state + event + history) without

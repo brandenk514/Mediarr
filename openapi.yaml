@@ -43,7 +43,7 @@ tags:
   - name: auth
     description: Login and current-user.
   - name: movies
-    description: Movies library (add, list, get, monitor, pipeline).
+    description: Movies library (add, list, get, monitor, editions, stats, pipeline).
   - name: tv
     description: TV library (series, episodes, seasons, wanted, pipeline).
   - name: root-folders
@@ -218,6 +218,23 @@ paths:
           $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/movies/stats:
+    get:
+      tags: [movies]
+      summary: Library stats for the Movies page stats bar.
+      operationId: getMovieStats
+      description: Movie counts, monitored counts and total file size (R1 stats bar).
+      responses:
+        "200":
+          description: The stats.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MovieStats"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/movies/{id}:
     get:
       tags: [movies]
@@ -242,6 +259,36 @@ paths:
       operationId: setMovieMonitored
       parameters:
         - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetMonitored"
+      responses:
+        "200":
+          description: The toggled state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitoredResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/movies/{id}/editions/{editionId}:
+    put:
+      tags: [movies]
+      summary: Toggle an edition's monitoring (Radarr v6 edition semantics).
+      operationId: setMovieEditionMonitored
+      description: Per-edition monitor toggle — Radarr v6 semantics (R1).
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+        - $ref: "#/components/parameters/PathEditionID"
       requestBody:
         required: true
         content:
@@ -2923,6 +2970,14 @@ components:
         type: integer
         format: int64
         minimum: 1
+    PathEditionID:
+      name: editionId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
     PathSeason:
       name: season
       in: path
@@ -3265,6 +3320,217 @@ components:
         AddedAt:
           type: string
           format: date-time
+        # R1 enrichment (Radarr parity). Display-only fields sourced from the
+        # metadata provider (TMDB): null/empty when the provider is unconfigured
+        # or the lookup failed — the UI renders em-dashes, never an error.
+        Certification:
+          type: string
+          nullable: true
+          description: Age rating (e.g. PG-13); null when unknown.
+        Runtime:
+          type: integer
+          nullable: true
+          description: Runtime in minutes; null when unknown.
+        Studio:
+          type: string
+          nullable: true
+          description: Primary production company; null when unknown.
+        Genres:
+          type: array
+          items:
+            type: string
+          description: Genre names; empty when unknown.
+        OriginalLanguage:
+          type: string
+          nullable: true
+          description: ISO language code (e.g. en); null when unknown.
+        CollectionName:
+          type: string
+          nullable: true
+          description: Franchise/collection name; null when none.
+        Overview:
+          type: string
+          nullable: true
+          description: Plot overview; null when unknown.
+        Scores:
+          $ref: "#/components/schemas/MovieScores"
+        Cast:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieCast"
+          description: Top cast (name + role); empty when unknown.
+        Crew:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieCrew"
+          description: Key crew (name + job); empty when unknown.
+        AlternativeTitles:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlternativeTitle"
+          description: Also-known-as titles; empty when none.
+        # R1 file/edition state (Radarr embeds files in the movie object).
+        Path:
+          type: string
+          nullable: true
+          description: Relative file path under the media root when a file is imported; null when no file.
+        Status:
+          $ref: "#/components/schemas/MovieStatus"
+        Size:
+          type: integer
+          format: int64
+          nullable: true
+          description: Total bytes of the movie's files; null when no file.
+        Editions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieEdition"
+          description: The movie's editions (one, 'Theatrical', seeded on add).
+        Files:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieFile"
+          description: The movie's files; empty until imported.
+    MovieStatus:
+      type: string
+      description: |
+        Derived status of a movie (Radarr v6 status chips). Derivation
+        (in order): downloaded when the wanted row is satisfied (split by the
+        monitored flag); queued when an active queue entry exists; unreleased
+        when the provider release date is in the future; otherwise missing
+        (split by the monitored flag).
+      enum:
+        - "downloaded:monitored"
+        - "downloaded:unmonitored"
+        - "missing:monitored"
+        - "missing:unmonitored"
+        - queued
+        - unreleased
+    MovieScores:
+      type: object
+      nullable: true
+      description: External scores; the whole object is null until a metadata provider fills it.
+      properties:
+        TmdbPct:
+          type: number
+          nullable: true
+          description: TMDB vote average scaled to 0-100.
+        Imdb:
+          type: number
+          nullable: true
+          description: IMDb rating (0-10 scale).
+        RottenTomatoes:
+          type: number
+          nullable: true
+          description: Rotten Tomatoes Tomatometer (0-100).
+        Metacritic:
+          type: number
+          nullable: true
+          description: Metacritic score (0-100).
+    MovieCast:
+      type: object
+      required: [Name, Role]
+      properties:
+        Name:
+          type: string
+        Role:
+          type: string
+          description: Character played; empty when unknown.
+    MovieCrew:
+      type: object
+      required: [Name, Job]
+      properties:
+        Name:
+          type: string
+        Job:
+          type: string
+          description: Crew job (director, screenwriter, ...).
+    AlternativeTitle:
+      type: object
+      required: [Title, Type]
+      properties:
+        Title:
+          type: string
+        Type:
+          type: string
+          description: Source of the alternative title; empty when unknown.
+    MovieEdition:
+      type: object
+      required: [ID, Label, Monitored, Quality, Size]
+      description: |
+        A distinct edition of a movie (Radarr v6 editions: theatrical,
+        extended, ...). A freshly added movie gets one 'Theatrical' edition
+        monitored with the movie's quality profile.
+      properties:
+        ID:
+          type: integer
+          format: int64
+        Label:
+          type: string
+          description: Edition label (e.g. Theatrical).
+        Monitored:
+          type: boolean
+        Quality:
+          type: string
+          description: Quality profile name for this edition.
+        Size:
+          type: integer
+          format: int64
+          description: Total bytes of the edition's files; 0 when none.
+    MovieFile:
+      type: object
+      required: [RelativePath, Size, Languages, Quality]
+      description: An imported movie file (Radarr v6 movie-file shape).
+      properties:
+        RelativePath:
+          type: string
+          description: Path of the file relative to the media root.
+        VideoCodec:
+          type: string
+          description: Detected video codec (h264/h265/...); empty when unknown.
+        AudioInfo:
+          type: string
+          description: Audio summary (codec/language/channels); empty when unknown.
+        Size:
+          type: integer
+          format: int64
+        Languages:
+          type: array
+          items:
+            type: string
+          description: Language codes found in the release; empty when unknown.
+        Quality:
+          type: string
+          description: Parsed quality label (e.g. 1080p).
+        ReleaseGroup:
+          type: string
+          description: Releasing group; empty when unknown.
+        Formats:
+          type: array
+          items:
+            type: string
+          description: Format tags (WEB-DL, BluRay, ...); empty when unknown.
+    MovieStats:
+      type: object
+      required: [MovieCount, FileCount, MonitoredCount, UnmonitoredCount, TotalSize]
+      description: Library stats bar (Movies page).
+      properties:
+        MovieCount:
+          type: integer
+          format: int64
+        FileCount:
+          type: integer
+          format: int64
+        MonitoredCount:
+          type: integer
+          format: int64
+        UnmonitoredCount:
+          type: integer
+          format: int64
+        TotalSize:
+          type: integer
+          format: int64
+          description: Total bytes across all movie files.
     AddMovieRequest:
       type: object
       required: [title]
