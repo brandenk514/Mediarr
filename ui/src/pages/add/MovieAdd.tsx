@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { client } from '../../api/client'
-import type { AddMovieRequest, MovieSearchHit, RootFolder } from '../../api/types'
+import type { AddMovieRequest, MovieSearchHit, ProfilesSettings, RootFolder } from '../../api/types'
 import { Badge, BadgeRow } from '../../components/ui'
 import {
   AddError,
-  ProfilePicker,
   SearchBox,
   useAddSubmit,
   useDebouncedSearch,
@@ -52,6 +51,31 @@ export function MovieAddPage() {
     loadRootFolders()
   }, [loadRootFolders])
 
+  // Radarr R5b: the quality-profile dropdown is populated from the movie
+  // profiles in the profiles settings document (the R5b Profiles section),
+  // defaulting to the Radarr factory profile '4K Best Effort'.
+  const [movieProfiles, setMovieProfiles] = useState<ProfilesSettings['movie_profiles'] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    client
+      .getSettingsSection<ProfilesSettings>('profiles')
+      .then((p) => {
+        if (!cancelled) setMovieProfiles(p.movie_profiles)
+      })
+      .catch(() => {
+        /* the default below still sends '4K Best Effort' on load failure */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (movieProfiles === null || profile !== '') return
+    const names = movieProfiles.map((p) => p.name)
+    setProfile(names.includes('4K Best Effort') ? '4K Best Effort' : names[0] ?? '4K Best Effort')
+  }, [movieProfiles, profile])
+
   // Radarr R3: /movies/add?tmdb=<id> (from the Discover page's 'Add
   // Movie') types the tmdb:<id> query into the search form and
   // pre-selects the first hit. Keyless: the search 503s, the preselect
@@ -76,15 +100,14 @@ export function MovieAddPage() {
   const { busy, error, submit } = useAddSubmit(async () => {
     const req: AddMovieRequest = {
       title: title.trim(),
-      // Radarr R5a: the generated type makes quality_profile required; the
-      // factory default is sent until R5b wires up a profile picker.
-      quality_profile: '4K Best Effort',
+      // Radarr R5b: the dropdown's value (the profiles document's movie
+      // profiles), defaulting to the Radarr factory profile.
+      quality_profile: profile || '4K Best Effort',
       monitor,
       minimum_availability: minAvailability,
       start_search: startSearch,
     }
     if (year.trim()) req.year = year.trim()
-    if (profile) req.quality_profile = profile
     if (tags.length > 0) req.tags = tags
     if (rootFolderPath) req.root_folder = rootFolderPath
     await client.addMovie(req)
@@ -320,7 +343,24 @@ export function MovieAddPage() {
             <option value="released">Released</option>
           </select>
 
-          <ProfilePicker kind="movies" value={profile} onChange={setProfile} testId="movie-profile" />
+          <div className="search-block">
+            <label htmlFor="movie-profile">Quality profile</label>
+            <select
+              id="movie-profile"
+              value={profile}
+              onChange={(e) => setProfile(e.target.value)}
+              data-testid="movie-profile"
+            >
+              {(movieProfiles ?? []).map((p) => (
+                <option key={p.id} value={p.name}>
+                  {p.name}
+                </option>
+              ))}
+              {movieProfiles !== null && movieProfiles.length === 0 && (
+                <option value="4K Best Effort">4K Best Effort</option>
+              )}
+            </select>
+          </div>
 
           <label htmlFor="movie-tags">Tags</label>
           <input

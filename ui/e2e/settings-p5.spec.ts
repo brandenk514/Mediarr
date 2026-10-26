@@ -99,3 +99,39 @@ for (const { slug, card, error } of SECTIONS) {
     else expect(which).toBe('error') // documented: running backend predates the P5 endpoint
   })
 }
+
+// Radarr R5b: the modified sections show their Radarr surfaces. The
+// assertions are block/heading level (not seeded-value level) so the spec
+// stays green whether the running backend is pre-R5a (empty blocks) or
+// seeded with the Radarr defaults.
+test('radarr R5b settings surfaces render (movie naming, movie profiles, movie quality)', async ({
+  page,
+}) => {
+  await page.goto('/settings/media-management')
+  await signIn(page)
+  await expect(page).toHaveURL(/\/settings\/media-management$/)
+  // Media Management: the Radarr Movie Naming block + the Unmonitor Deleted
+  // Movies file-management toggle.
+  await expect(page.getByText('Movie naming')).toBeVisible()
+  await expect(page.getByTestId('mm-movie-format')).toBeVisible()
+  await expect(page.getByTestId('mm-unmonitor')).toBeVisible()
+
+  // Quality: the movie definitions sub-section sits beside the TV table.
+  await page.getByTestId('settings-nav-quality').click()
+  await expect(page).toHaveURL(/\/settings\/quality$/)
+  await expect(page.getByText('TV quality definitions')).toBeVisible()
+  await expect(page.getByText('Movie quality definitions')).toBeVisible()
+
+  // Profiles: the movie / delay / release sub-sections render.
+  await page.getByTestId('settings-nav-profiles').click()
+  await expect(page).toHaveURL(/\/settings\/profiles$/)
+  await expect(page.getByRole('heading', { name: 'Movie quality profiles' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Delay profiles' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Release profiles' })).toBeVisible()
+
+  // Import lists: the card reaches with the Radarr bridge in the kind list.
+  await page.getByTestId('settings-nav-import-lists').click()
+  await expect(page).toHaveURL(/\/settings\/import-lists$/)
+  await expect(page.getByTestId('import-lists-card')).toBeVisible()
+  await expect(page.getByTestId('il-new-kind')).toHaveValue('trakt')
+})

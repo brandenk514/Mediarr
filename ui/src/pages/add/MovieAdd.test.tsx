@@ -23,7 +23,7 @@ vi.mock('../../api/client', () => {
     client: {
       searchMovies: vi.fn(),
       addMovie: vi.fn(),
-      getProfiles: vi.fn(),
+      getSettingsSection: vi.fn(),
       listRootFolders: vi.fn(),
     },
   }
@@ -59,7 +59,18 @@ const hit = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(client.searchMovies).mockResolvedValue([hit])
-  vi.mocked(client.getProfiles).mockResolvedValue({ profiles: ['HD-1080p'], default: 'HD-1080p' })
+  // Radarr R5b: the quality-profile dropdown reads the movie profiles from
+  // the profiles settings document.
+  vi.mocked(client.getSettingsSection).mockResolvedValue({
+    profiles: [],
+    movie_profiles: [
+      { id: 100, name: '4K Best Effort', cutoff: 105, items: [] },
+      { id: 101, name: '4K', cutoff: 105, items: [] },
+      { id: 102, name: '1080p', cutoff: 105, items: [] },
+    ],
+    delay_profiles: [],
+    release_profiles: [],
+  })
   vi.mocked(client.addMovie).mockResolvedValue({ id: 71 })
   vi.mocked(client.listRootFolders).mockResolvedValue([
     { ID: 3, Path: '/media/movies', Name: 'Movies', CreatedAt: '', FreeSpace: 500 * 1024 ** 3 },
@@ -118,7 +129,7 @@ describe('MovieAddPage (R2 two-pane)', () => {
       expect(client.addMovie).toHaveBeenCalledWith({
         title: 'Dune: Part Two',
         year: '2024',
-        quality_profile: 'HD-1080p',
+        quality_profile: '4K Best Effort',
         monitor: 'all_except_3d',
         minimum_availability: 'announced',
         tags: ['4k'],
@@ -139,7 +150,7 @@ describe('MovieAddPage (R2 two-pane)', () => {
       expect(client.addMovie).toHaveBeenCalledWith({
         title: 'Dune: Part Two',
         year: '2024',
-        quality_profile: 'HD-1080p',
+        quality_profile: '4K Best Effort',
         monitor: 'all',
         minimum_availability: 'released',
         start_search: false,
@@ -191,6 +202,32 @@ describe('MovieAddPage (R2 two-pane)', () => {
   it('disables the add button until a title is present', () => {
     renderPage()
     expect(screen.getByTestId('movie-add-button')).toBeDisabled()
+  })
+
+  it('defaults the quality profile dropdown to 4K Best Effort and sends the selection (R5b)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('movie-search-input'), 'dune')
+    await user.click(await screen.findByTestId('movie-result-603'))
+
+    // The dropdown lists the profiles document's movie profiles and the
+    // Radarr factory profile is preselected.
+    const select = (await screen.findByTestId('movie-profile')) as HTMLSelectElement
+    await waitFor(() => expect(select).toHaveValue('4K Best Effort'))
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([
+      '4K Best Effort',
+      '4K',
+      '1080p',
+    ])
+
+    // Picking another profile flows into the add payload.
+    await user.selectOptions(select, '4K')
+    await user.click(screen.getByTestId('movie-add-button'))
+    await waitFor(() =>
+      expect(client.addMovie).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Dune: Part Two', quality_profile: '4K' }),
+      ),
+    )
   })
 })
 

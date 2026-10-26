@@ -221,6 +221,11 @@ function IndexerForm({
   const [baseUrl, setBaseUrl] = useState(editing?.base_url ?? '')
   const [apiKey, setApiKey] = useState('')
   const [enabled, setEnabled] = useState(editing?.enabled ?? true)
+  // Radarr R5b: the per-indexer search toggles (R5a booleans; default true,
+  // omitted = keep the stored value on update).
+  const [rss, setRss] = useState(editing?.rss ?? true)
+  const [autoSearch, setAutoSearch] = useState(editing?.auto_search ?? true)
+  const [interactiveSearch, setInteractiveSearch] = useState(editing?.interactive_search ?? true)
   const { busy, error, submit } = useSubmit()
 
   function handleSave() {
@@ -230,6 +235,9 @@ function IndexerForm({
         kind,
         base_url: baseUrl,
         api_key: apiKey, // empty on update = keep the stored key
+        rss,
+        auto_search: autoSearch,
+        interactive_search: interactiveSearch,
         ...(editing ? {} : { enabled }),
       }
       const idx = editing
@@ -291,6 +299,37 @@ function IndexerForm({
           </label>
         </>
       )}
+      {/* Radarr R5b: the per-indexer search toggles. */}
+      <label className="check" htmlFor="idx-rss">
+        <input
+          id="idx-rss"
+          type="checkbox"
+          checked={rss}
+          onChange={(e) => setRss(e.target.checked)}
+          data-testid="idx-rss"
+        />
+        RSS
+      </label>
+      <label className="check" htmlFor="idx-auto-search">
+        <input
+          id="idx-auto-search"
+          type="checkbox"
+          checked={autoSearch}
+          onChange={(e) => setAutoSearch(e.target.checked)}
+          data-testid="idx-auto-search"
+        />
+        Automatic search
+      </label>
+      <label className="check" htmlFor="idx-interactive-search">
+        <input
+          id="idx-interactive-search"
+          type="checkbox"
+          checked={interactiveSearch}
+          onChange={(e) => setInteractiveSearch(e.target.checked)}
+          data-testid="idx-interactive-search"
+        />
+        Interactive search
+      </label>
       <SaveError error={error} testId="idx-form-error" />
       <div className="idx-form-actions">
         <button onClick={handleSave} disabled={busy} data-testid="idx-save">

@@ -4,11 +4,16 @@ import type { ImportList, ImportListsSettings, ImportRunResult } from '../../../
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
 // ImportListsSection is the import-lists section of the P5 settings shell:
-// the Trakt list and Sonarr-instance bridge configs, plus the run action
+// the Trakt list and Sonarr-instance bridge configs, the Radarr R5b drop-in
+// bridge (kind=radarr: host + port + masked API key), plus the run action
 // (dry-run or real import through the /import-lists/import endpoint, which
 // reports per-item imported / exists / skipped / error). API keys are
 // masked by the server — a blank field keeps the stored key.
-const LIST_KINDS = ['trakt', 'sonarr'] as const
+const LIST_KINDS = ['trakt', 'sonarr', 'radarr'] as const
+
+// RADARR_DEFAULT_PORT is the stock Radarr port, used when a radarr list
+// saves with a blank port (the server requires a 1-65535 value).
+const RADARR_DEFAULT_PORT = 7878
 
 export function ImportListsSection() {
   const { doc, loading, error, authLost, refresh } = useSectionDoc<ImportListsSettings>('import-lists')
@@ -21,6 +26,10 @@ export function ImportListsSection() {
   const [name, setName] = useState('')
   const [kind, setKind] = useState<(typeof LIST_KINDS)[number]>('trakt')
   const [url, setUrl] = useState('')
+  // Radarr R5b draft fields (kind=radarr): the Radarr instance to import
+  // from; the api key round-trips masked (blank keeps the stored value).
+  const [host, setHost] = useState('')
+  const [port, setPort] = useState('')
   const [apiKey, setApiKey] = useState('')
 
   // Run state: which list is running + the last report.
@@ -42,6 +51,8 @@ export function ImportListsSection() {
     setName(l.name)
     setKind(l.kind as (typeof LIST_KINDS)[number])
     setUrl(l.url ?? '')
+    setHost(l.host ?? '')
+    setPort(l.port ? String(l.port) : '')
     setApiKey('')
   }
 
@@ -50,12 +61,37 @@ export function ImportListsSection() {
     setName('')
     setKind('trakt')
     setUrl('')
+    setHost('')
+    setPort('')
     setApiKey('')
   }
 
   function submitDraft() {
     const n = name.trim()
-    if (!n || !url.trim()) return
+    if (!n) return
+    const isRadarr = kind === 'radarr'
+    // The address fields depend on the kind: trakt/sonarr ride the URL,
+    // radarr rides host+port (the server validates accordingly).
+    if (isRadarr) {
+      if (!host.trim()) return
+      const portNum = Number(port) || RADARR_DEFAULT_PORT
+      const address = { url: '', host: host.trim(), port: portNum }
+      if (editId !== null) {
+        setLists((ls) =>
+          ls.map((x) =>
+            x.id === editId
+              ? { ...x, ...address, name: n, kind, api_key: apiKey, api_key_set: x.api_key_set || apiKey !== '' }
+              : x,
+          ),
+        )
+      } else {
+        const id = lists.reduce((m, x) => Math.max(m, x.id), 0) + 1
+        setLists((ls) => [...ls, { id, name: n, kind, ...address, enabled: true, api_key: apiKey, api_key_set: apiKey !== '' }])
+      }
+      clearDraft()
+      return
+    }
+    if (!url.trim()) return
     if (editId !== null) {
       setLists((ls) =>
         ls.map((x) =>
@@ -99,7 +135,7 @@ export function ImportListsSection() {
     <>
       <SectionCard
         title="Import lists"
-        hint="Trakt lists and Sonarr instances (the drop-in bridge). Dry-run reports what would be added without touching the libraries."
+        hint="Trakt lists, Sonarr instances, and Radarr instances (drop-in bridges). Dry-run reports what would be added without touching the libraries."
         testId="import-lists-card"
       >
         <label className="check">
@@ -129,7 +165,7 @@ export function ImportListsSection() {
               enabled
             </label>
             <span className="dim small" data-testid={`il-url-${l.id}`}>
-              {l.url} {l.api_key_set ? '(key stored)' : ''}
+              {l.kind === 'radarr' ? `${l.host}:${l.port}` : l.url} {l.api_key_set ? '(key stored)' : ''}
             </span>
             <button className="ghost" onClick={() => beginEdit(l)} data-testid={`il-edit-${l.id}`}>
               Edit
@@ -185,23 +221,51 @@ export function ImportListsSection() {
             </option>
           ))}
         </select>
-        <label htmlFor="il-new-url">
-          {kind === 'trakt' ? 'Trakt list URL' : 'Sonarr instance base URL'}
-        </label>
-        <input
-          id="il-new-url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder={kind === 'trakt' ? 'https://trakt.tv/users/u/lists/slug' : 'http://sonarr.local:8989'}
-          data-testid="il-new-url"
-        />
-        {kind === 'sonarr' && (
+        {kind !== 'radarr' && (
           <>
-            <label htmlFor="il-new-key">
-              API key {editId !== null && lists.find((l) => l.id === editId)?.api_key_set ? '(stored — blank to keep)' : ''}
+            <label htmlFor="il-new-url">
+              {kind === 'trakt' ? 'Trakt list URL' : 'Sonarr instance base URL'}
             </label>
-            <input id="il-new-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} data-testid="il-new-key" />
+            <input
+              id="il-new-url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder={kind === 'trakt' ? 'https://trakt.tv/users/u/lists/slug' : 'http://sonarr.local:8989'}
+              data-testid="il-new-url"
+            />
           </>
+        )}
+        {kind === 'radarr' && (
+          <>
+            {/* Radarr R5b: the drop-in bridge points at a Radarr instance by
+                host+port; the stock port is pre-filled when left blank. */}
+            <label htmlFor="il-new-host">Radarr host</label>
+            <input
+              id="il-new-host"
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              placeholder="radarr.home.lan"
+              data-testid="il-new-host"
+            />
+            <label htmlFor="il-new-port">Port</label>
+            <input
+              id="il-new-port"
+              type="number"
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+              placeholder={String(RADARR_DEFAULT_PORT)}
+              data-testid="il-new-port"
+            />
+          </>
+        )}
+        {kind !== 'trakt' && (
+          <label htmlFor="il-new-key">
+            {kind === 'radarr' ? 'Radarr API key' : 'API key'}{' '}
+            {editId !== null && lists.find((l) => l.id === editId)?.api_key_set ? '(stored — blank to keep)' : ''}
+          </label>
+        )}
+        {kind !== 'trakt' && (
+          <input id="il-new-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} data-testid="il-new-key" />
         )}
         <div>
           <button className="ghost" onClick={submitDraft} data-testid="il-add">
