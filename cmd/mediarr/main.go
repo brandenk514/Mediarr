@@ -26,6 +26,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/api"
 	"github.com/brandenk514/mediarr/internal/auth"
 	"github.com/brandenk514/mediarr/internal/config"
+	moviedom "github.com/brandenk514/mediarr/internal/domains/movies"
 	tvd "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/health"
@@ -635,6 +636,16 @@ func run(logSvc *system.LogService) error {
 		migrationIndexers := &migrationIndexerStore{repo: indexerRepo}
 		migrationTV := &migrationTVStore{repo: tvRepo}
 
+		// Radarr R6: the Radarr source of the drop-in migration. The target
+		// maps movies + editions onto the movie domain (title+year identity,
+		// like the R5 import bridge), Radarr v6 quality profiles onto the
+		// profiles section's movie_profiles array, and tags onto the tags
+		// section. The source is the live Radarr v3 API (admin-configured URL
+		// + API key).
+		migrationRadarrIndexers := &migrationRadarrIndexerStore{repo: indexerRepo}
+		migrationRadarrMovies := &migrationRadarrMovieStore{repo: postgres.NewMovieRepo(pg.DB())}
+		radarrTarget := system.NewRadarrPostgresTarget(settingsRepo, migrationRadarrMovies, migrationRadarrIndexers)
+
 		// P6 Wave 2: the System depth services. Backup exports/imports the
 		// configuration over the settings repo (queue / series snapshots are
 		// optional attachments; the series snapshot can be imported back
@@ -687,9 +698,13 @@ func run(logSvc *system.LogService) error {
 				return n, nil
 			},
 		}
-		// P6 Wave 3: the migrator (source factory = the live Sonarr v3
-		// client, target = the real Mediarr import sink).
+		// P6 Wave 3 / Radarr R6: the migrators (Sonarr: source factory = the
+		// live Sonarr v3 client, target = the real Mediarr import sink;
+		// Radarr: the live Radarr v3 client into the movie domain). Both are
+		// routed through MigrationService by the request's source.
 		migrator := system.NewMigrator(system.NewPostgresTarget(settingsRepo, migrationIndexers, migrationTV))
+		radarrMigrator := system.NewRadarrMigrator(radarrTarget)
+		migrationSvc := system.NewMigrationService(migrator, radarrMigrator)
 
 		srv.SetSystem(&api.SystemDeps{
 			Health:       system.NewHealth(probes),
@@ -701,7 +716,7 @@ func run(logSvc *system.LogService) error {
 			Events:       historyFeedSvc,
 			Changelog:    system.NewChangelogService(version),
 			Logs:         logSvc,
-			Migration:    migrator,
+			Migration:    migrationSvc,
 			RootFolderPaths: func() []string {
 				roots, err := rfSvc.List()
 				if err != nil {
@@ -758,6 +773,75 @@ func (s *migrationIndexerStore) CreateIndexer(ctx context.Context, name, kind, b
 	return s.repo.Create(ctx, indexers.Definition{
 		Name: name, Kind: kind, BaseURL: baseURL, APIKey: apiKey, Enabled: enabled,
 	})
+}
+
+// migrationRadarrIndexerStore adapts the Postgres indexer repo to the
+// Radarr migration target's indexer seam (system.RadarrIndexerStore),
+// carrying the R5a per-indexer toggles in the definition's settings bag.
+type migrationRadarrIndexerStore struct {
+	repo *postgres.IndexersRepo
+}
+
+func (s *migrationRadarrIndexerStore) FindIndexer(ctx context.Context, name string) (int64, bool) {
+	def, err := s.repo.GetByName(ctx, name)
+	if err != nil {
+		return 0, false
+	}
+	return def.ID, true
+}
+
+func (s *migrationRadarrIndexerStore) CreateIndexer(ctx context.Context, name, kind, baseURL, apiK string, enabled, enableRss, enableAutomatic, enableInteractive bool) (int64, error) {
+	def := indexers.Definition{
+		Name: name, Kind: kind, BaseURL: baseURL, APIKey: apiK, Enabled: enabled,
+		SettingsJSON: indexers.WithIndexerToggles("", indexers.IndexerSettings{
+			RSS:               enableRss,
+			AutoSearch:        enableAutomatic,
+			InteractiveSearch: enableInteractive,
+		}),
+	}
+	return s.repo.Create(ctx, def)
+}
+
+// migrationRadarrMovieStore adapts the Postgres movie repo to the Radarr
+// migration target's movie seam (system.RadarrMovieStore). It writes through
+// the repo directly (not the movie service): the migration may reference a
+// quality-profile name that was just created in the profiles document, which
+// the service's add validation (the seeded Radarr v6 name set) would reject.
+type migrationRadarrMovieStore struct {
+	repo *postgres.MovieRepo
+}
+
+func (s *migrationRadarrMovieStore) FindMovie(ctx context.Context, title string, year int) (int64, bool) {
+	return s.repo.FindMovieByTitleYear(ctx, title, year)
+}
+
+func (s *migrationRadarrMovieStore) AddMovie(ctx context.Context, ref system.RadarrMovieRef) (int64, error) {
+	m := moviedom.Movie{
+		Title:          ref.Title,
+		Year:           ref.Year,
+		QualityProfile: ref.QualityProfile,
+		Monitored:      ref.Monitored,
+		Tags:           ref.Tags,
+	}
+	if ref.SeedEditionMonitored != nil {
+		m.SeedEditionMonitored = ref.SeedEditionMonitored
+	}
+	id, err := s.repo.CreateMovie(ctx, m)
+	if err != nil {
+		return 0, err
+	}
+	// A monitored movie is wanted (the add use-case's semantics).
+	if ref.Monitored {
+		if err := s.repo.EnsureWanted(ctx, id); err != nil {
+			return 0, err
+		}
+	}
+	_ = s.repo.AddHistory(ctx, moviedom.HistoryEntry{MovieID: id, Event: "added", Detail: "migrated from Radarr"})
+	return id, nil
+}
+
+func (s *migrationRadarrMovieStore) EnsureEdition(ctx context.Context, movieID int64, e system.RadarrEditionRef) (int64, bool, error) {
+	return s.repo.UpsertEdition(ctx, movieID, e.Label, e.Monitored, e.Quality, e.Size)
 }
 
 // migrationTVStore adapts the Postgres TV repo to the migration target's TV

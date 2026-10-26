@@ -3008,15 +3008,16 @@ paths:
   /api/v1/system/migration:
     post:
       tags: [system]
-      summary: Run the Sonarr drop-in migration.
+      summary: Run the drop-in migration (Sonarr or Radarr).
       operationId: runMigration
       description: |
-        The drop-in moment: pulls a live Sonarr instance (series +
-        seasons/episodes + quality profiles + tags + indexers + download
-        client) via its v3 API and imports it into Mediarr, returning a
-        mapping report. dry_run reports what would be imported without
-        writing; the run is idempotent (re-runnable, no duplicates) and
-        resumable (a partial run can be continued).
+        The drop-in moment: pulls a live Sonarr or Radarr instance (Sonarr:
+        series + seasons/episodes; Radarr: movies + editions) plus quality
+        profiles + tags + indexers + download client (and, for Radarr, a
+        best-effort settings subset) via its v3 API and imports it into
+        Mediarr, returning a mapping report. dry_run reports what would be
+        imported without writing; the run is idempotent (re-runnable, no
+        duplicates) and resumable (a partial run can be continued).
       requestBody:
         required: true
         content:
@@ -6029,10 +6030,15 @@ components:
       properties:
         source_url:
           type: string
-          description: Base URL of the Sonarr instance (e.g. http://sonarr.local:8989).
+          description: Base URL of the source instance (e.g. http://sonarr.local:8989 or https://radarr.local:7878).
+        source:
+          type: string
+          enum: [sonarr, radarr]
+          default: sonarr
+          description: "The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance)."
         api_key:
           type: string
-          description: Sonarr API key (sent as X-Api-Key).
+          description: Source API key (sent as X-Api-Key).
         dry_run:
           type: boolean
           description: Report only; add nothing.

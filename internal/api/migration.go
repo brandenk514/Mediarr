@@ -8,14 +8,15 @@ import (
 	"github.com/brandenk514/mediarr/internal/system"
 )
 
-// ---- P6 Wave 3: Sonarr drop-in migration endpoints ----
+// ---- P6 Wave 3 / Radarr R6: drop-in migration endpoints ----
 
 // RunMigration handles POST /api/v1/system/migration: the drop-in moment. It
-// pulls a live Sonarr instance and imports it into Mediarr, returning the
-// mapping report. dry_run reports without writing; the run is idempotent and
-// resumable. A bad source_url is a 400; a source that cannot be reached (the
-// Sonarr client errors) is a 502; a partial run still returns 200 with the
-// partial mapping report (and resumable=true).
+// pulls a live Sonarr or Radarr instance (selected by the request's source)
+// and imports it into Mediarr, returning the mapping report. dry_run
+// reports without writing; the run is idempotent and resumable. A bad
+// source_url (or unknown source) is a 400; a source that cannot be reached
+// (the source client errors) is a 502; a partial run still returns 200 with
+// the partial mapping report (and resumable=true).
 func (s *Server) RunMigration(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.systemDepsOr501(w)
 	if !ok {
@@ -43,7 +44,15 @@ func (s *Server) RunMigration(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeError(w, http.StatusBadGateway, "failed to reach the Sonarr instance: "+err.Error())
+		source := req.Source
+		if source == "" {
+			source = system.SourceSonarr
+		}
+		name := "Sonarr"
+		if source == system.SourceRadarr {
+			name = "Radarr"
+		}
+		writeError(w, http.StatusBadGateway, "failed to reach the "+name+" instance: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

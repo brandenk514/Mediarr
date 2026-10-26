@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
-import type { MigrationInclude, MigrationResult, MigrationStatus } from '../../api/types'
+import type { MigrationInclude, MigrationRequest, MigrationResult, MigrationStatus } from '../../api/types'
 
-// MigrationPanel is System > Sonarr Import: the drop-in migration. Point it
-// at a Sonarr instance (base URL + API key), dry-run first, then run for
-// real. The mapping report shows every entity's action (created / exists /
-// updated / skipped / error / dry-run) and whether the run is resumable.
+// MigrationPanel is System > Import: the drop-in migration (P6: Sonarr;
+// R6: + Radarr). Point it at a Sonarr or Radarr instance (base URL + API
+// key), dry-run first, then run for real. The mapping report shows every
+// entity's action (created / exists / updated / skipped / error / dry-run)
+// and whether the run is resumable.
 const ENTITIES: { key: keyof MigrationInclude; label: string }[] = [
   { key: 'series', label: 'series' },
   { key: 'episodes', label: 'episodes' },
@@ -39,6 +40,7 @@ export function MigrationPanel() {
   const [error, setError] = useState<string | null>(null)
 
   const [sourceUrl, setSourceUrl] = useState('')
+  const [source, setSource] = useState<MigrationRequest['source']>('sonarr')
   const [apiKey, setApiKey] = useState('')
   const [dryRun, setDryRun] = useState(true)
   const [resume, setResume] = useState(false)
@@ -94,6 +96,7 @@ export function MigrationPanel() {
       setResult(
         await client.runMigration({
           source_url: sourceUrl.trim(),
+          source,
           api_key: apiKey.trim() || undefined,
           dry_run: dryRun,
           resume: resume || undefined,
@@ -114,8 +117,10 @@ export function MigrationPanel() {
       <div className="card">
         <h3 style={{ margin: '0 0 0.5rem' }}>Sonarr Import</h3>
         <p className="dim" style={{ marginTop: 0 }}>
-          Drop-in migration from a Sonarr instance: series + episodes, quality profiles, tags,
-          indexers, and the download client. Idempotent and resumable — a dry run changes nothing.
+          {source === 'radarr'
+            ? 'Drop-in migration from a Radarr instance: movies + editions, quality profiles, tags, indexers, the download client, and a best-effort settings subset.'
+            : 'Drop-in migration from a Sonarr instance: series + episodes, quality profiles, tags, indexers, and the download client.'}{' '}
+          Idempotent and resumable — a dry run changes nothing.
         </p>
         <div className="list-table" data-testid="migration-status">
           <div className="lt-row">
@@ -136,11 +141,25 @@ export function MigrationPanel() {
       <div className="card">
         <h3 style={{ margin: '0 0 0.5rem' }}>Source</h3>
         <label>
-          Sonarr base URL
+          Source application
+          <select
+            data-testid="migration-source"
+            value={source}
+            onChange={(e) => setSource(e.target.value as MigrationRequest['source'])}
+          >
+            <option value="sonarr">Sonarr</option>
+            <option value="radarr">Radarr</option>
+          </select>
+        </label>
+        <p className="dim" data-testid="migration-source-help" style={{ marginTop: 0 }}>
+          {source === 'radarr' ? 'Base URL of the Radarr instance.' : 'Base URL of the Sonarr instance.'}
+        </p>
+        <label>
+          {source === 'radarr' ? 'Radarr base URL' : 'Sonarr base URL'}
           <input
             data-testid="migration-source-url"
             type="url"
-            placeholder="http://sonarr.local:8989"
+            placeholder={source === 'radarr' ? 'https://radarr.local:7878' : 'http://sonarr.local:8989'}
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
           />
