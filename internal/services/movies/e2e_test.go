@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -16,23 +17,30 @@ import (
 // memRepo is an in-memory implementation of dom.Repo used by the end-to-end
 // service test so the full pipeline runs with no Postgres or network I/O.
 type memRepo struct {
-	movies    map[int64]dom.Movie
-	nextMovie int64
-	wanted    map[int64]dom.Wanted
-	queue     map[int64]dom.QueueEntry
-	nextQueue int64
-	history   []dom.HistoryEntry
-	nextHist  int64
+	movies      map[int64]dom.Movie
+	nextMovie   int64
+	wanted      map[int64]dom.Wanted
+	queue       map[int64]dom.QueueEntry
+	nextQueue   int64
+	history     []dom.HistoryEntry
+	nextHist    int64
+	editions    map[int64]dom.Edition
+	nextEdition int64
+	files       []dom.MovieFile
+	nextFile    int64
 }
 
 func newMemRepo() *memRepo {
 	return &memRepo{
-		movies:    map[int64]dom.Movie{},
-		wanted:    map[int64]dom.Wanted{},
-		queue:     map[int64]dom.QueueEntry{},
-		nextMovie: 1,
-		nextQueue: 1,
-		nextHist:  1,
+		movies:      map[int64]dom.Movie{},
+		wanted:      map[int64]dom.Wanted{},
+		queue:       map[int64]dom.QueueEntry{},
+		nextMovie:   1,
+		nextQueue:   1,
+		nextHist:    1,
+		editions:    map[int64]dom.Edition{},
+		nextEdition: 1,
+		nextFile:    1,
 	}
 }
 
@@ -46,7 +54,22 @@ func (r *memRepo) CreateMovie(ctx context.Context, m dom.Movie) (int64, error) {
 	r.nextMovie++
 	m.AddedAt = time.Now()
 	r.movies[m.ID] = m
+	// Mirror the postgres adapter: a fresh movie gets one 'Theatrical'
+	// edition, monitored, with the movie's quality profile (Radarr R1).
+	r.seedEdition(m.ID, m.QualityProfile)
 	return m.ID, nil
+}
+
+func (r *memRepo) seedEdition(movieID int64, quality string) {
+	e := dom.Edition{
+		ID:        r.nextEdition,
+		MovieID:   movieID,
+		Label:     "Theatrical",
+		Monitored: true,
+		Quality:   quality,
+	}
+	r.nextEdition++
+	r.editions[e.ID] = e
 }
 
 func (r *memRepo) GetMovie(ctx context.Context, id int64) (*dom.Movie, error) {
@@ -172,6 +195,93 @@ func (r *memRepo) ListHistory(ctx context.Context, limit int) ([]dom.HistoryEntr
 		recent = append(recent, r.history[i])
 	}
 	return recent, nil
+}
+
+func (r *memRepo) CreateEdition(ctx context.Context, e dom.Edition) (int64, error) {
+	for _, v := range r.editions {
+		if v.MovieID == e.MovieID && v.Label == e.Label {
+			return v.ID, nil
+		}
+	}
+	if e.ID == 0 {
+		e.ID = r.nextEdition
+		r.nextEdition++
+	}
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = time.Now()
+	}
+	r.editions[e.ID] = e
+	return e.ID, nil
+}
+
+func (r *memRepo) GetEdition(ctx context.Context, id int64) (*dom.Edition, error) {
+	e, ok := r.editions[id]
+	if !ok {
+		return nil, dom.ErrEditionNotFound
+	}
+	return &e, nil
+}
+
+func (r *memRepo) ListEditions(ctx context.Context) ([]dom.Edition, error) {
+	out := make([]dom.Edition, 0, len(r.editions))
+	for _, e := range r.editions {
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].MovieID != out[j].MovieID {
+			return out[i].MovieID < out[j].MovieID
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+func (r *memRepo) SetEditionMonitored(ctx context.Context, id int64, monitored bool) error {
+	e, ok := r.editions[id]
+	if !ok {
+		return dom.ErrEditionNotFound
+	}
+	e.Monitored = monitored
+	r.editions[id] = e
+	return nil
+}
+
+func (r *memRepo) CreateMovieFile(ctx context.Context, f dom.MovieFile) (int64, error) {
+	f.ID = r.nextFile
+	r.nextFile++
+	r.files = append(r.files, f)
+	return f.ID, nil
+}
+
+func (r *memRepo) ListMovieFiles(ctx context.Context) ([]dom.MovieFile, error) {
+	out := make([]dom.MovieFile, 0, len(r.files))
+	for _, f := range r.files {
+		out = append(out, f)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].MovieID != out[j].MovieID {
+			return out[i].MovieID < out[j].MovieID
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+func (r *memRepo) GetMovieStats(ctx context.Context) (dom.MovieStats, error) {
+	var s dom.MovieStats
+	for _, m := range r.movies {
+		s.MovieCount++
+		if m.Monitored {
+			s.MonitoredCount++
+		} else {
+			s.UnmonitoredCount++
+		}
+	}
+	for _, f := range r.files {
+		s.FileCount++
+		s.TotalSize += f.Size
+	}
+	return s, nil
 }
 
 var _ dom.Repo = (*memRepo)(nil)

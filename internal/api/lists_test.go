@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"testing"
 	"time"
 
@@ -23,16 +24,22 @@ import (
 // meaningfully; the wanted/queue/history methods are present so the interface
 // compiles.
 type listMoviesRepo struct {
-	movies map[int64]moviesdom.Movie
-	wanted map[int64]*moviesdom.Wanted
-	nextID int64
+	movies    map[int64]moviesdom.Movie
+	wanted    map[int64]*moviesdom.Wanted
+	editions  map[int64]moviesdom.Edition
+	files     []moviesdom.MovieFile
+	nextID    int64
+	nextEdID  int64
+	nextFileID int64
 }
 
 func newListMoviesRepo() *listMoviesRepo {
 	return &listMoviesRepo{
-		movies: map[int64]moviesdom.Movie{},
-		wanted: map[int64]*moviesdom.Wanted{},
-		nextID: 1,
+		movies:   map[int64]moviesdom.Movie{},
+		wanted:   map[int64]*moviesdom.Wanted{},
+		editions: map[int64]moviesdom.Edition{},
+		nextID:   1,
+		nextEdID: 1,
 	}
 }
 
@@ -44,6 +51,13 @@ func (r *listMoviesRepo) seed(m moviesdom.Movie) int64 {
 		m.AddedAt = time.Now().UTC()
 	}
 	r.movies[id] = m
+	// Mirror the postgres adapter: a fresh movie gets one 'Theatrical'
+	// edition (Radarr R1 default).
+	r.editions[r.nextEdID] = moviesdom.Edition{
+		ID: r.nextEdID, MovieID: id, Label: "Theatrical",
+		Monitored: true, Quality: m.QualityProfile, CreatedAt: time.Now().UTC(),
+	}
+	r.nextEdID++
 	return id
 }
 
@@ -69,6 +83,7 @@ func (r *listMoviesRepo) ListMovies(ctx context.Context) ([]moviesdom.Movie, err
 	for _, m := range r.movies {
 		out = append(out, m)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID }) // oldest first, like the postgres adapter
 	return out, nil
 }
 
@@ -111,6 +126,64 @@ func (r *listMoviesRepo) AddHistory(ctx context.Context, e moviesdom.HistoryEntr
 }
 func (r *listMoviesRepo) ListHistory(ctx context.Context, limit int) ([]moviesdom.HistoryEntry, error) {
 	return nil, nil
+}
+func (r *listMoviesRepo) CreateEdition(ctx context.Context, e moviesdom.Edition) (int64, error) {
+	if e.ID == 0 {
+		e.ID = r.nextEdID
+		r.nextEdID++
+	}
+	r.editions[e.ID] = e
+	return e.ID, nil
+}
+func (r *listMoviesRepo) GetEdition(ctx context.Context, id int64) (*moviesdom.Edition, error) {
+	e, ok := r.editions[id]
+	if !ok {
+		return nil, moviesdom.ErrEditionNotFound
+	}
+	return &e, nil
+}
+func (r *listMoviesRepo) ListEditions(ctx context.Context) ([]moviesdom.Edition, error) {
+	out := make([]moviesdom.Edition, 0, len(r.editions))
+	for _, e := range r.editions {
+		out = append(out, e)
+	}
+	return out, nil
+}
+func (r *listMoviesRepo) SetEditionMonitored(ctx context.Context, id int64, monitored bool) error {
+	e, ok := r.editions[id]
+	if !ok {
+		return moviesdom.ErrEditionNotFound
+	}
+	e.Monitored = monitored
+	r.editions[id] = e
+	return nil
+}
+func (r *listMoviesRepo) CreateMovieFile(ctx context.Context, f moviesdom.MovieFile) (int64, error) {
+	f.ID = r.nextFileID
+	r.nextFileID++
+	r.files = append(r.files, f)
+	return f.ID, nil
+}
+func (r *listMoviesRepo) ListMovieFiles(ctx context.Context) ([]moviesdom.MovieFile, error) {
+	out := make([]moviesdom.MovieFile, 0, len(r.files))
+	out = append(out, r.files...)
+	return out, nil
+}
+func (r *listMoviesRepo) GetMovieStats(ctx context.Context) (moviesdom.MovieStats, error) {
+	var s moviesdom.MovieStats
+	for _, m := range r.movies {
+		s.MovieCount++
+		if m.Monitored {
+			s.MonitoredCount++
+		} else {
+			s.UnmonitoredCount++
+		}
+	}
+	for _, f := range r.files {
+		s.FileCount++
+		s.TotalSize += f.Size
+	}
+	return s, nil
 }
 
 // newListTestServer returns an authenticated movies server plus a valid bearer

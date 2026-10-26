@@ -19,8 +19,10 @@ func (s *Server) SetMovies(deps *MoviesDeps) {
 	s.moviesDeps = deps
 	s.register("POST /api/v1/movies", s.requireAuth(s.AddMovie))
 	s.register("GET /api/v1/movies", s.requireAuth(s.ListMovies))
+	s.register("GET /api/v1/movies/stats", s.requireAuth(s.GetMovieStats))
 	s.register("GET /api/v1/movies/{id}", s.requireAuth(s.GetMovie))
 	s.register("PUT /api/v1/movies/{id}", s.requireAuth(s.SetMovieMonitored))
+	s.register("PUT /api/v1/movies/{id}/editions/{editionId}", s.requireAuth(s.SetMovieEditionMonitored))
 	s.register("GET /api/v1/movies/{id}/wanted", s.requireAuth(s.GetMovieWanted))
 	s.register("POST /api/v1/movies/{id}/pipeline", s.requireAuth(s.RunMoviePipeline))
 }
@@ -91,6 +93,46 @@ func (s *Server) SetMovieMonitored(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "monitored": req.Monitored})
+}
+
+// GetMovieStats handles GET /api/v1/movies/stats (Radarr R1 stats bar).
+func (s *Server) GetMovieStats(w http.ResponseWriter, r *http.Request) {
+	st, err := s.moviesDeps.Svc.GetStats(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+// SetMovieEditionMonitored handles PUT /api/v1/movies/{id}/editions/{editionId}
+// (Radarr v6 per-edition monitor toggle, R1).
+func (s *Server) SetMovieEditionMonitored(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	raw := r.PathValue("editionId")
+	editionID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || editionID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid edition id")
+		return
+	}
+	var req setMovieMonitoredRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	e, err := s.moviesDeps.Svc.SetEditionMonitored(r.Context(), id, editionID, req.Monitored)
+	if err != nil {
+		if err == moviesvc.ErrMovieNotFound || err == moviesvc.ErrEditionNotFound {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": e.ID, "monitored": e.Monitored})
 }
 
 // GetMovie handles GET /api/v1/movies/{id}.
