@@ -1564,8 +1564,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Upcoming monitored air dates in [start, end] (Calendar page).
-         * @description Monitored episodes whose provider air date falls within the window and is in the future (today or later). A missing or invalid start/end falls back to today .. today+30d. An empty window returns [].
+         * Upcoming monitored air dates (tv) or release dates (movie) in [start, end].
+         * @description kind=tv (the default) is the Sonarr P4 behavior, unchanged. Monitored episodes whose provider air date falls within the window and is in the future (today or later). kind=movie (Radarr R4) lists monitored movies whose release date falls within the window and is not in the past. A missing or invalid start/end falls back to today .. today+30d. An empty window returns [].
          */
         get: operations["listCalendar"];
         put?: never;
@@ -1584,8 +1584,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * iCal feed of the upcoming monitored air dates.
-         * @description RFC 5545 iCal document (a VCALENDAR wrapper with a VEVENT per episode) for importing into Google/Apple Calendar. Auth via the app's bearer token, sent either as a standard Authorization header or a ?token= query param (the latter so a plain calendar-client / <a> link works).
+         * iCal feed of the upcoming monitored air dates (tv) or release dates (movie).
+         * @description RFC 5545 iCal document (a VCALENDAR wrapper with a VEVENT per entry) for importing into Google/Apple Calendar. kind=tv (the default) keeps the P4 episode feed. kind=movie (Radarr R4) emits an all-day VEVENT per movie on its release date, SUMMARY "Title (Year)". Auth via the app's bearer token, sent either as a standard Authorization header or a ?token= query param (the latter so a plain calendar-client / <a> link works).
          */
         get: operations["calendarFeed"];
         put?: never;
@@ -1956,6 +1956,8 @@ export interface components {
             CollectionName?: string | null;
             /** @description TMDB collection id when the movie belongs to one (persisted by the enricher, Radarr R3); null/"" when unknown. The collections page groups library movies by this. */
             CollectionID?: string | null;
+            /** @description Provider release date, "YYYY-MM-DD" (persisted by the enricher, Radarr R4); "" when unknown (keyless dev). Feeds the movie calendar and the "unreleased" status. */
+            ReleaseDate?: string;
             /** @description Plot overview; null when unknown. */
             Overview?: string | null;
             Scores?: components["schemas"]["MovieScores"];
@@ -2615,9 +2617,13 @@ export interface components {
         };
         CalendarEntry: {
             /** @enum {string} */
-            kind: "tv";
-            /** Format: int64 */
+            kind: "tv" | "movie";
+            /**
+             * Format: int64
+             * @description The series id (kind=tv) or the movie id (kind=movie).
+             */
             series_id: number;
+            /** @description The show title (kind=tv) or the movie title (kind=movie). */
             series_title: string;
             season: number;
             episode: number;
@@ -2639,6 +2645,12 @@ export interface components {
              * @description Derived air end (air start + the default runtime).
              */
             air_end: string;
+            /** @description The movie's year (kind=movie only; omitted on TV entries). */
+            year?: number | null;
+            /** @description The movie's derived status (kind=movie only; omitted on TV entries). */
+            status?: string | null;
+            /** @description The movie's quality profile name (kind=movie only; omitted on TV entries). */
+            quality_profile?: string | null;
         };
         WantedSearchRequest: {
             /** @default missing */
@@ -6292,6 +6304,8 @@ export interface operations {
     listCalendar: {
         parameters: {
             query?: {
+                /** @description Calendar kind. tv (default) or movie (R4 movie calendar). */
+                kind?: "tv" | "movie";
                 /** @description Window start (RFC3339). Defaults to today (start of day). */
                 start?: string;
                 /** @description Window end (RFC3339). Defaults to start + 30 days. */
@@ -6319,6 +6333,8 @@ export interface operations {
     calendarFeed: {
         parameters: {
             query?: {
+                /** @description Calendar kind. tv (default) or movie (R4 movie calendar). */
+                kind?: "tv" | "movie";
                 /** @description Bearer token (alternative to the Authorization header). */
                 token?: string;
                 /** @description Window start (RFC3339). Defaults to today. */

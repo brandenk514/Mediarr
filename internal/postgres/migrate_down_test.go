@@ -33,8 +33,8 @@ func TestMigrate_DownRevertsAndReapplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after up: %v", err)
 	}
-	if v != "0013_movie_collections" {
-		t.Fatalf("version = %q, want 0013_movie_collections (highest applied)", v)
+	if v != "0014_movie_release_date" {
+		t.Fatalf("version = %q, want 0014_movie_release_date (highest applied)", v)
 	}
 	for _, tbl := range []string{"users", "movies", "editions", "movie_files", "tv_series", "music_artists", "book_authors", "indexers", "schema_migrations"} {
 		ok, err := hasTable(tbl)
@@ -86,8 +86,8 @@ func TestMigrate_DownRevertsAndReapplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after re-up: %v", err)
 	}
-	if v != "0013_movie_collections" {
-		t.Fatalf("version after re-up = %q, want 0013_movie_collections", v)
+	if v != "0014_movie_release_date" {
+		t.Fatalf("version after re-up = %q, want 0014_movie_release_date", v)
 	}
 	if ok, _ := hasTable("music_artists"); !ok {
 		t.Error("music_artists missing after re-migrate up")

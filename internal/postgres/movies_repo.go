@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	caldomain "github.com/brandenk514/mediarr/internal/domains/calendar"
 	movies "github.com/brandenk514/mediarr/internal/domains/movies"
 )
 
@@ -65,13 +66,13 @@ func (r *MovieRepo) GetMovie(ctx context.Context, id int64) (*movies.Movie, erro
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, title, year, quality_profile, monitored, added_at,
 		       tags, root_folder, minimum_availability,
-		       collection_id, collection_name
+		       collection_id, collection_name, release_date
 		FROM movies WHERE id = $1`, id)
 	m := &movies.Movie{}
 	var collectionName sql.NullString
 	err := row.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
 		&m.Tags, &m.RootFolder, &m.MinimumAvailability,
-		&m.CollectionID, &collectionName)
+		&m.CollectionID, &collectionName, &m.ReleaseDate)
 	if err == sql.ErrNoRows {
 		return nil, movies.ErrMovieNotFound
 	}
@@ -89,7 +90,7 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, title, year, quality_profile, monitored, added_at,
 		       tags, root_folder, minimum_availability,
-		       collection_id, collection_name
+		       collection_id, collection_name, release_date
 		FROM movies ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("movies: list: %w", err)
@@ -101,7 +102,7 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 		var collectionName sql.NullString
 		if err := rows.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
 			&m.Tags, &m.RootFolder, &m.MinimumAvailability,
-			&m.CollectionID, &collectionName); err != nil {
+			&m.CollectionID, &collectionName, &m.ReleaseDate); err != nil {
 			return nil, fmt.Errorf("movies: scan: %w", err)
 		}
 		if collectionName.Valid && collectionName.String != "" {
@@ -462,4 +463,53 @@ func (r *MovieRepo) SetMovieCollection(ctx context.Context, id int64, collection
 		return movies.ErrMovieNotFound
 	}
 	return nil
+}
+
+// SetMovieReleaseDate persists the provider release date (Radarr R4). The
+// column is NOT NULL DEFAULT ”, so "unknown" is stored as ”.
+func (r *MovieRepo) SetMovieReleaseDate(ctx context.Context, id int64, releaseDate string) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE movies SET release_date = $2 WHERE id = $1`, id, releaseDate)
+	if err != nil {
+		return fmt.Errorf("movies: set release date: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return movies.ErrMovieNotFound
+	}
+	return nil
+}
+
+// MovieRows returns the movies the R4 movie calendar renders over: every
+// movie with a known (non-empty) release date, with its monitor flag and the
+// state the status derivation needs (a satisfied wanted row — at most one
+// per movie — plus an active queue entry), ordered by release date then
+// title.
+func (r *MovieRepo) MovieRows(ctx context.Context) ([]caldomain.MovieRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT m.id, m.title, m.year, m.release_date, m.monitored, m.quality_profile,
+		       EXISTS (SELECT 1 FROM wanted w
+		               WHERE w.movie_id = m.id AND w.status = 'satisfied') AS wanted_satisfied,
+		       EXISTS (SELECT 1 FROM queue q
+		               WHERE q.movie_id = m.id AND q.state IN ('queued', 'downloading')) AS in_queue
+		FROM movies m
+		WHERE m.release_date <> ''
+		ORDER BY m.release_date, m.title`)
+	if err != nil {
+		return nil, fmt.Errorf("movies: calendar rows: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []caldomain.MovieRow
+	for rows.Next() {
+		var (
+			row caldomain.MovieRow
+			rd  string
+		)
+		if err := rows.Scan(&row.ID, &row.Title, &row.Year, &rd, &row.Monitored,
+			&row.QualityProfile, &row.WantedSatisfied, &row.InQueue); err != nil {
+			return nil, fmt.Errorf("movies: scan calendar row: %w", err)
+		}
+		row.ReleaseDate = movies.ParseReleaseDate(rd)
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }

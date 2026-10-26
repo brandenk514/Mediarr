@@ -98,8 +98,8 @@ func TestEnricher_FillsDetailFields(t *testing.T) {
 	if len(m.Crew) != 1 || m.Crew[0].Job != "Director" {
 		t.Fatalf("crew: %+v", m.Crew)
 	}
-	if m.ReleaseDate == nil || m.ReleaseDate.Year() != 2010 || m.ReleaseDate.Month() != 7 {
-		t.Fatalf("release date: %v", m.ReleaseDate)
+	if m.ReleaseDate != "2010-07-16" {
+		t.Fatalf("release date: %q", m.ReleaseDate)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestEnricher_DegradesGracefully(t *testing.T) {
 			if err := e.EnrichMovie(context.Background(), m); err != nil {
 				t.Fatalf("EnrichMovie: %v (must never fail the read)", err)
 			}
-			if m.Overview != nil || m.Runtime != nil || m.Certification != nil || m.Scores != nil || m.Genres != nil || m.ReleaseDate != nil {
+			if m.Overview != nil || m.Runtime != nil || m.Certification != nil || m.Scores != nil || m.Genres != nil || m.ReleaseDate != "" {
 				t.Fatalf("fields must stay empty: %+v", *m)
 			}
 		})

@@ -352,6 +352,7 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 		}
 		if enrich && s.deps.Enricher != nil {
 			preID, preName := view.CollectionID, collectionNameOf(view.CollectionName)
+			preRelease := view.ReleaseDate
 			_ = s.deps.Enricher.EnrichMovie(ctx, &view) // best effort
 			// Radarr R3: persist the collection the provider reported so
 			// the collections page can group without a live TMDB call.
@@ -360,13 +361,18 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 			if (newID != "" || newName != "") && (newID != preID || newName != preName) {
 				_ = s.deps.Repo.SetMovieCollection(ctx, view.ID, newID, newName)
 			}
+			// Radarr R4: persist the release date the provider reported so
+			// the movie calendar works without a live TMDB call.
+			if view.ReleaseDate != "" && view.ReleaseDate != preRelease {
+				_ = s.deps.Repo.SetMovieReleaseDate(ctx, view.ID, view.ReleaseDate)
+			}
 		}
 		w := wantByMovie[m.ID]
 		view.Status = dom.DeriveMovieStatus(
 			w != nil && w.Status == dom.WantedSatisfied,
 			activeQueue[m.ID],
 			m.Monitored,
-			view.ReleaseDate,
+			dom.ParseReleaseDate(view.ReleaseDate),
 			time.Now(),
 		)
 		out = append(out, view)

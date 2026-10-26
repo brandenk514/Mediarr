@@ -63,9 +63,10 @@ type Movie struct {
 	// the API payload.
 	SeedEditionMonitored *bool `json:"-"`
 
-	// ReleaseDate is the provider release date (enrichment only, not part of
-	// the API payload); it feeds the 'unreleased' status derivation.
-	ReleaseDate *time.Time `json:"-"`
+	// ReleaseDate is the provider release date (R4): persisted as
+	// "YYYY-MM-DD" on movies.release_date, "" when unknown (keyless dev).
+	// It feeds the movie calendar and the 'unreleased' status derivation.
+	ReleaseDate string
 }
 
 // Minimum-availability values for the R2 add flow (and ” when unset).
@@ -144,6 +145,30 @@ type AlternativeTitle struct {
 	Type  string
 }
 
+// NormalizeReleaseDate keeps a provider release date only when it is a full,
+// parseable "YYYY-MM-DD". TMDB's release_date can arrive as a partial date
+// (e.g. "2020-09") on edge cases; anything unparseable yields "" so a
+// malformed value can never poison the calendar.
+func NormalizeReleaseDate(s string) string {
+	if _, err := time.Parse("2006-01-02", s); err != nil {
+		return ""
+	}
+	return s
+}
+
+// ParseReleaseDate parses a persisted "YYYY-MM-DD" release date; nil when
+// unknown ("") or malformed.
+func ParseReleaseDate(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
 // MovieStatus is a movie's derived status (Radarr v6 status chips).
 type MovieStatus string
 
@@ -161,9 +186,12 @@ const (
 //  1. downloaded — the wanted row is satisfied (a file was imported),
 //     split by the movie's monitored flag;
 //  2. queued — an active (queued/downloading) queue entry exists;
-//  3. unreleased — the provider release date is in the future (no key, no
-//     fetch, or a past date simply skips this case);
+//  3. unreleased — the provider release date is today or in the future (no
+//     key, no fetch, or a past date simply skips this case);
 //  4. missing — everything else, split by the monitored flag.
+//
+// releaseDate is a UTC midnight *time.Time (see ParseReleaseDate); nil when
+// unknown.
 func DeriveMovieStatus(wantedSatisfied, inQueue, monitored bool, releaseDate *time.Time, now time.Time) MovieStatus {
 	if wantedSatisfied {
 		if monitored {
@@ -174,8 +202,11 @@ func DeriveMovieStatus(wantedSatisfied, inQueue, monitored bool, releaseDate *ti
 	if inQueue {
 		return StatusQueued
 	}
-	if releaseDate != nil && releaseDate.After(now) {
-		return StatusUnreleased
+	if releaseDate != nil {
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		if !releaseDate.Before(today) {
+			return StatusUnreleased
+		}
 	}
 	if monitored {
 		return StatusMissingMonitored
@@ -355,4 +386,9 @@ type Repo interface {
 	// collection. Best-effort: a failure must never fail the read that
 	// triggered it. ''/'' clears an unknown collection.
 	SetMovieCollection(ctx context.Context, id int64, collectionID, collectionName string) error
+
+	// SetMovieReleaseDate persists the provider release date the enricher
+	// reported (Radarr R4), as "YYYY-MM-DD". Best-effort: a failure must
+	// never fail the read that triggered it.
+	SetMovieReleaseDate(ctx context.Context, id int64, releaseDate string) error
 }

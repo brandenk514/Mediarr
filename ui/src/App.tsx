@@ -70,6 +70,9 @@ export default function App() {
             /movies/:id deep route (same as /movies/add). */}
         <Route path="/movies/collections" element={<MovieCollectionsPage />} />
         <Route path="/movies/discover" element={<MovieDiscoverPage />} />
+        {/* Radarr R4: the movie calendar is a first-class Movies sub-page;
+            its static path ranks above the /movies/:id deep route. */}
+        <Route path="/movies/calendar" element={<CalendarPage kind="movie" />} />
 
         {/* Movie deep route (static paths like /movies/add rank above). */}
         <Route path="/movies/:id" element={<MovieDetailPage />} />

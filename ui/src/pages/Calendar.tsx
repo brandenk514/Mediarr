@@ -8,6 +8,21 @@ import { EmptyState, TbButton, Toolbar } from '../components/ui'
 const VIEWS = ['Month', 'Week', 'Forecast', 'Day', 'Agenda'] as const
 type CalendarView = (typeof VIEWS)[number]
 
+// R4: the page is shared by the TV calendar (/calendar) and the Radarr movie
+// calendar (/movies/calendar, kind=movie); the kind selects the data source,
+// the row decorations and the empty-state copy. All five views are shared.
+export type CalendarKind = 'tv' | 'movie'
+
+// Radarr v6 movie status chips for the movie calendar (the same chip values
+// as the Movies list; the calendar only lists monitored movies, so the
+// unmonitored variants can never appear).
+const MOVIE_STATUS_CHIPS: { value: string; label: string }[] = [
+  { value: 'downloaded:monitored', label: 'Downloaded (Monitored)' },
+  { value: 'missing:monitored', label: 'Missing (Monitored)' },
+  { value: 'queued', label: 'Queued' },
+  { value: 'unreleased', label: 'Unreleased' },
+]
+
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 
 // The default look-ahead window when no explicit window is supplied; mirrors
@@ -68,19 +83,30 @@ export function formatDayHeader(d: Date): string {
 
 // ---- row + view renderers -------------------------------------------------
 
-function EpisodeRow({ e }: { e: CalendarEntry }) {
+// The secondary text spans differ by kind: TV rows carry the episode title +
+// SxE; movie rows carry the status + year (the row shape is shared, so the
+// five views stay kind-agnostic).
+export function entryTitle(e: CalendarEntry, kind: CalendarKind): string {
+  return kind === 'movie' ? (e.status ?? '') : e.episode_title
+}
+
+export function entryCode(e: CalendarEntry, kind: CalendarKind): string {
+  return kind === 'movie' ? (e.year ? String(e.year) : '') : e.sxe
+}
+
+function EntryRow({ e, kind }: { e: CalendarEntry; kind: CalendarKind }) {
   // show → episode title → SxE (absolute) → time range
   return (
     <div className="cal-episode-row" data-testid={`calendar-episode-row-${e.air_start}`}>
       <span className="cal-ep-show">{e.series_title}</span>
-      <span className="cal-ep-title">{e.episode_title}</span>
-      <span className="cal-ep-sxe">{e.sxe}</span>
+      <span className="cal-ep-title">{entryTitle(e, kind)}</span>
+      <span className="cal-ep-sxe">{entryCode(e, kind)}</span>
       <span className="cal-ep-time">{formatTimeRange(e.air_start, e.air_end)}</span>
     </div>
   )
 }
 
-function AgendaView({ entries }: { entries: CalendarEntry[] }) {
+function AgendaView({ entries, kind }: { entries: CalendarEntry[]; kind: CalendarKind }) {
   // Flat chronological list grouped by local day.
   const groups: [string, CalendarEntry[]][] = []
   for (const e of entries) {
@@ -95,7 +121,7 @@ function AgendaView({ entries }: { entries: CalendarEntry[] }) {
         <div key={key} className="cal-agenda-day">
           <div className="cal-day-head">{formatDayHeader(new Date(`${key}T12:00:00`))}</div>
           {items.map((e) => (
-            <EpisodeRow key={e.air_start} e={e} />
+            <EntryRow key={e.air_start} e={e} kind={kind} />
           ))}
         </div>
       ))}
@@ -103,14 +129,14 @@ function AgendaView({ entries }: { entries: CalendarEntry[] }) {
   )
 }
 
-function ForecastView({ entries }: { entries: CalendarEntry[] }) {
+function ForecastView({ entries, kind }: { entries: CalendarEntry[]; kind: CalendarKind }) {
   // The next upcoming episodes as an ordered list (each row carries its date).
   return (
     <div className="cal-forecast" data-testid="calendar-forecast">
       <ul className="cal-forecast-list">
         {entries.map((e) => (
           <li key={e.air_start} className="cal-forecast-item">
-            <EpisodeRow e={e} />
+            <EntryRow e={e} kind={kind} />
             <span className="cal-forecast-date dim">{formatDayHeader(new Date(e.air_start))}</span>
           </li>
         ))}
@@ -119,7 +145,7 @@ function ForecastView({ entries }: { entries: CalendarEntry[] }) {
   )
 }
 
-function WeekView({ entries, selected }: { entries: CalendarEntry[]; selected: Date }) {
+function WeekView({ entries, selected, kind }: { entries: CalendarEntry[]; selected: Date; kind: CalendarKind }) {
   // Seven columns, one per weekday of the selected day's week.
   const weekStart = startOfWeek(selected)
   return (
@@ -134,7 +160,7 @@ function WeekView({ entries, selected }: { entries: CalendarEntry[]; selected: D
               {wd} {day.getDate()}
             </div>
             {items.map((e) => (
-              <EpisodeRow key={e.air_start} e={e} />
+              <EntryRow key={e.air_start} e={e} kind={kind} />
             ))}
           </div>
         )
@@ -143,22 +169,23 @@ function WeekView({ entries, selected }: { entries: CalendarEntry[]; selected: D
   )
 }
 
-function DayView({ entries, selected }: { entries: CalendarEntry[]; selected: Date }) {
+function DayView({ entries, selected, kind }: { entries: CalendarEntry[]; selected: Date; kind: CalendarKind }) {
   const items = entriesForDay(entries, selected)
   return (
     <div className="cal-day" data-testid="calendar-day">
       <div className="cal-day-head">{formatDayHeader(selected)}</div>
       {items.length === 0 ? (
-        <p className="dim">No episodes this day.</p>
+        <p className="dim">{kind === 'movie' ? 'No releases this day.' : 'No episodes this day.'}</p>
       ) : (
-        items.map((e) => <EpisodeRow key={e.air_start} e={e} />)
+        items.map((e) => <EntryRow key={e.air_start} e={e} kind={kind} />)
       )}
     </div>
   )
 }
 
-function MonthView({ entries, selected }: { entries: CalendarEntry[]; selected: Date }) {
-  // A 6x7 month grid for the selected day's month; each cell lists SxEs.
+function MonthView({ entries, selected, kind }: { entries: CalendarEntry[]; selected: Date; kind: CalendarKind }) {
+  // A 6x7 month grid for the selected day's month; each cell lists SxEs (TV)
+  // or years (movie).
   const first = new Date(selected.getFullYear(), selected.getMonth(), 1)
   const gridStart = startOfWeek(first)
   const cells: { day: Date; inMonth: boolean }[] = []
@@ -183,7 +210,7 @@ function MonthView({ entries, selected }: { entries: CalendarEntry[]; selected: 
             <span className="cal-month-num">{day.getDate()}</span>
             {items.map((e) => (
               <span key={e.air_start} className="cal-month-sxe">
-                {e.sxe}
+                {entryCode(e, kind)}
               </span>
             ))}
           </div>
@@ -195,13 +222,14 @@ function MonthView({ entries, selected }: { entries: CalendarEntry[]; selected: 
 
 // ---- page -----------------------------------------------------------------
 
-export function CalendarPage() {
+export function CalendarPage({ kind = 'tv' }: { kind?: CalendarKind }) {
   const [view, setView] = useState<CalendarView>('Week')
   const [entries, setEntries] = useState<CalendarEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Date>(new Date())
   const [showIcal, setShowIcal] = useState(false)
+  const [chip, setChip] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -213,6 +241,7 @@ export function CalendarPage() {
       const rows = await client.listCalendar({
         start: toRFC3339(now),
         end: toRFC3339(end),
+        kind,
       })
       setEntries(rows)
     } catch (e) {
@@ -220,13 +249,28 @@ export function CalendarPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [kind])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const icalUrl = client.calendarICS()
+  // The TV feed URL stays exactly what it was pre-R4; the movie feed adds
+  // kind=movie.
+  const icalUrl = kind === 'movie' ? client.calendarICS({ kind: 'movie' }) : client.calendarICS()
+
+  // Movie kind: the status chips filter the entries client-side (Radarr v6
+  // movie calendar). TV has no chip row.
+  const visible = kind === 'movie' && chip ? entries?.filter((e) => e.status === chip) ?? [] : entries
+
+  const emptyTitle =
+    kind === 'movie'
+      ? `No upcoming releases in ${view} view`
+      : `No upcoming episodes in ${view} view`
+  const emptyMessage =
+    kind === 'movie'
+      ? 'Upcoming monitored release dates from provider metadata appear here.'
+      : 'Upcoming monitored air dates from provider metadata appear here.'
 
   // Week strip always reflects the selected day's week (Sun–Sat + Today).
   const stripStart = startOfWeek(selected)
@@ -280,6 +324,22 @@ export function CalendarPage() {
         </div>
       )}
 
+      {kind === 'movie' && (
+        <div className="status-chips" data-testid="calendar-status-chips">
+          {MOVIE_STATUS_CHIPS.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              className={`chip ${chip === c.value ? 'active' : ''}`}
+              data-testid={`calendar-chip-${c.value.replace(/[:()]/g, '-').toLowerCase()}`}
+              onClick={() => setChip(chip === c.value ? null : c.value)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Week strip: Sun–Sat + Today (chrome, always shown). */}
       <div className="cal-weekstrip" data-testid="calendar-weekstrip">
         <button type="button" className="tb-btn" data-testid="calendar-today" onClick={() => setSelected(new Date())}>
@@ -315,22 +375,22 @@ export function CalendarPage() {
         </div>
       ) : loading && !entries ? (
         <p className="dim">Loading calendar…</p>
-      ) : !entries || entries.length === 0 ? (
+      ) : !visible || visible.length === 0 ? (
         <EmptyState
-          title={`No upcoming episodes in ${view} view`}
-          message="Upcoming monitored air dates from provider metadata appear here."
+          title={emptyTitle}
+          message={emptyMessage}
           testId="calendar-empty"
         />
       ) : view === 'Month' ? (
-        <MonthView entries={entries} selected={selected} />
+        <MonthView entries={visible} selected={selected} kind={kind} />
       ) : view === 'Week' ? (
-        <WeekView entries={entries} selected={selected} />
+        <WeekView entries={visible} selected={selected} kind={kind} />
       ) : view === 'Forecast' ? (
-        <ForecastView entries={entries} />
+        <ForecastView entries={visible} kind={kind} />
       ) : view === 'Day' ? (
-        <DayView entries={entries} selected={selected} />
+        <DayView entries={visible} selected={selected} kind={kind} />
       ) : (
-        <AgendaView entries={entries} />
+        <AgendaView entries={visible} kind={kind} />
       )}
     </div>
   )
