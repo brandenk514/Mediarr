@@ -497,7 +497,7 @@ func runImportPhase(t *testing.T, h *harness) []time.Duration {
 	for i := 0; i < importCount; i++ {
 		title := fmt.Sprintf("Load Movie %04d", movieSeeds+1+i)
 		start := time.Now()
-		id, err := h.movieSvc.AddMovie(h.ctx, moviesvc.AddMovieRequest{Title: title, Year: importYear, QualityProfile: "HD-1080p"})
+		id, err := h.movieSvc.AddMovie(h.ctx, moviesvc.AddMovieRequest{Title: title, Year: importYear, QualityProfile: "1080p"})
 		if err != nil {
 			t.Fatalf("add %q: %v", title, err)
 		}

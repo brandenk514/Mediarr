@@ -48,24 +48,31 @@ func (s *Server) SetIndexers(deps *IndexersDeps) {
 // deliberately absent (#35: "no secrets in responses — keys never returned,
 // only masked presence").
 type indexerJSON struct {
-	ID        int64      `json:"id"`
-	Name      string     `json:"name"`
-	Kind      string     `json:"kind"`
-	BaseURL   string     `json:"base_url"`
-	Enabled   bool       `json:"enabled"`
-	HasAPIKey bool       `json:"has_api_key"`
-	LastTest  *time.Time `json:"last_test"`
+	ID                int64      `json:"id"`
+	Name              string     `json:"name"`
+	Kind              string     `json:"kind"`
+	BaseURL           string     `json:"base_url"`
+	Enabled           bool       `json:"enabled"`
+	HasAPIKey         bool       `json:"has_api_key"`
+	LastTest          *time.Time `json:"last_test"`
+	RSS               bool       `json:"rss"`
+	AutoSearch        bool       `json:"auto_search"`
+	InteractiveSearch bool       `json:"interactive_search"`
 }
 
 func defToJSON(d indexers.Definition) indexerJSON {
+	t := indexers.ParseIndexerSettings(d.SettingsJSON)
 	return indexerJSON{
-		ID:        d.ID,
-		Name:      d.Name,
-		Kind:      d.Kind,
-		BaseURL:   d.BaseURL,
-		Enabled:   d.Enabled,
-		HasAPIKey: d.APIKey != "",
-		LastTest:  d.LastTest,
+		ID:                d.ID,
+		Name:              d.Name,
+		Kind:              d.Kind,
+		BaseURL:           d.BaseURL,
+		Enabled:           d.Enabled,
+		HasAPIKey:         d.APIKey != "",
+		LastTest:          d.LastTest,
+		RSS:               t.RSS,
+		AutoSearch:        t.AutoSearch,
+		InteractiveSearch: t.InteractiveSearch,
 	}
 }
 
@@ -160,6 +167,10 @@ type indexerWriteRequest struct {
 	APIKey   string `json:"api_key"`
 	Settings string `json:"settings_json,omitempty"`
 	Enabled  *bool  `json:"enabled,omitempty"`
+	// Radarr R5a per-indexer toggles; nil = default true.
+	RSS               *bool `json:"rss,omitempty"`
+	AutoSearch        *bool `json:"auto_search,omitempty"`
+	InteractiveSearch *bool `json:"interactive_search,omitempty"`
 }
 
 // indexerUpdateRequest is the body for PUT /api/v1/indexers/{id}. An empty
@@ -171,6 +182,10 @@ type indexerUpdateRequest struct {
 	BaseURL  string `json:"base_url"`
 	APIKey   string `json:"api_key"`
 	Settings string `json:"settings_json,omitempty"`
+	// Radarr R5a per-indexer toggles; nil = keep the stored value.
+	RSS               *bool `json:"rss,omitempty"`
+	AutoSearch        *bool `json:"auto_search,omitempty"`
+	InteractiveSearch *bool `json:"interactive_search,omitempty"`
 }
 
 // indexerEnabledRequest is the body for PATCH /api/v1/indexers/{id}/enabled.
@@ -213,10 +228,19 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
-	settingsJSON := req.Settings
-	if settingsJSON == "" {
-		settingsJSON = "{}"
+	// Radarr R5a: resolve the per-indexer toggles (omitted = factory default
+	// true) and store them in the settings bag, preserving any other keys.
+	toggles := indexers.DefaultIndexerSettings()
+	if req.RSS != nil {
+		toggles.RSS = *req.RSS
 	}
+	if req.AutoSearch != nil {
+		toggles.AutoSearch = *req.AutoSearch
+	}
+	if req.InteractiveSearch != nil {
+		toggles.InteractiveSearch = *req.InteractiveSearch
+	}
+	settingsJSON := indexers.WithIndexerToggles(req.Settings, toggles)
 	name := strings.TrimSpace(req.Name)
 	id, err := s.indexersDeps.Repo.Create(r.Context(), indexers.Definition{
 		Name:         name,
@@ -237,7 +261,9 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 	// No read-back: we know every field. A fresh create has no last_test.
 	writeJSON(w, http.StatusCreated, defToJSON(indexers.Definition{
 		ID: id, Name: name, Kind: req.Kind, BaseURL: req.BaseURL,
-		APIKey: req.APIKey, Enabled: enabled,
+		APIKey:       req.APIKey,
+		SettingsJSON: settingsJSON,
+		Enabled:      enabled,
 	}))
 }
 
@@ -267,10 +293,24 @@ func (s *Server) UpdateIndexer(w http.ResponseWriter, r *http.Request) {
 	if apiKey == "" {
 		apiKey = existing.APIKey // masked-edit: empty means "keep"
 	}
-	settingsJSON := req.Settings
-	if settingsJSON == "" {
-		settingsJSON = existing.SettingsJSON
+	// Radarr R5a: toggles update over the stored bag (an explicit
+	// settings_json in the body becomes the base), omitted toggles keep the
+	// stored value.
+	baseSettings := req.Settings
+	if baseSettings == "" {
+		baseSettings = existing.SettingsJSON
 	}
+	toggles := indexers.ParseIndexerSettings(baseSettings)
+	if req.RSS != nil {
+		toggles.RSS = *req.RSS
+	}
+	if req.AutoSearch != nil {
+		toggles.AutoSearch = *req.AutoSearch
+	}
+	if req.InteractiveSearch != nil {
+		toggles.InteractiveSearch = *req.InteractiveSearch
+	}
+	settingsJSON := indexers.WithIndexerToggles(baseSettings, toggles)
 	def := indexers.Definition{
 		ID:           id,
 		Name:         strings.TrimSpace(req.Name),

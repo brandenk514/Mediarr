@@ -27,6 +27,9 @@ function indexer(over: Partial<Indexer> = {}): Indexer {
     enabled: true,
     has_api_key: false,
     last_test: '2026-10-11T09:00:00Z',
+    rss: true,
+    auto_search: true,
+    interactive_search: true,
     ...over,
   }
 }
@@ -74,6 +77,61 @@ describe('IndexersSection', () => {
     await waitFor(() =>
       expect(client.createIndexer).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'newidx', kind: 'torznab' }),
+      ),
+    )
+  })
+
+  it('saves the per-indexer search toggles through the edit form (R5b)', async () => {
+    const user = userEvent.setup()
+    const updated = indexer({ rss: false })
+    ;(client.updateIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(updated)
+    renderSection()
+    await waitFor(() => expect(screen.getByTestId('idx-row-1')).toBeVisible())
+    await user.click(screen.getByTestId('idx-edit-1'))
+    await waitFor(() => expect(screen.getByTestId('idx-form')).toBeVisible())
+    // All three toggles default to the stored (seeded true) values.
+    expect(screen.getByTestId('idx-rss')).toBeChecked()
+    expect(screen.getByTestId('idx-auto-search')).toBeChecked()
+    expect(screen.getByTestId('idx-interactive-search')).toBeChecked()
+
+    // Turn off RSS, leave the others on.
+    await user.click(screen.getByTestId('idx-rss'))
+    await user.click(screen.getByTestId('idx-save'))
+    await waitFor(() =>
+      expect(client.updateIndexer).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          name: 'nyaa',
+          kind: 'torrent-rss',
+          rss: false,
+          auto_search: true,
+          interactive_search: true,
+        }),
+      ),
+    )
+  })
+
+  it('new-indexer create sends the default toggle values (R5b)', async () => {
+    const user = userEvent.setup()
+    const created = indexer({ id: 9, name: 'toggly' })
+    ;(client.createIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    ;(client.listIndexers as ReturnType<typeof vi.fn>).mockResolvedValue([indexer(), created])
+    renderSection()
+    await waitFor(() => expect(screen.getByTestId('idx-add')).toBeVisible())
+    await user.click(screen.getByTestId('idx-add'))
+    await waitFor(() => expect(screen.getByTestId('idx-name')).toBeVisible())
+    // Uncheck Automatic search, then save with everything else at defaults.
+    await user.type(screen.getByTestId('idx-name'), 'toggly')
+    await user.click(screen.getByTestId('idx-auto-search'))
+    await user.click(screen.getByTestId('idx-save'))
+    await waitFor(() =>
+      expect(client.createIndexer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'toggly',
+          rss: true,
+          auto_search: false,
+          interactive_search: true,
+        }),
       ),
     )
   })

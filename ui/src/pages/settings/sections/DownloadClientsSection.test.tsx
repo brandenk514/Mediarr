@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -132,8 +132,9 @@ describe('DownloadClientsSection', () => {
     renderSection()
     await waitFor(() => expect(screen.getByTestId('lib-movie-path')).toBeVisible())
 
-    await user.clear(screen.getByTestId('lib-movie-path'))
-    await user.type(screen.getByTestId('lib-movie-path'), '/x')
+    // fireEvent.change is deterministic: userEvent's clear() intermittently
+    // leaves the seeded value in place (then type appends to it).
+    fireEvent.change(screen.getByTestId('lib-movie-path'), { target: { value: '/x' } })
     await user.click(screen.getByTestId('lib-movie-save'))
     await waitFor(() =>
       expect(client.putLibraryOverride).toHaveBeenCalledWith('movie', {

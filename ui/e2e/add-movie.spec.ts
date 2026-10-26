@@ -44,6 +44,18 @@ test('add a movie through the form and see it in the grid', async ({ page }) => 
   ).toBeVisible()
 })
 
+test('the add form shows the quality profile dropdown (R5b)', async ({ page }) => {
+  await page.goto('/movies/add')
+  await signIn(page)
+  await expect(page).toHaveURL(/\/movies\/add$/)
+  await expect(page.getByTestId('movie-add-title')).toBeVisible()
+  // R5b: the dropdown is populated from the profiles section's movie
+  // profiles and defaults to the Radarr factory profile '4K Best Effort'.
+  const profile = page.getByTestId('movie-profile')
+  await expect(profile).toBeVisible()
+  await expect(profile).toHaveValue('4K Best Effort')
+})
+
 test('open a movie from the grid into its detail page', async ({ page }) => {
   // Reuse the probe from the previous test if the grid is populated; the
   // grid lists whatever movies exist in the database.

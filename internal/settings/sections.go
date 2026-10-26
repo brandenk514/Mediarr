@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Section names one of the eleven settings-section documents served by the
@@ -164,46 +165,63 @@ type QualityLevel struct {
 	SizeLimitMB int    `json:"size_limit_mb"`
 }
 
-// QualitySettings is the quality-levels document.
+// QualitySettings is the quality-levels document. Levels is the TV matrix
+// (P5, ids 1-10); MovieLevels is the additive Radarr movie set (R5a, ids
+// 100+) in its own id space.
 type QualitySettings struct {
-	Levels []QualityLevel `json:"levels"`
+	Levels      []QualityLevel `json:"levels"`
+	MovieLevels []QualityLevel `json:"movie_levels"`
 }
 
 // DefaultQuality returns the TV-parity default matrix (Sonarr's standard
-// levels, with size limits in MB; 0 = unlimited).
+// levels, with size limits in MB; 0 = unlimited) plus the seeded Radarr
+// movie levels (R5a).
 func DefaultQuality() QualitySettings {
-	return QualitySettings{Levels: []QualityLevel{
-		{ID: 1, Name: "SD", Source: "dvd", Resolution: "480p", SizeLimitMB: 1024},
-		{ID: 2, Name: "720p WEB", Source: "webrip", Resolution: "720p", SizeLimitMB: 1536},
-		{ID: 3, Name: "720p", Source: "blu-ray", Resolution: "720p", SizeLimitMB: 2560},
-		{ID: 4, Name: "720p REMUX", Source: "remux", Resolution: "720p", SizeLimitMB: 7168},
-		{ID: 5, Name: "1080p WEB", Source: "webrip", Resolution: "1080p", SizeLimitMB: 1536},
-		{ID: 6, Name: "1080p", Source: "blu-ray", Resolution: "1080p", SizeLimitMB: 4096},
-		{ID: 7, Name: "1080p REMUX", Source: "remux", Resolution: "1080p", SizeLimitMB: 11264},
-		{ID: 8, Name: "2160p WEB", Source: "webrip", Resolution: "2160p", SizeLimitMB: 5120},
-		{ID: 9, Name: "2160p", Source: "blu-ray", Resolution: "2160p", SizeLimitMB: 8192},
-		{ID: 10, Name: "2160p REMUX", Source: "remux", Resolution: "2160p", SizeLimitMB: 20480},
-	}}
+	return QualitySettings{
+		Levels: []QualityLevel{
+			{ID: 1, Name: "SD", Source: "dvd", Resolution: "480p", SizeLimitMB: 1024},
+			{ID: 2, Name: "720p WEB", Source: "webrip", Resolution: "720p", SizeLimitMB: 1536},
+			{ID: 3, Name: "720p", Source: "blu-ray", Resolution: "720p", SizeLimitMB: 2560},
+			{ID: 4, Name: "720p REMUX", Source: "remux", Resolution: "720p", SizeLimitMB: 7168},
+			{ID: 5, Name: "1080p WEB", Source: "webrip", Resolution: "1080p", SizeLimitMB: 1536},
+			{ID: 6, Name: "1080p", Source: "blu-ray", Resolution: "1080p", SizeLimitMB: 4096},
+			{ID: 7, Name: "1080p REMUX", Source: "remux", Resolution: "1080p", SizeLimitMB: 11264},
+			{ID: 8, Name: "2160p WEB", Source: "webrip", Resolution: "2160p", SizeLimitMB: 5120},
+			{ID: 9, Name: "2160p", Source: "blu-ray", Resolution: "2160p", SizeLimitMB: 8192},
+			{ID: 10, Name: "2160p REMUX", Source: "remux", Resolution: "2160p", SizeLimitMB: 20480},
+		},
+		MovieLevels: DefaultMovieLevels(),
+	}
 }
 
-func (q QualitySettings) Validate() string {
+// validateQualityLevels applies the per-level rules of a quality array and
+// returns a prefixed error message ("" when valid).
+func validateQualityLevels(prefix string, levels []QualityLevel) string {
 	seen := map[int]bool{}
-	for i, l := range q.Levels {
+	for i, l := range levels {
 		if l.ID < 1 {
-			return fmt.Sprintf("levels[%d]: id must be >= 1", i)
+			return fmt.Sprintf("%s[%d]: id must be >= 1", prefix, i)
 		}
 		if seen[l.ID] {
-			return fmt.Sprintf("levels[%d]: duplicate id %d", i, l.ID)
+			return fmt.Sprintf("%s[%d]: duplicate id %d", prefix, i, l.ID)
 		}
 		seen[l.ID] = true
 		if l.Name == "" {
-			return fmt.Sprintf("levels[%d]: name is required", i)
+			return fmt.Sprintf("%s[%d]: name is required", prefix, i)
 		}
 		if l.SizeLimitMB < 0 {
-			return fmt.Sprintf("levels[%d]: size_limit_mb must be >= 0", i)
+			return fmt.Sprintf("%s[%d]: size_limit_mb must be >= 0", prefix, i)
 		}
 	}
 	return ""
+}
+
+func (q QualitySettings) Validate() string {
+	if msg := validateQualityLevels("levels", q.Levels); msg != "" {
+		return msg
+	}
+	// Movie levels: the same rules, scoped to their own array (R5a).
+	return validateQualityLevels("movie_levels", q.MovieLevels)
 }
 
 // ---------------------------------------------------------------------------
@@ -217,8 +235,9 @@ type QualityProfileItem struct {
 }
 
 // QualityProfile is a named quality profile with an approval set and a
-// cutoff level (re-download trigger). Delay/release profiles are out of scope
-// for P5 (the plan ships them only if wanted cutoff needs them).
+// cutoff level (re-download trigger). Used by both the TV profiles and the
+// movie profiles (R5a), whose items/cutoff reference the respective level id
+// spaces.
 type QualityProfile struct {
 	ID     int                  `json:"id"`
 	Name   string               `json:"name"`
@@ -226,13 +245,19 @@ type QualityProfile struct {
 	Cutoff int                  `json:"cutoff"`
 }
 
-// ProfilesSettings is the quality-profiles document.
+// ProfilesSettings is the quality-profiles document. Profiles is the TV
+// document (P5); the Radarr movie/delay/release arrays are additive (R5a).
 type ProfilesSettings struct {
-	Profiles []QualityProfile `json:"profiles"`
+	Profiles        []QualityProfile `json:"profiles"`
+	MovieProfiles   []QualityProfile `json:"movie_profiles"`
+	DelayProfiles   []DelayProfile   `json:"delay_profiles"`
+	ReleaseProfiles []ReleaseProfile `json:"release_profiles"`
 }
 
-// DefaultProfiles returns the single default profile: every default quality
-// level approved, cutoff at the highest level.
+// DefaultProfiles returns the single default TV profile (every TV level
+// approved, cutoff at the highest TV level) plus the seeded movie documents:
+// the 14 Radarr v6 movie profiles, one empty delay profile, one all-inclusive
+// release profile (R5a).
 func DefaultProfiles() ProfilesSettings {
 	levels := DefaultQuality().Levels
 	prof := QualityProfile{ID: 1, Name: "Default", Cutoff: levels[len(levels)-1].ID}
@@ -240,7 +265,12 @@ func DefaultProfiles() ProfilesSettings {
 	for _, l := range levels {
 		prof.Items = append(prof.Items, QualityProfileItem{Quality: l.ID, Approved: true})
 	}
-	return ProfilesSettings{Profiles: []QualityProfile{prof}}
+	return ProfilesSettings{
+		Profiles:        []QualityProfile{prof},
+		MovieProfiles:   DefaultMovieProfiles(),
+		DelayProfiles:   DefaultDelayProfiles(),
+		ReleaseProfiles: DefaultReleaseProfiles(),
+	}
 }
 
 func (p ProfilesSettings) Validate() string {
@@ -273,7 +303,59 @@ func (p ProfilesSettings) Validate() string {
 			seen[it.Quality] = true
 		}
 	}
-	return ""
+
+	// Radarr R5a: movie profiles — duplicate ids/names within the array,
+	// items/cutoff must reference the seeded movie level ids (movie space).
+	validMovieLevels := seedMovieLevelIDs()
+	movieIDs := map[int]bool{}
+	movieNames := map[string]bool{}
+	for i, prof := range p.MovieProfiles {
+		if prof.ID < 1 {
+			return fmt.Sprintf("movie_profiles[%d]: id must be >= 1", i)
+		}
+		if movieIDs[prof.ID] {
+			return fmt.Sprintf("movie_profiles[%d]: duplicate id %d", i, prof.ID)
+		}
+		movieIDs[prof.ID] = true
+		if prof.Name == "" {
+			return fmt.Sprintf("movie_profiles[%d]: name is required", i)
+		}
+		if movieNames[prof.Name] {
+			return fmt.Sprintf("movie_profiles[%d]: duplicate name %q", i, prof.Name)
+		}
+		movieNames[prof.Name] = true
+		if !validMovieLevels[prof.Cutoff] {
+			return fmt.Sprintf("movie_profiles[%d]: cutoff must reference a movie quality level id", i)
+		}
+		if len(prof.Items) == 0 {
+			return fmt.Sprintf("movie_profiles[%d]: at least one quality item is required", i)
+		}
+		seen := map[int]bool{}
+		for j, it := range prof.Items {
+			if !validMovieLevels[it.Quality] {
+				return fmt.Sprintf("movie_profiles[%d].items[%d]: unknown movie quality level id %d", i, j, it.Quality)
+			}
+			if seen[it.Quality] {
+				return fmt.Sprintf("movie_profiles[%d].items[%d]: duplicate quality %d", i, j, it.Quality)
+			}
+			seen[it.Quality] = true
+		}
+	}
+
+	// Delay/release profiles: id/name rules per array (booleans need none).
+	if msg := validateNamedIDs("delay_profiles", len(p.DelayProfiles), func(i int) (int, string) {
+		return p.DelayProfiles[i].ID, p.DelayProfiles[i].Name
+	}); msg != "" {
+		return msg
+	}
+	for i, d := range p.DelayProfiles {
+		if d.Webrip < 0 || d.Bluray < 0 || d.Remux < 0 || d.BrDisk < 0 || d.RawHD < 0 || d.HDTV < 0 {
+			return fmt.Sprintf("delay_profiles[%d]: hours must be >= 0", i)
+		}
+	}
+	return validateNamedIDs("release_profiles", len(p.ReleaseProfiles), func(i int) (int, string) {
+		return p.ReleaseProfiles[i].ID, p.ReleaseProfiles[i].Name
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -339,7 +421,25 @@ type FileManagement struct {
 	RemoveEmptyDirs  bool `json:"remove_empty_dirs"`
 	ImportExtraFiles bool `json:"import_extra_files"`
 	RenameSeries     bool `json:"rename_series"`
+	// UnmonitorDeletedMovies (Radarr R5a, "Unmonitor Deleted Movies"): unmonitor
+	// a movie when its files are deleted.
+	UnmonitorDeletedMovies bool `json:"unmonitor_deleted_movies"`
 }
+
+// MovieNaming is the Radarr movie naming block (R5a): rename +
+// illegal-character/colon options and the movie's standard format template,
+// in the same brace-token style as the rest of the naming document (it
+// renders, for example, to "Title (2010) Bluray-1080p Proper").
+type MovieNaming struct {
+	RenameMovies             bool   `json:"rename_movies"`
+	ReplaceIllegalCharacters bool   `json:"replace_illegal_characters"`
+	ColonReplacement         string `json:"colon_replacement"`
+	StandardFormat           string `json:"standard_format"`
+}
+
+// DefaultMovieStandardFormat is the Radarr standard movie naming template
+// (R5a): movie title, year, quality and edition tokens.
+const DefaultMovieStandardFormat = "{movie-title} ({year}) {quality} {edition}"
 
 // RemotePathMapping maps a source path (on the download client) to a
 // destination path (on the Mediarr host) for the import step.
@@ -353,6 +453,7 @@ type RemotePathMapping struct {
 // (P2 add-flow domain) and the section's UI reads/writes that registry.
 type MediaManagementSettings struct {
 	Naming             NamingTemplate      `json:"naming"`
+	MovieNaming        MovieNaming         `json:"movie_naming"`
 	Management         FileManagement      `json:"file_management"`
 	RemotePathMappings []RemotePathMapping `json:"remote_path_mappings"`
 }
@@ -368,11 +469,18 @@ func DefaultMediaManagement() MediaManagementSettings {
 			Author:  "{author}",
 			Title:   "{title}",
 		},
+		MovieNaming: MovieNaming{
+			RenameMovies:             true,
+			ReplaceIllegalCharacters: true,
+			ColonReplacement:         "",
+			StandardFormat:           DefaultMovieStandardFormat,
+		},
 		Management: FileManagement{
-			MinFileAgeHours:  0,
-			RemoveEmptyDirs:  true,
-			ImportExtraFiles: true,
-			RenameSeries:     true,
+			MinFileAgeHours:        0,
+			RemoveEmptyDirs:        true,
+			ImportExtraFiles:       true,
+			RenameSeries:           true,
+			UnmonitorDeletedMovies: true,
 		},
 		RemotePathMappings: []RemotePathMapping{},
 	}
@@ -387,6 +495,14 @@ func (m MediaManagementSettings) Validate() string {
 		if tpl == "" {
 			return "naming." + name + " is required"
 		}
+	}
+	// Radarr R5a movie naming: the standard format must be set and the colon
+	// replacement is a single character (or empty).
+	if m.MovieNaming.StandardFormat == "" {
+		return "movie_naming.standard_format is required"
+	}
+	if utf8.RuneCountInString(m.MovieNaming.ColonReplacement) > 1 {
+		return "movie_naming.colon_replacement must be a single character or empty"
 	}
 	if m.Management.MinFileAgeHours < 0 {
 		return "file_management.min_file_age_hours must be >= 0"
@@ -639,16 +755,22 @@ func (m MetadataSourceSettings) Validate() string {
 // ---------------------------------------------------------------------------
 
 // ImportListKinds are the supported import-list sources.
-var ImportListKinds = []string{"trakt", "sonarr"}
+var ImportListKinds = []string{"trakt", "sonarr", "radarr"}
 
 // ImportList is one configured list. For trakt, URL is a Trakt list URL
 // (https://trakt.tv/users/<user>/lists/<slug>); for sonarr, URL is the base
-// URL of a Sonarr instance and APIKey its API key (masked on read).
+// URL of a Sonarr instance and APIKey its API key (masked on read). For
+// radarr (R5a drop-in bridge), the list points at a Radarr instance by
+// Host+Port and APIKey is its API key (masked on read, sent as a query
+// parameter to the instance's /api/v1/movies).
 type ImportList struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
-	URL       string `json:"url"`
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	URL  string `json:"url"`
+	// Radarr R5a (kind=radarr only): the Radarr instance to import from.
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
 	Enabled   bool   `json:"enabled"`
 	APIKey    string `json:"api_key"`
 	APIKeySet bool   `json:"api_key_set"`
@@ -677,11 +799,22 @@ func (i ImportListsSettings) Validate() string {
 		if !containsString(ImportListKinds, l.Kind) {
 			return fmt.Sprintf("lists[%d]: unknown kind %q", n, l.Kind)
 		}
-		if !isHTTPURLValue(l.URL) {
-			return fmt.Sprintf("lists[%d]: url must be an http/https URL", n)
-		}
-		if l.Kind == "trakt" && !strings.Contains(l.URL, "trakt.tv") {
-			return fmt.Sprintf("lists[%d]: trakt lists must use a trakt.tv URL", n)
+		if l.Kind == "radarr" {
+			// R5a drop-in bridge: the list names a Radarr instance by
+			// host+port (no URL); the fetch builds the endpoint from them.
+			if l.Host == "" {
+				return fmt.Sprintf("lists[%d]: host is required for radarr lists", n)
+			}
+			if l.Port < 1 || l.Port > 65535 {
+				return fmt.Sprintf("lists[%d]: port must be between 1 and 65535", n)
+			}
+		} else {
+			if !isHTTPURLValue(l.URL) {
+				return fmt.Sprintf("lists[%d]: url must be an http/https URL", n)
+			}
+			if l.Kind == "trakt" && !strings.Contains(l.URL, "trakt.tv") {
+				return fmt.Sprintf("lists[%d]: trakt lists must use a trakt.tv URL", n)
+			}
 		}
 	}
 	return ""

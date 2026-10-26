@@ -125,7 +125,7 @@ func TestE2E_MovieAddFlow(t *testing.T) {
 	rec = f.post(t, "/api/v1/movies", map[string]string{
 		"title":           selected.Title,
 		"year":            "2024",
-		"quality_profile": "UHD-2160p",
+		"quality_profile": "4K",
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("add status = %d body=%s", rec.Code, rec.Body.String())
@@ -145,7 +145,7 @@ func TestE2E_MovieAddFlow(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&page); err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Items) != 1 || page.Items[0].Title != "Dune: Part Two" || page.Items[0].QualityProfile != "UHD-2160p" {
+	if len(page.Items) != 1 || page.Items[0].Title != "Dune: Part Two" || page.Items[0].QualityProfile != "4K" {
 		t.Fatalf("list = %+v", page.Items)
 	}
 }

@@ -3710,6 +3710,8 @@ components:
           type: string
         quality_profile:
           type: string
+          description: Quality profile name (Radarr R5a); must match a seeded movie profile. Omitted = "4K Best Effort" (the Radarr v6 factory default).
+          default: "4K Best Effort"
         monitor:
           type: string
           description: |-
@@ -4666,7 +4668,7 @@ components:
           description: How many queue jobs were removed.
     Indexer:
       type: object
-      required: [id, name, kind, base_url, enabled, has_api_key, last_test]
+      required: [id, name, kind, base_url, enabled, has_api_key, last_test, rss, auto_search, interactive_search]
       properties:
         id:
           type: integer
@@ -4687,6 +4689,15 @@ components:
           type: string
           format: date-time
           nullable: true
+        rss:
+          type: boolean
+          description: RSS sync for this indexer (Radarr R5a per-indexer toggle).
+        auto_search:
+          type: boolean
+          description: Automatic search for this indexer (Radarr R5a per-indexer toggle).
+        interactive_search:
+          type: boolean
+          description: Interactive (manual) search for this indexer (Radarr R5a per-indexer toggle).
     IndexerCreate:
       type: object
       required: [name, kind]
@@ -4707,6 +4718,15 @@ components:
         enabled:
           type: boolean
           description: Omitted = enabled (default).
+        rss:
+          type: boolean
+          description: RSS sync for this indexer (Radarr R5a). Omitted = true.
+        auto_search:
+          type: boolean
+          description: Automatic search for this indexer (Radarr R5a). Omitted = true.
+        interactive_search:
+          type: boolean
+          description: Interactive search for this indexer (Radarr R5a). Omitted = true.
     IndexerUpdate:
       type: object
       required: [name, kind]
@@ -4724,6 +4744,15 @@ components:
         settings_json:
           type: string
           description: Empty = keep the stored settings.
+        rss:
+          type: boolean
+          description: Omitted = keep the stored value (Radarr R5a).
+        auto_search:
+          type: boolean
+          description: Omitted = keep the stored value (Radarr R5a).
+        interactive_search:
+          type: boolean
+          description: Omitted = keep the stored value (Radarr R5a).
     IndexerEnabled:
       type: object
       required: [enabled]
@@ -5171,10 +5200,18 @@ components:
           description: "0 = unlimited."
     QualitySettings:
       type: object
-      required: [levels]
+      required: [levels, movie_levels]
       properties:
         levels:
           type: array
+          items:
+            $ref: "#/components/schemas/QualityLevel"
+        movie_levels:
+          type: array
+          description: |
+            Radarr movie quality definitions (Radarr R5a). A separate ID
+            space from the TV levels, starting at 100, so movie quality
+            profile items can't collide with TV level ids.
           items:
             $ref: "#/components/schemas/QualityLevel"
     QualityProfileItem:
@@ -5201,14 +5238,80 @@ components:
         cutoff:
           type: integer
           description: QualityLevel id that triggers a re-download when exceeded.
+    DelayProfile:
+      type: object
+      description: |
+        Search delay per release source, in hours (Radarr R5a; Radarr's
+        delay profiles). 0 = no delay.
+      required: [id, name, description, webrip, bluray, remux, brdisk, rawhd, hdtv]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        webrip:
+          type: integer
+        bluray:
+          type: integer
+        remux:
+          type: integer
+        brdisk:
+          type: integer
+        rawhd:
+          type: integer
+        hdtv:
+          type: integer
+    ReleaseProfile:
+      type: object
+      description: |
+        Which release sources may be considered (Radarr R5a; Radarr's
+        release profiles). Every flag defaults to true.
+      required: [id, name, description, webrip, bluray, remux, brdisk, rawhd, hdtv]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        webrip:
+          type: boolean
+        bluray:
+          type: boolean
+        remux:
+          type: boolean
+        brdisk:
+          type: boolean
+        rawhd:
+          type: boolean
+        hdtv:
+          type: boolean
     ProfilesSettings:
       type: object
-      required: [profiles]
+      required: [profiles, movie_profiles, delay_profiles, release_profiles]
       properties:
         profiles:
           type: array
           items:
             $ref: "#/components/schemas/QualityProfile"
+        movie_profiles:
+          type: array
+          description: |
+            Radarr movie quality profiles (Radarr R5a). Seeded with the 14
+            Radarr v6 defaults; profile ids live in a separate space from the
+            TV profiles (100+). Items reference movie quality level ids.
+          items:
+            $ref: "#/components/schemas/QualityProfile"
+        delay_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DelayProfile"
+        release_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseProfile"
     TagInfo:
       type: object
       required: [id, label, description]
@@ -5272,6 +5375,30 @@ components:
           description: Pull in subtitles / images / extras alongside the media file.
         rename_series:
           type: boolean
+        unmonitor_deleted_movies:
+          type: boolean
+          description: Unmonitor a movie when its files are deleted (Radarr R5a file management; defaults to true).
+    MovieNaming:
+      type: object
+      description: |
+        Radarr movie naming block (R5a). standard_format is the movie's
+        standard naming template in the same brace-token style as the rest of
+        the naming document — it renders, for example, to "Title (2010)
+        Bluray-1080p Proper".
+      required: [rename_movies, replace_illegal_characters, colon_replacement, standard_format]
+      properties:
+        rename_movies:
+          type: boolean
+          description: Rename movie files to the standard format.
+        replace_illegal_characters:
+          type: boolean
+          description: Replace characters the filesystem rejects.
+        colon_replacement:
+          type: string
+          description: Single character (or empty) used for ':' in titles.
+        standard_format:
+          type: string
+          description: Standard movie naming template (brace tokens).
     RemotePathMapping:
       type: object
       required: [source, destination]
@@ -5282,10 +5409,12 @@ components:
           type: string
     MediaManagementSettings:
       type: object
-      required: [naming, file_management, remote_path_mappings]
+      required: [naming, movie_naming, file_management, remote_path_mappings]
       properties:
         naming:
           $ref: "#/components/schemas/NamingTemplate"
+        movie_naming:
+          $ref: "#/components/schemas/MovieNaming"
         file_management:
           $ref: "#/components/schemas/FileManagement"
         remote_path_mappings:
@@ -5502,7 +5631,7 @@ components:
             $ref: "#/components/schemas/ProviderAttempt"
     ImportList:
       type: object
-      required: [id, name, kind, url, enabled, api_key, api_key_set]
+      required: [id, name, kind, enabled, api_key, api_key_set]
       properties:
         id:
           type: integer
@@ -5510,15 +5639,21 @@ components:
           type: string
         kind:
           type: string
-          enum: [trakt, sonarr]
+          enum: [trakt, sonarr, radarr]
         url:
           type: string
-          description: Trakt list URL, or the base URL of a Sonarr instance.
+          description: Trakt list URL, or the base URL of a Sonarr instance. Required for trakt/sonarr kinds; radarr lists use host/port instead.
+        host:
+          type: string
+          description: Radarr instance host (kind radarr, R5a drop-in bridge); '' for other kinds.
+        port:
+          type: integer
+          description: Radarr instance port (kind radarr, R5a; 1-65535); 0 for other kinds.
         enabled:
           type: boolean
         api_key:
           type: string
-          description: Sonarr instance API key; write-only in practice (reads return empty string + api_key_set).
+          description: Sonarr instance API key (the Trakt client id for trakt lists); for radarr, the Radarr instance API key. Masked on read, write-only in practice.
         api_key_set:
           type: boolean
     ImportListsSettings:
