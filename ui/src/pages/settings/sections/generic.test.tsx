@@ -71,6 +71,53 @@ function freshDoc(section: string): unknown {
             ],
           },
         ],
+        // Radarr R5a: the seeded movie profiles (100+ id space; items
+        // reference the movie level ids), plus the default delay and release
+        // profiles.
+        movie_profiles: [
+          {
+            id: 100,
+            name: '4K Best Effort',
+            cutoff: 105,
+            items: [
+              { quality: 100, approved: true },
+              { quality: 104, approved: true },
+              { quality: 105, approved: true },
+            ],
+          },
+          {
+            id: 101,
+            name: '4K',
+            cutoff: 105,
+            items: [{ quality: 105, approved: true }],
+          },
+        ],
+        delay_profiles: [
+          {
+            id: 1,
+            name: 'Default',
+            description: '',
+            webrip: 0,
+            bluray: 0,
+            remux: 0,
+            brdisk: 0,
+            rawhd: 0,
+            hdtv: 0,
+          },
+        ],
+        release_profiles: [
+          {
+            id: 1,
+            name: 'Default',
+            description: '',
+            webrip: true,
+            bluray: true,
+            remux: true,
+            brdisk: true,
+            rawhd: true,
+            hdtv: true,
+          },
+        ],
       }
     case 'tags':
       return { tags: [{ id: 1, label: 'family', description: 'Family TV' }] }
@@ -258,6 +305,97 @@ describe('ProfilesSection', () => {
                 expect.objectContaining({ quality: 3, approved: true }),
               ],
             }),
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('lists the seeded movie quality profiles (R5b)', async () => {
+    renderSection(<ProfilesSection />)
+    // The seeded movie profiles render alongside the TV profiles.
+    const mvName = await screen.findByTestId('mvprofile-name-100')
+    expect(mvName).toHaveValue('4K Best Effort')
+    expect(screen.getByTestId('mvprofile-name-101')).toHaveValue('4K')
+    // The TV profile is untouched and still renders.
+    expect(screen.getByTestId('profile-name-1')).toHaveValue('Default')
+    // Movie items reference the 100+ movie level id space.
+    const cutoff = screen.getByTestId('mvprofile-cutoff-100') as HTMLSelectElement
+    expect(cutoff).toHaveValue('105')
+    // The level checkboxes come from the quality document (second fetch).
+    expect(await screen.findByTestId('mvprofile-level-100-104')).toBeChecked()
+  })
+
+  it('edits a movie profile and saves the round-trip (R5b)', async () => {
+    const user = userEvent.setup()
+    renderSection(<ProfilesSection />)
+    await screen.findByTestId('mvprofile-100')
+    // The level checkboxes/cutoff options come from the quality document
+    // (a second fetch) — wait for one to exist before driving the form.
+    await screen.findByTestId('mvprofile-level-101-104')
+    // Rename '4K', move its cutoff to the 100 level, and approve 1080p.
+    await user.clear(screen.getByTestId('mvprofile-name-101'))
+    await user.type(screen.getByTestId('mvprofile-name-101'), '4K Pro')
+    await user.selectOptions(screen.getByTestId('mvprofile-cutoff-101'), '100')
+    await user.click(screen.getByTestId('mvprofile-level-101-104'))
+
+    await user.click(screen.getByTestId('profiles-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'profiles',
+        expect.objectContaining({
+          movie_profiles: [
+            expect.objectContaining({ id: 100, name: '4K Best Effort' }),
+            expect.objectContaining({
+              id: 101,
+              name: '4K Pro',
+              cutoff: 100,
+              items: [
+                expect.objectContaining({ quality: 105, approved: true }),
+                expect.objectContaining({ quality: 104, approved: true }),
+              ],
+            }),
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('edits delay-profile hours and saves (R5b)', async () => {
+    const user = userEvent.setup()
+    renderSection(<ProfilesSection />)
+    await screen.findByTestId('delay-1')
+    // Webrip delay 0 → 2 hours; the other sources stay at 0.
+    fireEvent.change(screen.getByTestId('delay-hours-1-webrip'), { target: { value: '2' } })
+
+    await user.click(screen.getByTestId('profiles-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'profiles',
+        expect.objectContaining({
+          delay_profiles: [
+            expect.objectContaining({ id: 1, name: 'Default', webrip: 2, bluray: 0, hdtv: 0 }),
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('toggles release-profile flags and saves (R5b)', async () => {
+    const user = userEvent.setup()
+    renderSection(<ProfilesSection />)
+    await screen.findByTestId('rel-1')
+    // Bluray starts approved; click it out.
+    expect(screen.getByTestId('rel-flag-1-bluray')).toBeChecked()
+    await user.click(screen.getByTestId('rel-flag-1-bluray'))
+
+    await user.click(screen.getByTestId('profiles-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'profiles',
+        expect.objectContaining({
+          release_profiles: [
+            expect.objectContaining({ id: 1, name: 'Default', bluray: false, webrip: true }),
           ],
         }),
       ),
