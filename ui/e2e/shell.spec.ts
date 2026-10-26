@@ -89,13 +89,13 @@ test('series detail route renders at /tv/:id', async ({ page }) => {
   await expect(settled).toBeVisible()
 })
 
-// P7 home decision: the default landing is the TV library (the Sonarr users'
+// R7 home decision: the default landing is the Movies list (the Radarr users'
 // home); the cross-kind Dashboard is a Mediarr extra reachable from the rail.
-test('landing at / resolves to the TV library', async ({ page }) => {
+test('landing at / resolves to the Movies list', async ({ page }) => {
   await page.goto('/')
   await signIn(page)
-  await expect(page).toHaveURL(/\/tv$/)
-  await expect(page.getByTestId('tv-title')).toBeVisible()
+  await expect(page).toHaveURL(/\/movies$/)
+  await expect(page.getByTestId('movies-title')).toBeVisible()
 })
 
 test('rail Dashboard item opens the Dashboard', async ({ page }) => {
