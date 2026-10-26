@@ -164,46 +164,63 @@ type QualityLevel struct {
 	SizeLimitMB int    `json:"size_limit_mb"`
 }
 
-// QualitySettings is the quality-levels document.
+// QualitySettings is the quality-levels document. Levels is the TV matrix
+// (P5, ids 1-10); MovieLevels is the additive Radarr movie set (R5a, ids
+// 100+) in its own id space.
 type QualitySettings struct {
-	Levels []QualityLevel `json:"levels"`
+	Levels      []QualityLevel `json:"levels"`
+	MovieLevels []QualityLevel `json:"movie_levels"`
 }
 
 // DefaultQuality returns the TV-parity default matrix (Sonarr's standard
-// levels, with size limits in MB; 0 = unlimited).
+// levels, with size limits in MB; 0 = unlimited) plus the seeded Radarr
+// movie levels (R5a).
 func DefaultQuality() QualitySettings {
-	return QualitySettings{Levels: []QualityLevel{
-		{ID: 1, Name: "SD", Source: "dvd", Resolution: "480p", SizeLimitMB: 1024},
-		{ID: 2, Name: "720p WEB", Source: "webrip", Resolution: "720p", SizeLimitMB: 1536},
-		{ID: 3, Name: "720p", Source: "blu-ray", Resolution: "720p", SizeLimitMB: 2560},
-		{ID: 4, Name: "720p REMUX", Source: "remux", Resolution: "720p", SizeLimitMB: 7168},
-		{ID: 5, Name: "1080p WEB", Source: "webrip", Resolution: "1080p", SizeLimitMB: 1536},
-		{ID: 6, Name: "1080p", Source: "blu-ray", Resolution: "1080p", SizeLimitMB: 4096},
-		{ID: 7, Name: "1080p REMUX", Source: "remux", Resolution: "1080p", SizeLimitMB: 11264},
-		{ID: 8, Name: "2160p WEB", Source: "webrip", Resolution: "2160p", SizeLimitMB: 5120},
-		{ID: 9, Name: "2160p", Source: "blu-ray", Resolution: "2160p", SizeLimitMB: 8192},
-		{ID: 10, Name: "2160p REMUX", Source: "remux", Resolution: "2160p", SizeLimitMB: 20480},
-	}}
+	return QualitySettings{
+		Levels: []QualityLevel{
+			{ID: 1, Name: "SD", Source: "dvd", Resolution: "480p", SizeLimitMB: 1024},
+			{ID: 2, Name: "720p WEB", Source: "webrip", Resolution: "720p", SizeLimitMB: 1536},
+			{ID: 3, Name: "720p", Source: "blu-ray", Resolution: "720p", SizeLimitMB: 2560},
+			{ID: 4, Name: "720p REMUX", Source: "remux", Resolution: "720p", SizeLimitMB: 7168},
+			{ID: 5, Name: "1080p WEB", Source: "webrip", Resolution: "1080p", SizeLimitMB: 1536},
+			{ID: 6, Name: "1080p", Source: "blu-ray", Resolution: "1080p", SizeLimitMB: 4096},
+			{ID: 7, Name: "1080p REMUX", Source: "remux", Resolution: "1080p", SizeLimitMB: 11264},
+			{ID: 8, Name: "2160p WEB", Source: "webrip", Resolution: "2160p", SizeLimitMB: 5120},
+			{ID: 9, Name: "2160p", Source: "blu-ray", Resolution: "2160p", SizeLimitMB: 8192},
+			{ID: 10, Name: "2160p REMUX", Source: "remux", Resolution: "2160p", SizeLimitMB: 20480},
+		},
+		MovieLevels: DefaultMovieLevels(),
+	}
 }
 
-func (q QualitySettings) Validate() string {
+// validateQualityLevels applies the per-level rules of a quality array and
+// returns a prefixed error message ("" when valid).
+func validateQualityLevels(prefix string, levels []QualityLevel) string {
 	seen := map[int]bool{}
-	for i, l := range q.Levels {
+	for i, l := range levels {
 		if l.ID < 1 {
-			return fmt.Sprintf("levels[%d]: id must be >= 1", i)
+			return fmt.Sprintf("%s[%d]: id must be >= 1", prefix, i)
 		}
 		if seen[l.ID] {
-			return fmt.Sprintf("levels[%d]: duplicate id %d", i, l.ID)
+			return fmt.Sprintf("%s[%d]: duplicate id %d", prefix, i, l.ID)
 		}
 		seen[l.ID] = true
 		if l.Name == "" {
-			return fmt.Sprintf("levels[%d]: name is required", i)
+			return fmt.Sprintf("%s[%d]: name is required", prefix, i)
 		}
 		if l.SizeLimitMB < 0 {
-			return fmt.Sprintf("levels[%d]: size_limit_mb must be >= 0", i)
+			return fmt.Sprintf("%s[%d]: size_limit_mb must be >= 0", prefix, i)
 		}
 	}
 	return ""
+}
+
+func (q QualitySettings) Validate() string {
+	if msg := validateQualityLevels("levels", q.Levels); msg != "" {
+		return msg
+	}
+	// Movie levels: the same rules, scoped to their own array (R5a).
+	return validateQualityLevels("movie_levels", q.MovieLevels)
 }
 
 // ---------------------------------------------------------------------------
@@ -217,8 +234,9 @@ type QualityProfileItem struct {
 }
 
 // QualityProfile is a named quality profile with an approval set and a
-// cutoff level (re-download trigger). Delay/release profiles are out of scope
-// for P5 (the plan ships them only if wanted cutoff needs them).
+// cutoff level (re-download trigger). Used by both the TV profiles and the
+// movie profiles (R5a), whose items/cutoff reference the respective level id
+// spaces.
 type QualityProfile struct {
 	ID     int                  `json:"id"`
 	Name   string               `json:"name"`
@@ -226,13 +244,19 @@ type QualityProfile struct {
 	Cutoff int                  `json:"cutoff"`
 }
 
-// ProfilesSettings is the quality-profiles document.
+// ProfilesSettings is the quality-profiles document. Profiles is the TV
+// document (P5); the Radarr movie/delay/release arrays are additive (R5a).
 type ProfilesSettings struct {
-	Profiles []QualityProfile `json:"profiles"`
+	Profiles        []QualityProfile `json:"profiles"`
+	MovieProfiles   []QualityProfile `json:"movie_profiles"`
+	DelayProfiles   []DelayProfile   `json:"delay_profiles"`
+	ReleaseProfiles []ReleaseProfile `json:"release_profiles"`
 }
 
-// DefaultProfiles returns the single default profile: every default quality
-// level approved, cutoff at the highest level.
+// DefaultProfiles returns the single default TV profile (every TV level
+// approved, cutoff at the highest TV level) plus the seeded movie documents:
+// the 14 Radarr v6 movie profiles, one empty delay profile, one all-inclusive
+// release profile (R5a).
 func DefaultProfiles() ProfilesSettings {
 	levels := DefaultQuality().Levels
 	prof := QualityProfile{ID: 1, Name: "Default", Cutoff: levels[len(levels)-1].ID}
@@ -240,7 +264,12 @@ func DefaultProfiles() ProfilesSettings {
 	for _, l := range levels {
 		prof.Items = append(prof.Items, QualityProfileItem{Quality: l.ID, Approved: true})
 	}
-	return ProfilesSettings{Profiles: []QualityProfile{prof}}
+	return ProfilesSettings{
+		Profiles:        []QualityProfile{prof},
+		MovieProfiles:   DefaultMovieProfiles(),
+		DelayProfiles:   DefaultDelayProfiles(),
+		ReleaseProfiles: DefaultReleaseProfiles(),
+	}
 }
 
 func (p ProfilesSettings) Validate() string {
@@ -273,7 +302,59 @@ func (p ProfilesSettings) Validate() string {
 			seen[it.Quality] = true
 		}
 	}
-	return ""
+
+	// Radarr R5a: movie profiles — duplicate ids/names within the array,
+	// items/cutoff must reference the seeded movie level ids (movie space).
+	validMovieLevels := seedMovieLevelIDs()
+	movieIDs := map[int]bool{}
+	movieNames := map[string]bool{}
+	for i, prof := range p.MovieProfiles {
+		if prof.ID < 1 {
+			return fmt.Sprintf("movie_profiles[%d]: id must be >= 1", i)
+		}
+		if movieIDs[prof.ID] {
+			return fmt.Sprintf("movie_profiles[%d]: duplicate id %d", i, prof.ID)
+		}
+		movieIDs[prof.ID] = true
+		if prof.Name == "" {
+			return fmt.Sprintf("movie_profiles[%d]: name is required", i)
+		}
+		if movieNames[prof.Name] {
+			return fmt.Sprintf("movie_profiles[%d]: duplicate name %q", i, prof.Name)
+		}
+		movieNames[prof.Name] = true
+		if !validMovieLevels[prof.Cutoff] {
+			return fmt.Sprintf("movie_profiles[%d]: cutoff must reference a movie quality level id", i)
+		}
+		if len(prof.Items) == 0 {
+			return fmt.Sprintf("movie_profiles[%d]: at least one quality item is required", i)
+		}
+		seen := map[int]bool{}
+		for j, it := range prof.Items {
+			if !validMovieLevels[it.Quality] {
+				return fmt.Sprintf("movie_profiles[%d].items[%d]: unknown movie quality level id %d", i, j, it.Quality)
+			}
+			if seen[it.Quality] {
+				return fmt.Sprintf("movie_profiles[%d].items[%d]: duplicate quality %d", i, j, it.Quality)
+			}
+			seen[it.Quality] = true
+		}
+	}
+
+	// Delay/release profiles: id/name rules per array (booleans need none).
+	if msg := validateNamedIDs("delay_profiles", len(p.DelayProfiles), func(i int) (int, string) {
+		return p.DelayProfiles[i].ID, p.DelayProfiles[i].Name
+	}); msg != "" {
+		return msg
+	}
+	for i, d := range p.DelayProfiles {
+		if d.Webrip < 0 || d.Bluray < 0 || d.Remux < 0 || d.BrDisk < 0 || d.RawHD < 0 || d.HDTV < 0 {
+			return fmt.Sprintf("delay_profiles[%d]: hours must be >= 0", i)
+		}
+	}
+	return validateNamedIDs("release_profiles", len(p.ReleaseProfiles), func(i int) (int, string) {
+		return p.ReleaseProfiles[i].ID, p.ReleaseProfiles[i].Name
+	})
 }
 
 // ---------------------------------------------------------------------------

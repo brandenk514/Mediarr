@@ -5171,10 +5171,18 @@ components:
           description: "0 = unlimited."
     QualitySettings:
       type: object
-      required: [levels]
+      required: [levels, movie_levels]
       properties:
         levels:
           type: array
+          items:
+            $ref: "#/components/schemas/QualityLevel"
+        movie_levels:
+          type: array
+          description: |
+            Radarr movie quality definitions (Radarr R5a). A separate ID
+            space from the TV levels, starting at 100, so movie quality
+            profile items can't collide with TV level ids.
           items:
             $ref: "#/components/schemas/QualityLevel"
     QualityProfileItem:
@@ -5201,14 +5209,80 @@ components:
         cutoff:
           type: integer
           description: QualityLevel id that triggers a re-download when exceeded.
+    DelayProfile:
+      type: object
+      description: |
+        Search delay per release source, in hours (Radarr R5a; Radarr's
+        delay profiles). 0 = no delay.
+      required: [id, name, description, webrip, bluray, remux, brdisk, rawhd, hdtv]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        webrip:
+          type: integer
+        bluray:
+          type: integer
+        remux:
+          type: integer
+        brdisk:
+          type: integer
+        rawhd:
+          type: integer
+        hdtv:
+          type: integer
+    ReleaseProfile:
+      type: object
+      description: |
+        Which release sources may be considered (Radarr R5a; Radarr's
+        release profiles). Every flag defaults to true.
+      required: [id, name, description, webrip, bluray, remux, brdisk, rawhd, hdtv]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        webrip:
+          type: boolean
+        bluray:
+          type: boolean
+        remux:
+          type: boolean
+        brdisk:
+          type: boolean
+        rawhd:
+          type: boolean
+        hdtv:
+          type: boolean
     ProfilesSettings:
       type: object
-      required: [profiles]
+      required: [profiles, movie_profiles, delay_profiles, release_profiles]
       properties:
         profiles:
           type: array
           items:
             $ref: "#/components/schemas/QualityProfile"
+        movie_profiles:
+          type: array
+          description: |
+            Radarr movie quality profiles (Radarr R5a). Seeded with the 14
+            Radarr v6 defaults; profile ids live in a separate space from the
+            TV profiles (100+). Items reference movie quality level ids.
+          items:
+            $ref: "#/components/schemas/QualityProfile"
+        delay_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DelayProfile"
+        release_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseProfile"
     TagInfo:
       type: object
       required: [id, label, description]
