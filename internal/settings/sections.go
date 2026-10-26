@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Section names one of the eleven settings-section documents served by the
@@ -420,7 +421,25 @@ type FileManagement struct {
 	RemoveEmptyDirs  bool `json:"remove_empty_dirs"`
 	ImportExtraFiles bool `json:"import_extra_files"`
 	RenameSeries     bool `json:"rename_series"`
+	// UnmonitorDeletedMovies (Radarr R5a, "Unmonitor Deleted Movies"): unmonitor
+	// a movie when its files are deleted.
+	UnmonitorDeletedMovies bool `json:"unmonitor_deleted_movies"`
 }
+
+// MovieNaming is the Radarr movie naming block (R5a): rename +
+// illegal-character/colon options and the movie's standard format template,
+// in the same brace-token style as the rest of the naming document (it
+// renders, for example, to "Title (2010) Bluray-1080p Proper").
+type MovieNaming struct {
+	RenameMovies             bool   `json:"rename_movies"`
+	ReplaceIllegalCharacters bool   `json:"replace_illegal_characters"`
+	ColonReplacement         string `json:"colon_replacement"`
+	StandardFormat           string `json:"standard_format"`
+}
+
+// DefaultMovieStandardFormat is the Radarr standard movie naming template
+// (R5a): movie title, year, quality and edition tokens.
+const DefaultMovieStandardFormat = "{movie-title} ({year}) {quality} {edition}"
 
 // RemotePathMapping maps a source path (on the download client) to a
 // destination path (on the Mediarr host) for the import step.
@@ -434,6 +453,7 @@ type RemotePathMapping struct {
 // (P2 add-flow domain) and the section's UI reads/writes that registry.
 type MediaManagementSettings struct {
 	Naming             NamingTemplate      `json:"naming"`
+	MovieNaming        MovieNaming         `json:"movie_naming"`
 	Management         FileManagement      `json:"file_management"`
 	RemotePathMappings []RemotePathMapping `json:"remote_path_mappings"`
 }
@@ -449,11 +469,18 @@ func DefaultMediaManagement() MediaManagementSettings {
 			Author:  "{author}",
 			Title:   "{title}",
 		},
+		MovieNaming: MovieNaming{
+			RenameMovies:             true,
+			ReplaceIllegalCharacters: true,
+			ColonReplacement:         "",
+			StandardFormat:           DefaultMovieStandardFormat,
+		},
 		Management: FileManagement{
-			MinFileAgeHours:  0,
-			RemoveEmptyDirs:  true,
-			ImportExtraFiles: true,
-			RenameSeries:     true,
+			MinFileAgeHours:        0,
+			RemoveEmptyDirs:        true,
+			ImportExtraFiles:       true,
+			RenameSeries:           true,
+			UnmonitorDeletedMovies: true,
 		},
 		RemotePathMappings: []RemotePathMapping{},
 	}
@@ -468,6 +495,14 @@ func (m MediaManagementSettings) Validate() string {
 		if tpl == "" {
 			return "naming." + name + " is required"
 		}
+	}
+	// Radarr R5a movie naming: the standard format must be set and the colon
+	// replacement is a single character (or empty).
+	if m.MovieNaming.StandardFormat == "" {
+		return "movie_naming.standard_format is required"
+	}
+	if utf8.RuneCountInString(m.MovieNaming.ColonReplacement) > 1 {
+		return "movie_naming.colon_replacement must be a single character or empty"
 	}
 	if m.Management.MinFileAgeHours < 0 {
 		return "file_management.min_file_age_hours must be >= 0"

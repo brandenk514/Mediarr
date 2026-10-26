@@ -141,7 +141,7 @@ func TestPipeline_RemovalAfterImport(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "HD-1080p"})
+	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "1080p"})
 	if err != nil {
 		t.Fatalf("add movie: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestPipeline_NoRemovalForNonRemover(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "HD-1080p"})
+	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "1080p"})
 	if err != nil {
 		t.Fatalf("add movie: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestPipeline_EmitsQueueEvents(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "HD-1080p"})
+	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "1080p"})
 	if err != nil {
 		t.Fatalf("add movie: %v", err)
 	}

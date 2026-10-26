@@ -18,19 +18,19 @@ const DefaultMovieQualityProfile = "4K Best Effort"
 // Movie quality level ids (a separate space from the TV levels, which end at
 // 10). The Radarr v6 movie quality set.
 const (
-	MovieLevel480p      = 100
-	MovieLevel720pWeb   = 101
-	MovieLevel720p      = 102
-	MovieLevel720pRemux = 103
-	MovieLevel1080pWeb  = 104
-	MovieLevel1080p     = 105
+	MovieLevel480p       = 100
+	MovieLevel720pWeb    = 101
+	MovieLevel720p       = 102
+	MovieLevel720pRemux  = 103
+	MovieLevel1080pWeb   = 104
+	MovieLevel1080p      = 105
 	MovieLevel1080pRemux = 106
-	MovieLevel2160pWeb  = 107
-	MovieLevel2160p     = 108
+	MovieLevel2160pWeb   = 107
+	MovieLevel2160p      = 108
 	MovieLevel2160pRemux = 109
-	MovieLevelBRDisk    = 110
-	MovieLevelRawHD     = 111
-	MovieLevelUnknown   = 112
+	MovieLevelBRDisk     = 110
+	MovieLevelRawHD      = 111
+	MovieLevelUnknown    = 112
 )
 
 // DefaultMovieLevels returns the Radarr v6 movie quality set. Size limits

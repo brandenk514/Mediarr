@@ -24,6 +24,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/paging"
 	"github.com/brandenk514/mediarr/internal/queue"
+	"github.com/brandenk514/mediarr/internal/settings"
 	"github.com/brandenk514/mediarr/internal/store"
 )
 
@@ -126,8 +127,14 @@ func (s *Service) AddMovie(ctx context.Context, req AddMovieRequest) (int64, err
 	if strings.TrimSpace(req.Title) == "" {
 		return 0, fmt.Errorf("movies: title is required")
 	}
+	// Radarr R5a: the quality profile is a Radarr v6 movie profile name —
+	// empty resolves to the factory default, and a non-empty value must be
+	// one of the seeded movie profiles (400 at the API, like the other
+	// bad-enum writes).
 	if req.QualityProfile == "" {
-		req.QualityProfile = s.deps.DefaultProfile
+		req.QualityProfile = settings.DefaultMovieQualityProfile
+	} else if !settings.MovieProfileNames()[req.QualityProfile] {
+		return 0, fmt.Errorf("%w: quality_profile %q", ErrInvalidAddParams, req.QualityProfile)
 	}
 	plan, err := dom.MonitorPlanFor(dom.MonitorMode(req.Monitor))
 	if err != nil {

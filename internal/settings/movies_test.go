@@ -14,11 +14,11 @@ func TestR5a_MovieLevelDefaults(t *testing.T) {
 		t.Fatalf("want 13 movie levels, got %d", len(levels))
 	}
 	want := []struct {
-		id       int
-		name     string
-		source   string
-		res      string
-		limitMB  int
+		id      int
+		name    string
+		source  string
+		res     string
+		limitMB int
 	}{
 		{100, "480p", "dvd", "480p", 1024},
 		{101, "720p WEB", "webrip", "720p", 1536},
@@ -350,5 +350,69 @@ func TestR5a_MovieQualityProfileJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(rb), `"webrip":true`) || !strings.Contains(string(rb), `"hdtv":true`) {
 		t.Errorf("ReleaseProfile JSON wrong: %s", rb)
+	}
+}
+
+// R5a: the movie naming + unmonitor block on the media-management document.
+func TestR5a_MovieNamingDefaults(t *testing.T) {
+	mm := DefaultMediaManagement()
+	if !mm.MovieNaming.RenameMovies || !mm.MovieNaming.ReplaceIllegalCharacters {
+		t.Errorf("movie_naming booleans must default true: %+v", mm.MovieNaming)
+	}
+	if mm.MovieNaming.ColonReplacement != "" {
+		t.Errorf("colon_replacement must default empty: %q", mm.MovieNaming.ColonReplacement)
+	}
+	if mm.MovieNaming.StandardFormat != DefaultMovieStandardFormat {
+		t.Errorf("standard_format = %q, want %q", mm.MovieNaming.StandardFormat, DefaultMovieStandardFormat)
+	}
+	if !mm.Management.UnmonitorDeletedMovies {
+		t.Error("unmonitor_deleted_movies must default true")
+	}
+	if err := SectionMediaManagement.ValidateDocument(mm); err != "" {
+		t.Errorf("defaults must validate: %s", err)
+	}
+}
+
+// R5a: a pre-R5a stored document (no movie_naming / unmonitor fields) reads
+// the defaults — the decode-over-defaults path.
+func TestR5a_MediaManagementLegacyStoredDoc(t *testing.T) {
+	stored := []byte(`{"naming":{"series":"s","episode":"e","movie":"m","album":"a","track":"t","author":"a2","title":"tt"},"file_management":{"min_file_age_hours":0,"remove_empty_dirs":true,"import_extra_files":true,"rename_series":true},"remote_path_mappings":[]}`)
+	doc, err := SectionMediaManagement.DecodeDocument(stored)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	mm, ok := doc.(*MediaManagementSettings)
+	if !ok {
+		t.Fatalf("decoded type %T", doc)
+	}
+	if !mm.MovieNaming.RenameMovies || mm.MovieNaming.StandardFormat != DefaultMovieStandardFormat {
+		t.Errorf("movie_naming defaults not merged on read: %+v", mm.MovieNaming)
+	}
+	if !mm.Management.UnmonitorDeletedMovies {
+		t.Error("unmonitor_deleted_movies default not merged on read")
+	}
+}
+
+// R5a: movie naming validation — empty standard_format and a multi-rune
+// colon replacement are rejected; a single (possibly multi-byte) character
+// is accepted.
+func TestR5a_MovieNamingValidation(t *testing.T) {
+	base := DefaultMediaManagement()
+
+	base.MovieNaming.StandardFormat = ""
+	if err := SectionMediaManagement.ValidateDocument(base); err != "movie_naming.standard_format is required" {
+		t.Errorf("empty standard_format: got %q", err)
+	}
+
+	base = DefaultMediaManagement()
+	base.MovieNaming.ColonReplacement = "--"
+	if err := SectionMediaManagement.ValidateDocument(base); err != "movie_naming.colon_replacement must be a single character or empty" {
+		t.Errorf("two-char colon: got %q", err)
+	}
+
+	base = DefaultMediaManagement()
+	base.MovieNaming.ColonReplacement = "→" // one rune, two bytes — Radarr allows a single character
+	if err := SectionMediaManagement.ValidateDocument(base); err != "" {
+		t.Errorf("single-rune colon must validate: %q", err)
 	}
 }

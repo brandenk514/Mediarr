@@ -345,7 +345,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Add the movie.
-	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "HD-1080p"})
+	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "1080p"})
 	if err != nil {
 		t.Fatalf("add movie: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestPipeline_NoMatch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "HD-1080p"})
+	id, err := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "1080p"})
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestPipeline_PicksBestRelease(t *testing.T) {
 		MediaRoot: mediaRoot,
 	})
 	ctx := context.Background()
-	id, _ := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "HD-1080p"})
+	id, _ := svc.AddMovie(ctx, AddMovieRequest{Title: "Dune Part Two", Year: "2024", QualityProfile: "1080p"})
 	if _, err := svc.RunPipeline(ctx, id); err != nil {
 		t.Fatalf("run pipeline: %v", err)
 	}
