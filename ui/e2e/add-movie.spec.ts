@@ -30,6 +30,12 @@ test('add a movie through the form and see it in the grid', async ({ page }) => 
 
   await expect(page).toHaveURL(/\/movies$/)
   await expect(page.getByTestId('movies-grid')).toBeVisible()
+  // Local dev databases accumulate probe movies across runs, and the grid is
+  // paginated (25/page): with the default title sort the freshest probe can
+  // sit on page 2. Sort newest-added first so the new movie leads the grid
+  // regardless of database state (CI runs against a fresh database).
+  await page.getByTestId('movies-sort-btn').click()
+  await page.getByTestId('movies-sort-opt-added-desc').click()
   // Grid cards carry the title in their tooltip (the R1 grid design shows the
   // status ribbon + monitored/quality footer, not the title text), so assert
   // on the title attribute of the new movie's poster cell.
