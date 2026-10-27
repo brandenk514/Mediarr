@@ -146,7 +146,8 @@ func (s *Service) AddAlbum(ctx context.Context, artistID int64, name string, yea
 		Year:            year,
 		QualityProfile:  profile,
 		Monitored:       monitored,
-		VerifyChecksums: true, // default on (PLAN §15.5); callers may override
+		VerifyChecksums: true,    // default on (PLAN §15.5); callers may override
+		AlbumType:       "album", // L1: empty = album; the OpenAPI enum allows no empty value, so the service normalizes it (TV series_type convention)
 	}
 	id, err := s.deps.Repo.CreateAlbum(ctx, album)
 	if err != nil {

@@ -509,6 +509,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/music/artists/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List an artist's history (Lidarr L1 detail toolbar). */
+        get: operations["getArtistHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/music/artists/{id}/albums": {
         parameters: {
             query?: never;
@@ -541,6 +558,23 @@ export interface paths {
         put?: never;
         /** Run the music pipeline. */
         post: operations["runMusicPipeline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/music/library/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Library-wide counts for the footer status bar (Lidarr-specific; no Sonarr equivalent). */
+        get: operations["musicLibrarySummary"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2329,6 +2363,24 @@ export interface components {
             MBID: string;
             Name: string;
             Monitored: boolean;
+            /**
+             * @description The artist's release status (Lidarr grid ribbon); empty = unknown.
+             * @enum {string}
+             */
+            Status?: "continuing" | "ended" | "inactive";
+            /** @description Name of this artist's default quality profile; empty = none. */
+            QualityProfile?: string;
+            /** @description Subfolder under the root folder; empty = use the artist name. */
+            Path?: string;
+            /** @description 0 = unknown. */
+            Rating?: number;
+            /** @description Empty = unknown. */
+            Genre?: string;
+            /** @description Named external links; empty array = none. */
+            Links?: {
+                Name: string;
+                URL: string;
+            }[];
             /** Format: date-time */
             AddedAt: string;
         };
@@ -2338,6 +2390,10 @@ export interface components {
             mbid?: string;
             /** @description Omitted = monitored (default). */
             monitored?: boolean;
+            /** @description Per-artist default quality profile (Lidarr L2 modal); omitted keeps current behavior. */
+            quality_profile?: string;
+            /** @description Subfolder under the root folder; omitted = the artist name (same-named subfolder). */
+            path?: string;
         };
         Album: {
             /** Format: int64 */
@@ -2353,6 +2409,26 @@ export interface components {
             VerifyChecksums: boolean;
             /** @description Expected sha256 of the whole-album file, when known. */
             Checksum: string;
+            /**
+             * @description The release type (Lidarr accordion groups); empty = album.
+             * @enum {string}
+             */
+            AlbumType?: "album" | "ep" | "single" | "compilation" | "live" | "remix" | "broadcast" | "demo" | "djmix" | "other";
+            /** @description Calendar date (YYYY-MM-DD); empty = unknown. The Year field is kept as-is. */
+            ReleaseDate?: string;
+            /** @description 0 = unknown. */
+            Rating?: number;
+            /** @description Seconds; 0 = unknown. */
+            Duration?: number;
+            /**
+             * Format: int64
+             * @description Bytes; 0 = unknown.
+             */
+            Size?: number;
+            /** @description Number of known tracks (computed over the tracks). */
+            TrackCount?: number;
+            /** @description Tracks that have an imported file (computed; powers Lidarr's "3/9" badge). */
+            FileCount?: number;
             /** Format: date-time */
             AddedAt: string;
         };
@@ -2376,6 +2452,25 @@ export interface components {
             /** @description Expected sha256 of the file, when known. */
             Checksum: string;
             Monitored: boolean;
+            /** @description Seconds; 0 = unknown. */
+            Duration?: number;
+            /** @description e.g. FLAC, MP3; empty = unknown. */
+            Codec?: string;
+            /** @description 0 = unknown. */
+            Channels?: number;
+            /** @description 0 = unknown. */
+            Kbps?: number;
+            /** @description kHz; 0 = unknown. */
+            SampleRate?: number;
+            /** @description 0 = unknown. */
+            BitDepth?: number;
+            /**
+             * Format: int64
+             * @description Bytes; 0 = unknown.
+             */
+            Size?: number;
+            /** @description Empty = missing/no file; otherwise the quality string of the imported file (e.g. FLAC). */
+            Status?: string;
             /** Format: date-time */
             AddedAt: string;
         };
@@ -2385,6 +2480,34 @@ export interface components {
             title?: string;
             /** @description Omitted = monitored (default). */
             monitored?: boolean;
+        };
+        MusicHistoryEntry: {
+            /** @description e.g. added, monitored, searched, download, import */
+            Event: string;
+            Detail: string;
+            /** Format: date-time */
+            At: string;
+        };
+        MusicLibrarySummary: {
+            /** Format: int64 */
+            artists: number;
+            /** Format: int64 */
+            inactive: number;
+            /** Format: int64 */
+            continuing: number;
+            /** Format: int64 */
+            monitored: number;
+            /** Format: int64 */
+            unmonitored: number;
+            /** Format: int64 */
+            tracks: number;
+            /** Format: int64 */
+            files: number;
+            /**
+             * Format: int64
+             * @description Bytes across all tracks with an imported file.
+             */
+            total_file_size: number;
         };
         AlbumWanted: {
             /** Format: int64 */
@@ -4598,6 +4721,34 @@ export interface operations {
             500: components["responses"]["Internal"];
         };
     };
+    getArtistHistory: {
+        parameters: {
+            query?: {
+                /** @description Max entries (default 200, clamped to 1..1000). */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The artist's history entries, newest first (empty array when the artist has none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MusicHistoryEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
     listAlbums: {
         parameters: {
             query?: never;
@@ -4689,6 +4840,28 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["Internal"];
+        };
+    };
+    musicLibrarySummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The library counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MusicLibrarySummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
         };
     };
