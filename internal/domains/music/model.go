@@ -19,13 +19,35 @@ import (
 // Wanted items carry the album or track specifier so monitoring works at both
 // album and track granularity (PLAN §4).
 
+// Artist release statuses (Lidarr L1 grid ribbon; "inactive" artists are the
+// ones the footer count tracks separately).
+const (
+	StatusContinuing = "continuing"
+	StatusEnded      = "ended"
+	StatusInactive   = "inactive"
+)
+
+// ArtistLink is one named external link (MusicBrainz URLs, socials, ...).
+type ArtistLink struct {
+	Name string
+	URL  string
+}
+
 // Artist is a tracked music artist.
 type Artist struct {
 	ID        int64
 	MBID      string // MusicBrainz artist id ("" = unset)
 	Name      string
 	Monitored bool // artist-level monitor toggle
-	AddedAt   time.Time
+	// L1 (Lidarr grid/detail) display fields; the backend always populates
+	// them (""/0/empty = unknown or none).
+	Status         string       // continuing / ended / inactive
+	QualityProfile string       // name of the artist's default quality profile; "" = none
+	Path           string       // subfolder under the root folder; "" = use the artist name
+	Rating         float64      // 0 = unknown
+	Genre          string       // "" = unknown
+	Links          []ArtistLink // empty = none
+	AddedAt        time.Time
 }
 
 // Album is a known album within an artist.
@@ -39,7 +61,18 @@ type Album struct {
 	Monitored       bool   // album-level monitor toggle
 	VerifyChecksums bool   // per-library checksum opt-out (PLAN §15.5); default true
 	Checksum        string // expected sha256 of the whole-album file, when known
-	AddedAt         time.Time
+	// L1 (Lidarr detail accordion) fields; the backend always populates them.
+	AlbumType   string  // album / ep / single / compilation / live / remix / broadcast / demo / djmix / other; "" = album
+	ReleaseDate string  // calendar date (YYYY-MM-DD); "" = unknown
+	Rating      float64 // 0 = unknown
+	Duration    int     // seconds; 0 = unknown
+	Size        int64   // bytes; 0 = unknown
+	// TrackCount (known tracks) and FileCount (tracks with an imported file,
+	// powering Lidarr's "3/9" badge) are COMPUTED by the repository from the
+	// tracks — never stored as denormalized counters.
+	TrackCount int
+	FileCount  int
+	AddedAt    time.Time
 }
 
 // Track is a single known track within an album.
@@ -52,7 +85,18 @@ type Track struct {
 	Title     string
 	Checksum  string // expected sha256 of the file, when known
 	Monitored bool   // track-level monitor toggle
-	AddedAt   time.Time
+	// L1 (Lidarr track table) audio info + file status. L1 does not build a
+	// tag reader: these are populated by the (deferred) file tracker and stay
+	// zero/empty for L1 imports.
+	Duration   int     // seconds; 0 = unknown
+	Codec      string  // e.g. FLAC, MP3; "" = unknown
+	Channels   int     // 0 = unknown
+	Kbps       int     // 0 = unknown
+	SampleRate int     // kHz; 0 = unknown
+	BitDepth   int     // 0 = unknown
+	Size       int64   // bytes; 0 = unknown
+	Status     string  // "" = missing/no file; otherwise the quality string of the imported file (e.g. "FLAC")
+	AddedAt    time.Time
 }
 
 // WantedStatus is the lifecycle of a wanted request.
@@ -105,6 +149,21 @@ type HistoryEntry struct {
 	Event    string // "added", "monitored", "searched", "download", "import", "checksum", ...
 	Detail   string
 	At       time.Time
+}
+
+// LibrarySummary is the library-wide count set for the footer status bar
+// (Lidarr-specific; there is no Sonarr equivalent). FileCount-style metrics
+// count tracks whose Status is non-empty (i.e. have an imported file);
+// TotalFileSize is the sum of those tracks' sizes in bytes.
+type LibrarySummary struct {
+	Artists       int64 `json:"artists"`
+	Inactive      int64 `json:"inactive"`
+	Continuing    int64 `json:"continuing"`
+	Monitored     int64 `json:"monitored"`
+	Unmonitored   int64 `json:"unmonitored"`
+	Tracks        int64 `json:"tracks"`
+	Files         int64 `json:"files"`
+	TotalFileSize int64 `json:"total_file_size"`
 }
 
 // ErrArtistNotFound is returned when an artist id does not exist.
@@ -162,4 +221,7 @@ type Repo interface {
 	// History
 	AddHistory(ctx context.Context, e HistoryEntry) error
 	ListHistory(ctx context.Context, artistID int64, limit int) ([]HistoryEntry, error)
+
+	// Library (L1 footer status bar)
+	LibrarySummary(ctx context.Context) (LibrarySummary, error)
 }

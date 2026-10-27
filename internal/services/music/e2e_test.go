@@ -283,6 +283,36 @@ func (r *memRepo) ListHistory(ctx context.Context, artistID int64, limit int) ([
 	return out, nil
 }
 
+// LibrarySummary mirrors the SQL semantics: "files" = tracks with a
+// non-empty status (an imported file); total size sums only those files.
+func (r *memRepo) LibrarySummary(ctx context.Context) (dom.LibrarySummary, error) {
+	var s dom.LibrarySummary
+	s.Artists = int64(len(r.artists))
+	for _, a := range r.artists {
+		switch a.Status {
+		case dom.StatusInactive:
+			s.Inactive++
+		case dom.StatusContinuing:
+			s.Continuing++
+		}
+		if a.Monitored {
+			s.Monitored++
+		} else {
+			s.Unmonitored++
+		}
+	}
+	for _, ts := range r.tracks {
+		for _, t := range ts {
+			s.Tracks++
+			if t.Status != "" {
+				s.Files++
+				s.TotalFileSize += t.Size
+			}
+		}
+	}
+	return s, nil
+}
+
 var _ dom.Repo = (*memRepo)(nil)
 
 // albumDestPath builds the documented whole-album import destination so the

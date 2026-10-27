@@ -168,6 +168,37 @@ func (r *kindsMusicRepo) ListHistory(_ context.Context, _ int64, _ int) ([]music
 	return nil, nil
 }
 
+// LibrarySummary computes the footer counts from the in-memory state with the
+// same semantics as the SQL: "files" = tracks with a non-empty status (an
+// imported file).
+func (r *kindsMusicRepo) LibrarySummary(_ context.Context) (musicdom.LibrarySummary, error) {
+	var s musicdom.LibrarySummary
+	s.Artists = int64(len(r.artists))
+	for _, a := range r.artists {
+		switch a.Status {
+		case musicdom.StatusInactive:
+			s.Inactive++
+		case musicdom.StatusContinuing:
+			s.Continuing++
+		}
+		if a.Monitored {
+			s.Monitored++
+		} else {
+			s.Unmonitored++
+		}
+	}
+	for _, ts := range r.tracks {
+		for _, t := range ts {
+			s.Tracks++
+			if t.Status != "" {
+				s.Files++
+				s.TotalFileSize += t.Size
+			}
+		}
+	}
+	return s, nil
+}
+
 // ---- In-memory books repo (same pattern). ----
 
 type kindsBooksRepo struct {

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	music "github.com/brandenk514/mediarr/internal/domains/music"
@@ -18,6 +19,33 @@ func NewMusicRepo(db *sql.DB) *MusicRepo { return &MusicRepo{db: db} }
 
 var _ music.Repo = (*MusicRepo)(nil)
 
+// parseLinks decodes the artists.links column (JSON array of {Name, URL};
+// the movie_files languages/formats TEXT '[]' convention). An empty or
+// malformed value yields an empty slice so one bad row never breaks a list.
+func parseLinks(s string) []music.ArtistLink {
+	var out []music.ArtistLink
+	if s == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return []music.ArtistLink{}
+	}
+	return out
+}
+
+// marshalLinks encodes links for the artists.links column; nil becomes '[]'
+// (the column default) so the read side always gets a well-formed array.
+func marshalLinks(links []music.ArtistLink) string {
+	if links == nil {
+		return "[]"
+	}
+	b, err := json.Marshal(links)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
 // --- Artists ---
 
 // CreateArtist inserts an artist and returns its id.
@@ -32,10 +60,11 @@ func (r *MusicRepo) CreateArtist(ctx context.Context, a music.Artist) (int64, er
 		return 0, fmt.Errorf("music: create artist: %w", err)
 	}
 	err = r.db.QueryRowContext(ctx, `
-		INSERT INTO music_artists (mbid, name, monitored)
-		VALUES ($1, $2, $3)
+		INSERT INTO music_artists (mbid, name, monitored, status, quality_profile, path, rating, genre, links)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id`,
-		a.MBID, a.Name, a.Monitored,
+		a.MBID, a.Name, a.Monitored, a.Status, a.QualityProfile, a.Path,
+		a.Rating, a.Genre, marshalLinks(a.Links),
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("music: create artist: %w", err)
@@ -46,23 +75,28 @@ func (r *MusicRepo) CreateArtist(ctx context.Context, a music.Artist) (int64, er
 // GetArtist loads an artist by id.
 func (r *MusicRepo) GetArtist(ctx context.Context, id int64) (*music.Artist, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, mbid, name, monitored, added_at
+		SELECT id, mbid, name, monitored, status, quality_profile, path,
+		       rating, genre, links, added_at
 		FROM music_artists WHERE id = $1`, id)
 	a := &music.Artist{}
-	err := row.Scan(&a.ID, &a.MBID, &a.Name, &a.Monitored, &a.AddedAt)
+	var links string
+	err := row.Scan(&a.ID, &a.MBID, &a.Name, &a.Monitored, &a.Status,
+		&a.QualityProfile, &a.Path, &a.Rating, &a.Genre, &links, &a.AddedAt)
 	if err == sql.ErrNoRows {
 		return nil, music.ErrArtistNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("music: get artist: %w", err)
 	}
+	a.Links = parseLinks(links)
 	return a, nil
 }
 
 // ListArtists returns all artists, oldest first.
 func (r *MusicRepo) ListArtists(ctx context.Context) ([]music.Artist, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, mbid, name, monitored, added_at
+		SELECT id, mbid, name, monitored, status, quality_profile, path,
+		       rating, genre, links, added_at
 		FROM music_artists ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("music: list artists: %w", err)
@@ -71,9 +105,12 @@ func (r *MusicRepo) ListArtists(ctx context.Context) ([]music.Artist, error) {
 	var out []music.Artist
 	for rows.Next() {
 		var a music.Artist
-		if err := rows.Scan(&a.ID, &a.MBID, &a.Name, &a.Monitored, &a.AddedAt); err != nil {
+		var links string
+		if err := rows.Scan(&a.ID, &a.MBID, &a.Name, &a.Monitored, &a.Status,
+			&a.QualityProfile, &a.Path, &a.Rating, &a.Genre, &links, &a.AddedAt); err != nil {
 			return nil, fmt.Errorf("music: scan artist: %w", err)
 		}
+		a.Links = parseLinks(links)
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -99,11 +136,13 @@ func (r *MusicRepo) CreateAlbum(ctx context.Context, a music.Album) (int64, erro
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO music_albums
-			(artist_id, mbid, name, year, quality_profile, monitored, verify_checksums, checksum)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			(artist_id, mbid, name, year, quality_profile, monitored, verify_checksums, checksum,
+			 album_type, release_date, rating, duration, size)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id`,
 		a.ArtistID, a.MBID, a.Name, a.Year, a.QualityProfile, a.Monitored,
-		a.VerifyChecksums, a.Checksum,
+		a.VerifyChecksums, a.Checksum, a.AlbumType, a.ReleaseDate, a.Rating,
+		a.Duration, a.Size,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("music: create album: %w", err)
@@ -111,19 +150,36 @@ func (r *MusicRepo) CreateAlbum(ctx context.Context, a music.Album) (int64, erro
 	return id, nil
 }
 
+// albumSelectCols is the shared album SELECT list. TrackCount and FileCount
+// are aggregation subqueries over music_tracks (FileCount counts tracks with
+// a non-empty status, i.e. an imported file) — the counts are derived, never
+// stored.
+const albumSelectCols = `
+	id, artist_id, mbid, name, year, quality_profile, monitored,
+	verify_checksums, checksum, album_type, release_date, rating, duration,
+	size, added_at,
+	(SELECT COUNT(*) FROM music_tracks t WHERE t.album_id = a.id) AS track_count,
+	(SELECT COUNT(*) FROM music_tracks t WHERE t.album_id = a.id AND t.status <> '') AS file_count`
+
+// scanAlbum maps one album row (see albumSelectCols) onto an Album.
+func scanAlbum(row interface {
+	Scan(dest ...any) error
+}, a *music.Album) error {
+	return row.Scan(&a.ID, &a.ArtistID, &a.MBID, &a.Name, &a.Year,
+		&a.QualityProfile, &a.Monitored, &a.VerifyChecksums, &a.Checksum,
+		&a.AlbumType, &a.ReleaseDate, &a.Rating, &a.Duration, &a.Size,
+		&a.AddedAt, &a.TrackCount, &a.FileCount)
+}
+
 // GetAlbum loads an album by id.
 func (r *MusicRepo) GetAlbum(ctx context.Context, id int64) (*music.Album, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, artist_id, mbid, name, year, quality_profile, monitored,
-		       verify_checksums, checksum, added_at
-		FROM music_albums WHERE id = $1`, id)
+		SELECT `+albumSelectCols+`
+		FROM music_albums a WHERE a.id = $1`, id)
 	a := &music.Album{}
-	err := row.Scan(&a.ID, &a.ArtistID, &a.MBID, &a.Name, &a.Year,
-		&a.QualityProfile, &a.Monitored, &a.VerifyChecksums, &a.Checksum, &a.AddedAt)
-	if err == sql.ErrNoRows {
+	if err := scanAlbum(row, a); err == sql.ErrNoRows {
 		return nil, music.ErrAlbumNotFound
-	}
-	if err != nil {
+	} else if err != nil {
 		return nil, fmt.Errorf("music: get album: %w", err)
 	}
 	return a, nil
@@ -132,10 +188,9 @@ func (r *MusicRepo) GetAlbum(ctx context.Context, id int64) (*music.Album, error
 // ListAlbums returns all albums for an artist, oldest first.
 func (r *MusicRepo) ListAlbums(ctx context.Context, artistID int64) ([]music.Album, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, artist_id, mbid, name, year, quality_profile, monitored,
-		       verify_checksums, checksum, added_at
-		FROM music_albums WHERE artist_id = $1
-		ORDER BY year DESC, name, id`, artistID)
+		SELECT `+albumSelectCols+`
+		FROM music_albums a WHERE a.artist_id = $1
+		ORDER BY a.year DESC, a.name, a.id`, artistID)
 	if err != nil {
 		return nil, fmt.Errorf("music: list albums: %w", err)
 	}
@@ -143,8 +198,7 @@ func (r *MusicRepo) ListAlbums(ctx context.Context, artistID int64) ([]music.Alb
 	var out []music.Album
 	for rows.Next() {
 		var a music.Album
-		if err := rows.Scan(&a.ID, &a.ArtistID, &a.MBID, &a.Name, &a.Year,
-			&a.QualityProfile, &a.Monitored, &a.VerifyChecksums, &a.Checksum, &a.AddedAt); err != nil {
+		if err := scanAlbum(rows, &a); err != nil {
 			return nil, fmt.Errorf("music: scan album: %w", err)
 		}
 		out = append(out, a)
@@ -171,10 +225,14 @@ func (r *MusicRepo) SetAlbumMonitored(ctx context.Context, id int64, monitored b
 func (r *MusicRepo) CreateTrack(ctx context.Context, t music.Track) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
-		INSERT INTO music_tracks (album_id, mbid, disc, number, title, checksum, monitored)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO music_tracks
+			(album_id, mbid, disc, number, title, checksum, monitored,
+			 duration, codec, channels, kbps, sample_rate, bit_depth, size, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING id`,
 		t.AlbumID, t.MBID, t.Disc, t.Number, t.Title, t.Checksum, t.Monitored,
+		t.Duration, t.Codec, t.Channels, t.Kbps, t.SampleRate, t.BitDepth,
+		t.Size, t.Status,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("music: create track: %w", err)
@@ -182,19 +240,34 @@ func (r *MusicRepo) CreateTrack(ctx context.Context, t music.Track) (int64, erro
 	return id, nil
 }
 
+// trackSelectCols is the shared track SELECT list (id, album_id, mbid, disc,
+// number, title, checksum, monitored, then the L1 audio-info/file-status
+// fields, added_at).
+const trackSelectCols = `
+	id, album_id, mbid, disc, number, title, checksum, monitored,
+	duration, codec, channels, kbps, sample_rate, bit_depth, size, status,
+	added_at`
+
+// scanTrack maps one track row (see trackSelectCols) onto a Track.
+func scanTrack(row interface {
+	Scan(dest ...any) error
+}, t *music.Track) error {
+	return row.Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Disc, &t.Number,
+		&t.Title, &t.Checksum, &t.Monitored, &t.Duration, &t.Codec,
+		&t.Channels, &t.Kbps, &t.SampleRate, &t.BitDepth, &t.Size, &t.Status,
+		&t.AddedAt)
+}
+
 // GetTrack loads a single track by (album, disc, number).
 func (r *MusicRepo) GetTrack(ctx context.Context, albumID int64, disc, number int) (*music.Track, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, album_id, mbid, disc, number, title, checksum, monitored, added_at
+		SELECT `+trackSelectCols+`
 		FROM music_tracks WHERE album_id = $1 AND disc = $2 AND number = $3`,
 		albumID, disc, number)
 	t := &music.Track{}
-	err := row.Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Disc, &t.Number, &t.Title,
-		&t.Checksum, &t.Monitored, &t.AddedAt)
-	if err == sql.ErrNoRows {
+	if err := scanTrack(row, t); err == sql.ErrNoRows {
 		return nil, music.ErrTrackNotFound
-	}
-	if err != nil {
+	} else if err != nil {
 		return nil, fmt.Errorf("music: get track: %w", err)
 	}
 	return t, nil
@@ -203,7 +276,7 @@ func (r *MusicRepo) GetTrack(ctx context.Context, albumID int64, disc, number in
 // ListTracks returns all tracks for an album, ordered by disc then number.
 func (r *MusicRepo) ListTracks(ctx context.Context, albumID int64) ([]music.Track, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, album_id, mbid, disc, number, title, checksum, monitored, added_at
+		SELECT `+trackSelectCols+`
 		FROM music_tracks WHERE album_id = $1
 		ORDER BY disc, number`, albumID)
 	if err != nil {
@@ -213,8 +286,7 @@ func (r *MusicRepo) ListTracks(ctx context.Context, albumID int64) ([]music.Trac
 	var out []music.Track
 	for rows.Next() {
 		var t music.Track
-		if err := rows.Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Disc, &t.Number,
-			&t.Title, &t.Checksum, &t.Monitored, &t.AddedAt); err != nil {
+		if err := scanTrack(rows, &t); err != nil {
 			return nil, fmt.Errorf("music: scan track: %w", err)
 		}
 		out = append(out, t)
@@ -431,4 +503,30 @@ func (r *MusicRepo) ListHistory(ctx context.Context, artistID int64, limit int) 
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// --- Library (L1 footer status bar) ---
+
+// LibrarySummary computes the footer counts in one pass: artist totals
+// (status + monitored split), and the track/file metrics — "files" is tracks
+// whose status is non-empty (they have an imported file), and the total file
+// size sums only those files.
+func (r *MusicRepo) LibrarySummary(ctx context.Context) (music.LibrarySummary, error) {
+	var s music.LibrarySummary
+	err := r.db.QueryRowContext(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM music_artists),
+			(SELECT COUNT(*) FROM music_artists WHERE status = 'inactive'),
+			(SELECT COUNT(*) FROM music_artists WHERE status = 'continuing'),
+			(SELECT COUNT(*) FROM music_artists WHERE monitored),
+			(SELECT COUNT(*) FROM music_artists WHERE NOT monitored),
+			(SELECT COUNT(*) FROM music_tracks),
+			(SELECT COUNT(*) FROM music_tracks WHERE status <> ''),
+			COALESCE((SELECT SUM(size) FROM music_tracks WHERE status <> ''), 0)
+	`).Scan(&s.Artists, &s.Inactive, &s.Continuing, &s.Monitored,
+		&s.Unmonitored, &s.Tracks, &s.Files, &s.TotalFileSize)
+	if err != nil {
+		return music.LibrarySummary{}, fmt.Errorf("music: library summary: %w", err)
+	}
+	return s, nil
 }
