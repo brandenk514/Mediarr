@@ -357,7 +357,7 @@ func TestMusicPipeline_EndToEnd_Postgres(t *testing.T) {
 	})
 
 	// 1. Add the artist (monitored) and a monitored album (whole-album wanted).
-	artistID, err := svc.AddArtist(ctx, "Bob Marley", "", true)
+	artistID, err := svc.AddArtist(ctx, musics.AddArtistInput{Name: "Bob Marley", Monitored: true})
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}

@@ -3,7 +3,9 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
+	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/paging"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 )
@@ -31,6 +33,8 @@ func (s *Server) SetMusic(deps *MusicDeps) {
 	s.register("GET /api/v1/music/artists", s.requireAuth(s.ListArtists))
 	s.register("GET /api/v1/music/artists/{id}", s.requireAuth(s.GetArtist))
 	s.register("PUT /api/v1/music/artists/{id}", s.requireAuth(s.SetArtistMonitored))
+	s.register("GET /api/v1/music/artists/{id}/history", s.requireAuth(s.GetArtistHistory))
+	s.register("GET /api/v1/music/library/summary", s.requireAuth(s.MusicLibrarySummary))
 	s.register("POST /api/v1/music/artists/{id}/albums", s.requireAuth(s.AddAlbum))
 	s.register("GET /api/v1/music/artists/{id}/albums", s.requireAuth(s.ListAlbums))
 	s.register("GET /api/v1/music/albums/{id}", s.requireAuth(s.GetAlbum))
@@ -45,14 +49,19 @@ func (s *Server) SetMusic(deps *MusicDeps) {
 // addArtistRequest is the body for POST /api/v1/music. Monitored is a pointer
 // so "omitted" (defaults to monitored) is distinguishable from an explicit
 // false. MBID is the MusicBrainz id of the selected result (M6 #42); "" = unset.
+// QualityProfile and Path are the optional L1/L2 modal fields: "" = none /
+// same-named subfolder under the root folder.
 type addArtistRequest struct {
-	Name      string `json:"name"`
-	MBID      string `json:"mbid"`
-	Monitored *bool  `json:"monitored"`
+	Name           string `json:"name"`
+	MBID           string `json:"mbid"`
+	Monitored      *bool  `json:"monitored"`
+	QualityProfile string `json:"quality_profile"`
+	Path           string `json:"path"`
 }
 
-// AddArtist handles POST /api/v1/music/artists. An artist is monitored by default; an
-// explicit "monitored": false opts out (PLAN §4 artist-level monitor).
+// AddArtist handles POST /api/v1/music/artists. An artist is monitored by
+// default; an explicit "monitored": false opts out (PLAN §4 artist-level
+// monitor). Omitted quality_profile/path keep the pre-L1 behavior.
 func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 	var req addArtistRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -67,7 +76,13 @@ func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 	if req.Monitored != nil {
 		monitored = *req.Monitored
 	}
-	id, err := s.musicDeps.Svc.AddArtist(r.Context(), req.Name, req.MBID, monitored)
+	id, err := s.musicDeps.Svc.AddArtist(r.Context(), musicsvc.AddArtistInput{
+		Name:           req.Name,
+		MBID:           req.MBID,
+		Monitored:      monitored,
+		QualityProfile: req.QualityProfile,
+		Path:           req.Path,
+	})
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -99,6 +114,46 @@ func (s *Server) GetArtist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, artist)
+}
+
+// GetArtistHistory handles GET /api/v1/music/artists/{id}/history (Lidarr L1
+// detail toolbar). ?limit clamps to 1..1000, defaulting to 200. A missing
+// artist is 404.
+func (s *Server) GetArtistHistory(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	limit := 200
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	h, err := s.musicDeps.Svc.GetArtistHistory(r.Context(), id, limit)
+	if err != nil {
+		writeMusicMonitoredError(w, err)
+		return
+	}
+	if h == nil {
+		h = []musicdom.HistoryEntry{}
+	}
+	writeJSON(w, http.StatusOK, h)
+}
+
+// MusicLibrarySummary handles GET /api/v1/music/library/summary: the
+// library-wide footer status bar counts (Lidarr-specific, no Sonarr
+// equivalent).
+func (s *Server) MusicLibrarySummary(w http.ResponseWriter, r *http.Request) {
+	summary, err := s.musicDeps.Svc.LibrarySummary(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
 }
 
 // addAlbumRequest is the body for POST /api/v1/music/{id}/albums. Monitored is

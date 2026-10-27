@@ -80,20 +80,47 @@ func New(deps Deps) *Service {
 	return &Service{deps: deps}
 }
 
-// AddArtist creates an artist (if new) and records the add in history. mbid
-// is the MusicBrainz artist id of the selected result ("" = unset, M6 #42).
-// The monitored flag sets the artist-level monitor toggle (PLAN §4): a
-// monitored artist is wanted by default; an unmonitored artist is added
-// quietly. Returns the artist id.
-func (s *Service) AddArtist(ctx context.Context, name, mbid string, monitored bool) (int64, error) {
-	if strings.TrimSpace(name) == "" {
+// AddArtistInput is the add-artist use-case input (Lidarr L1 grid + L2 add
+// modal). Omitted optional fields keep pre-L1 behavior: an empty quality
+// profile stores "none", and an empty path uses the artist name (Lidarr
+// creates a same-named subfolder under the root folder).
+type AddArtistInput struct {
+	Name           string
+	MBID           string // MusicBrainz artist id ("" = unset, M6 #42)
+	Monitored      bool
+	QualityProfile string // "" = none
+	Path           string // "" = use the artist name
+}
+
+// newArtist builds the domain artist from input, applying the L1 defaults:
+// every artist we create is "continuing" (no metadata source we have —
+// MusicBrainz — supplies a release status), the quality profile is kept as
+// given ("" = none), and an omitted path falls back to the artist name.
+// Rating/Genre/Links stay empty: the MusicBrainz search response carries
+// neither (genre/urls/rating are a later-phase provider extension).
+func newArtist(in AddArtistInput) dom.Artist {
+	name := strings.TrimSpace(in.Name)
+	artistPath := in.Path
+	if artistPath == "" {
+		artistPath = name
+	}
+	return dom.Artist{
+		MBID:           in.MBID,
+		Name:           name,
+		Monitored:      in.Monitored,
+		Status:         dom.StatusContinuing,
+		QualityProfile: in.QualityProfile,
+		Path:           artistPath,
+	}
+}
+
+// AddArtist creates an artist (if new) and records the add in history.
+// Returns the artist id.
+func (s *Service) AddArtist(ctx context.Context, in AddArtistInput) (int64, error) {
+	if strings.TrimSpace(in.Name) == "" {
 		return 0, fmt.Errorf("music: artist name is required")
 	}
-	a := dom.Artist{
-		MBID:      mbid,
-		Name:      strings.TrimSpace(name),
-		Monitored: monitored,
-	}
+	a := newArtist(in)
 	id, err := s.deps.Repo.CreateArtist(ctx, a)
 	if err != nil {
 		return 0, err
@@ -201,6 +228,22 @@ func (s *Service) ListTracks(ctx context.Context, albumID int64) ([]dom.Track, e
 // with their status (used by GET /api/v1/music/albums/{id}/wanted).
 func (s *Service) ListWanted(ctx context.Context, albumID int64) ([]dom.Wanted, error) {
 	return s.deps.Repo.ListWanted(ctx, albumID)
+}
+
+// GetArtistHistory returns the artist's history entries (newest first), for
+// GET /api/v1/music/artists/{id}/history. A missing artist is surfaced via
+// ErrArtistNotFound (the handler maps it to 404, like the other per-artist
+// music endpoints).
+func (s *Service) GetArtistHistory(ctx context.Context, artistID int64, limit int) ([]dom.HistoryEntry, error) {
+	if _, err := s.deps.Repo.GetArtist(ctx, artistID); err != nil {
+		return nil, err
+	}
+	return s.deps.Repo.ListHistory(ctx, artistID, limit)
+}
+
+// LibrarySummary returns the library-wide footer counts (L1 status bar).
+func (s *Service) LibrarySummary(ctx context.Context) (dom.LibrarySummary, error) {
+	return s.deps.Repo.LibrarySummary(ctx)
 }
 
 // SetArtistMonitored toggles the artist-level monitor (PLAN §4) and propagates

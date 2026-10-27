@@ -946,12 +946,11 @@ paths:
             minimum: 1
       responses:
         "200":
-          description: The artist's history entries, newest first (null when the artist has none).
+          description: The artist's history entries, newest first (empty array when the artist has none).
           content:
             application/json:
               schema:
                 type: array
-                nullable: true
                 items:
                   $ref: "#/components/schemas/MusicHistoryEntry"
         "401":

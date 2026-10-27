@@ -88,14 +88,14 @@ type Track struct {
 	// L1 (Lidarr track table) audio info + file status. L1 does not build a
 	// tag reader: these are populated by the (deferred) file tracker and stay
 	// zero/empty for L1 imports.
-	Duration   int     // seconds; 0 = unknown
-	Codec      string  // e.g. FLAC, MP3; "" = unknown
-	Channels   int     // 0 = unknown
-	Kbps       int     // 0 = unknown
-	SampleRate int     // kHz; 0 = unknown
-	BitDepth   int     // 0 = unknown
-	Size       int64   // bytes; 0 = unknown
-	Status     string  // "" = missing/no file; otherwise the quality string of the imported file (e.g. "FLAC")
+	Duration   int    // seconds; 0 = unknown
+	Codec      string // e.g. FLAC, MP3; "" = unknown
+	Channels   int    // 0 = unknown
+	Kbps       int    // 0 = unknown
+	SampleRate int    // kHz; 0 = unknown
+	BitDepth   int    // 0 = unknown
+	Size       int64  // bytes; 0 = unknown
+	Status     string // "" = missing/no file; otherwise the quality string of the imported file (e.g. "FLAC")
 	AddedAt    time.Time
 }
 
