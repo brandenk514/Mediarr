@@ -905,7 +905,13 @@ paths:
           $ref: "#/components/responses/NotFound"
     put:
       tags: [music]
-      summary: Toggle artist-level monitoring (fans out to known albums).
+      summary: Update artist (monitored toggle + L2 Edit Artist fields).
+      description: |
+        Artist-level update (L2). The L1 monitor toggle is a subset: a
+        body with only `monitored` toggles monitoring and fans out to the
+        artist's known albums. The Edit Artist modal sends
+        `monitored` + `monitor_policy` + `monitor_new_albums` +
+        `quality_profile` + `path` + `tags`.
       operationId: setArtistMonitored
       parameters:
         - $ref: "#/components/parameters/PathID"
@@ -914,10 +920,10 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SetMonitored"
+              $ref: "#/components/schemas/UpdateArtistRequest"
       responses:
         "200":
-          description: The toggled state.
+          description: The updated monitored state.
           content:
             application/json:
               schema:
@@ -2601,19 +2607,28 @@ paths:
   /api/v1/search/artists:
     get:
       tags: [search]
-      summary: Search artists via MusicBrainz (keyless, always available).
+      summary: Search artists + release groups via MusicBrainz (keyless, always available).
+      description: |
+        L1 keyless MusicBrainz artist search, enriched in L2 for the Add
+        Artist page: returns enriched artist hits (country, type,
+        disambiguation, genres, links, already_added) plus release-group
+        hits for the same query. A bare 36-character MusicBrainz id —
+        optionally with a `lidarr:` prefix — is resolved directly to its
+        artist (client-side "lidarr:<mbid>" lookup). L1 returned a flat
+        array of `SearchResult`; the music add flow is the only consumer
+        and was updated in L2 (acceptable in v1), so this existing
+        endpoint was extended in place rather than adding a separate
+        /search/music route.
       operationId: searchArtists
       parameters:
         - $ref: "#/components/parameters/SearchQuery"
       responses:
         "200":
-          description: The hits (flat array, provider wire shape).
+          description: Enriched artist hits + release-group hits.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/SearchResult"
+                $ref: "#/components/schemas/ArtistSearchResult"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "502":
@@ -4113,6 +4128,22 @@ components:
                 type: string
               URL:
                 type: string
+        MonitorPolicy:
+          type: string
+          enum: [all, future, missing, existing, first, last, none]
+          description: >-
+            Which albums are monitored when the artist is added
+            (one-time, applies to albums added to this artist).
+            Empty = all.
+        MonitorNewAlbums:
+          type: string
+          enum: [all_albums]
+          description: Which new albums get monitored; empty = all_albums.
+        Tags:
+          type: array
+          items:
+            type: string
+          description: Free-form tags; empty = none.
         TrackCount:
           type: integer
           format: int64
@@ -4150,6 +4181,48 @@ components:
         path:
           type: string
           description: Subfolder under the root folder; omitted = the artist name (same-named subfolder).
+        monitor_policy:
+          type: string
+          enum: [all, future, missing, existing, first, last, none]
+          description: Which albums are monitored when the artist is added; omitted = all.
+        monitor_new_albums:
+          type: string
+          enum: [all_albums]
+          description: Which new albums get monitored; omitted = all_albums.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Free-form tags; omitted = none.
+    UpdateArtistRequest:
+      type: object
+      description: >-
+        Update artist fields (L2 Edit Artist modal). Omitted fields keep
+        their current value; `monitored` omitted = no change. When
+        `monitored` is provided and differs from the current state, the
+        change fans out to the artist's known albums.
+      properties:
+        monitored:
+          type: boolean
+        monitor_policy:
+          type: string
+          enum: [all, future, missing, existing, first, last, none]
+          description: Empty = all.
+        monitor_new_albums:
+          type: string
+          enum: [all_albums]
+          description: Empty = all_albums.
+        quality_profile:
+          type: string
+          description: Per-artist default quality profile; empty = none.
+        path:
+          type: string
+          description: Subfolder under the root folder; empty = use the artist name.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Free-form tags; empty = none.
     Album:
       type: object
       required: [ID, ArtistID, MBID, Name, Year, QualityProfile, Monitored, VerifyChecksums, Checksum, AddedAt]
@@ -5129,6 +5202,95 @@ components:
             tmdb:
               type: string
               description: Canonical TMDB page URL.
+    ArtistSearchHit:
+      type: object
+      description: |
+        One enriched music artist search hit for the Add Artist page
+        (Lidarr L2). Badge fields degrade to empty/zero when the
+        MusicBrainz detail fetch failed; `score` is 0 = unknown (MusicBrainz
+        exposes no popularity number, so the UI hides the heart) and
+        `already_added` is computed server-side against the library.
+      required:
+        [id, title, type, score, country, disambiguation, genres, links, already_added]
+      properties:
+        id:
+          type: string
+          description: MusicBrainz artist id (mbid).
+        title:
+          type: string
+        type:
+          type: string
+          description: Artist type ('Group' / 'Person'); empty when unknown.
+        score:
+          type: number
+          description: 0-100; 0 = unknown.
+        country:
+          type: string
+          description: Artist country; empty when unknown.
+        disambiguation:
+          type: string
+          description: MusicBrainz disambiguation string; empty when unknown.
+        genres:
+          type: array
+          items:
+            type: string
+          description: Genre names; empty when unknown.
+        links:
+          type: array
+          items:
+            type: string
+          description: External link URLs; empty when unknown.
+        already_added:
+          type: boolean
+          description: True when an artist with this mbid/name is already in the library.
+    ReleaseGroupHit:
+      type: object
+      description: |
+        One MusicBrainz release-group hit for the Add Artist page (L2).
+        `year` 0 = unknown, `release_count` 0 = unknown, `score` 0 =
+        unknown, `artist` empty when the group's artist is not cheap to
+        resolve.
+      required: [id, title, year, release_count, type, score, artist]
+      properties:
+        id:
+          type: string
+          description: MusicBrainz release-group id (mbid).
+        title:
+          type: string
+        year:
+          type: integer
+          description: First-release year; 0 = unknown.
+        release_count:
+          type: integer
+          description: Number of releases in the group; 0 = unknown.
+        type:
+          type: string
+          enum: [album, single, ep, compilation, live, remix, broadcast, demo, other, djmix]
+          description: Normalized release-group type; unmapped types map to 'other'.
+        score:
+          type: number
+          description: 0-100; 0 = unknown.
+        artist:
+          type: string
+          description: The group's artist when known; empty when unknown.
+    ArtistSearchResult:
+      type: object
+      description: |
+        GET /search/artists response (L2). L1 returned a flat array of
+        `SearchResult`; extended in place because the music add flow is
+        the only consumer (see the endpoint description).
+      required: [query, artists, release_groups]
+      properties:
+        query:
+          type: string
+        artists:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtistSearchHit"
+        release_groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseGroupHit"
     MovieMinimumAvailability:
       type: string
       description: |-

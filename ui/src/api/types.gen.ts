@@ -500,7 +500,14 @@ export interface paths {
         };
         /** Get one artist. */
         get: operations["getArtist"];
-        /** Toggle artist-level monitoring (fans out to known albums). */
+        /**
+         * Update artist (monitored toggle + L2 Edit Artist fields).
+         * @description Artist-level update (L2). The L1 monitor toggle is a subset: a
+         *     body with only `monitored` toggles monitoring and fans out to the
+         *     artist's known albums. The Edit Artist modal sends
+         *     `monitored` + `monitor_policy` + `monitor_new_albums` +
+         *     `quality_profile` + `path` + `tags`.
+         */
         put: operations["setArtistMonitored"];
         post?: never;
         delete?: never;
@@ -1482,7 +1489,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search artists via MusicBrainz (keyless, always available). */
+        /**
+         * Search artists + release groups via MusicBrainz (keyless, always available).
+         * @description L1 keyless MusicBrainz artist search, enriched in L2 for the Add
+         *     Artist page: returns enriched artist hits (country, type,
+         *     disambiguation, genres, links, already_added) plus release-group
+         *     hits for the same query. A bare 36-character MusicBrainz id —
+         *     optionally with a `lidarr:` prefix — is resolved directly to its
+         *     artist (client-side "lidarr:<mbid>" lookup). L1 returned a flat
+         *     array of `SearchResult`; the music add flow is the only consumer
+         *     and was updated in L2 (acceptable in v1), so this existing
+         *     endpoint was extended in place rather than adding a separate
+         *     /search/music route.
+         */
         get: operations["searchArtists"];
         put?: never;
         post?: never;
@@ -2382,6 +2401,18 @@ export interface components {
                 URL: string;
             }[];
             /**
+             * @description Which albums are monitored when the artist is added (one-time, applies to albums added to this artist). Empty = all.
+             * @enum {string}
+             */
+            MonitorPolicy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none";
+            /**
+             * @description Which new albums get monitored; empty = all_albums.
+             * @enum {string}
+             */
+            MonitorNewAlbums?: "all_albums";
+            /** @description Free-form tags; empty = none. */
+            Tags?: string[];
+            /**
              * Format: int64
              * @description Number of known tracks across the artist's albums (computed); 0 = none.
              */
@@ -2414,6 +2445,38 @@ export interface components {
             quality_profile?: string;
             /** @description Subfolder under the root folder; omitted = the artist name (same-named subfolder). */
             path?: string;
+            /**
+             * @description Which albums are monitored when the artist is added; omitted = all.
+             * @enum {string}
+             */
+            monitor_policy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none";
+            /**
+             * @description Which new albums get monitored; omitted = all_albums.
+             * @enum {string}
+             */
+            monitor_new_albums?: "all_albums";
+            /** @description Free-form tags; omitted = none. */
+            tags?: string[];
+        };
+        /** @description Update artist fields (L2 Edit Artist modal). Omitted fields keep their current value; `monitored` omitted = no change. When `monitored` is provided and differs from the current state, the change fans out to the artist's known albums. */
+        UpdateArtistRequest: {
+            monitored?: boolean;
+            /**
+             * @description Empty = all.
+             * @enum {string}
+             */
+            monitor_policy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none";
+            /**
+             * @description Empty = all_albums.
+             * @enum {string}
+             */
+            monitor_new_albums?: "all_albums";
+            /** @description Per-artist default quality profile; empty = none. */
+            quality_profile?: string;
+            /** @description Subfolder under the root folder; empty = use the artist name. */
+            path?: string;
+            /** @description Free-form tags; empty = none. */
+            tags?: string[];
         };
         Album: {
             /** Format: int64 */
@@ -3008,6 +3071,66 @@ export interface components {
                 /** @description Canonical TMDB page URL. */
                 tmdb: string;
             };
+        };
+        /**
+         * @description One enriched music artist search hit for the Add Artist page
+         *     (Lidarr L2). Badge fields degrade to empty/zero when the
+         *     MusicBrainz detail fetch failed; `score` is 0 = unknown (MusicBrainz
+         *     exposes no popularity number, so the UI hides the heart) and
+         *     `already_added` is computed server-side against the library.
+         */
+        ArtistSearchHit: {
+            /** @description MusicBrainz artist id (mbid). */
+            id: string;
+            title: string;
+            /** @description Artist type ('Group' / 'Person'); empty when unknown. */
+            type: string;
+            /** @description 0-100; 0 = unknown. */
+            score: number;
+            /** @description Artist country; empty when unknown. */
+            country: string;
+            /** @description MusicBrainz disambiguation string; empty when unknown. */
+            disambiguation: string;
+            /** @description Genre names; empty when unknown. */
+            genres: string[];
+            /** @description External link URLs; empty when unknown. */
+            links: string[];
+            /** @description True when an artist with this mbid/name is already in the library. */
+            already_added: boolean;
+        };
+        /**
+         * @description One MusicBrainz release-group hit for the Add Artist page (L2).
+         *     `year` 0 = unknown, `release_count` 0 = unknown, `score` 0 =
+         *     unknown, `artist` empty when the group's artist is not cheap to
+         *     resolve.
+         */
+        ReleaseGroupHit: {
+            /** @description MusicBrainz release-group id (mbid). */
+            id: string;
+            title: string;
+            /** @description First-release year; 0 = unknown. */
+            year: number;
+            /** @description Number of releases in the group; 0 = unknown. */
+            release_count: number;
+            /**
+             * @description Normalized release-group type; unmapped types map to 'other'.
+             * @enum {string}
+             */
+            type: "album" | "single" | "ep" | "compilation" | "live" | "remix" | "broadcast" | "demo" | "other" | "djmix";
+            /** @description 0-100; 0 = unknown. */
+            score: number;
+            /** @description The group's artist when known; empty when unknown. */
+            artist: string;
+        };
+        /**
+         * @description GET /search/artists response (L2). L1 returned a flat array of
+         *     `SearchResult`; extended in place because the music add flow is
+         *     the only consumer (see the endpoint description).
+         */
+        ArtistSearchResult: {
+            query: string;
+            artists: components["schemas"]["ArtistSearchHit"][];
+            release_groups: components["schemas"]["ReleaseGroupHit"][];
         };
         /**
          * @description Minimum availability before a movie may be searched (Radarr R2).
@@ -4722,11 +4845,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetMonitored"];
+                "application/json": components["schemas"]["UpdateArtistRequest"];
             };
         };
         responses: {
-            /** @description The toggled state. */
+            /** @description The updated monitored state. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6441,13 +6564,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The hits (flat array, provider wire shape). */
+            /** @description Enriched artist hits + release-group hits. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchResult"][];
+                    "application/json": components["schemas"]["ArtistSearchResult"];
                 };
             };
             401: components["responses"]["Unauthorized"];
