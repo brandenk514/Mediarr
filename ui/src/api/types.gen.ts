@@ -2404,12 +2404,12 @@ export interface components {
              * @description Which albums are monitored when the artist is added (one-time, applies to albums added to this artist). Empty = all.
              * @enum {string}
              */
-            MonitorPolicy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none";
+            MonitorPolicy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none" | "";
             /**
              * @description Which new albums get monitored; empty = all_albums.
              * @enum {string}
              */
-            MonitorNewAlbums?: "all_albums";
+            MonitorNewAlbums?: "all_albums" | "";
             /** @description Free-form tags; empty = none. */
             Tags?: string[];
             /**
@@ -2449,12 +2449,12 @@ export interface components {
              * @description Which albums are monitored when the artist is added; omitted = all.
              * @enum {string}
              */
-            monitor_policy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none";
+            monitor_policy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none" | "";
             /**
              * @description Which new albums get monitored; omitted = all_albums.
              * @enum {string}
              */
-            monitor_new_albums?: "all_albums";
+            monitor_new_albums?: "all_albums" | "";
             /** @description Free-form tags; omitted = none. */
             tags?: string[];
         };
@@ -2465,12 +2465,12 @@ export interface components {
              * @description Empty = all.
              * @enum {string}
              */
-            monitor_policy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none";
+            monitor_policy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none" | "";
             /**
              * @description Empty = all_albums.
              * @enum {string}
              */
-            monitor_new_albums?: "all_albums";
+            monitor_new_albums?: "all_albums" | "";
             /** @description Per-artist default quality profile; empty = none. */
             quality_profile?: string;
             /** @description Subfolder under the root folder; empty = use the artist name. */
@@ -3097,6 +3097,11 @@ export interface components {
             links: string[];
             /** @description True when an artist with this mbid/name is already in the library. */
             already_added: boolean;
+            /**
+             * Format: int64
+             * @description The music library artist row id when already_added (the add page jumps to its detail page); 0 when not in the library.
+             */
+            library_id?: number;
         };
         /**
          * @description One MusicBrainz release-group hit for the Add Artist page (L2).

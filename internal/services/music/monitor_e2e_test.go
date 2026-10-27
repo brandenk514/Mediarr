@@ -57,10 +57,10 @@ func TestMonitor_Acceptance_Album(t *testing.T) {
 	}
 
 	// 2. Add two known albums, both unmonitored (no wanted rows yet).
-	if _, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", false); err != nil {
+	if _, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(false)); err != nil {
 		t.Fatalf("add Legend: %v", err)
 	}
-	if _, err := svc.AddAlbum(ctx, artistID, "Uprising", 1980, "Lossless", false); err != nil {
+	if _, err := svc.AddAlbum(ctx, artistID, "Uprising", 1980, "Lossless", boolPtr(false)); err != nil {
 		t.Fatalf("add Uprising: %v", err)
 	}
 	albums, _ := repo.ListAlbums(ctx, artistID)
@@ -134,7 +134,7 @@ func TestMonitor_Acceptance_Track(t *testing.T) {
 
 	// 1. Add the artist unmonitored, then an unmonitored album (no wanted rows).
 	artistID, _ := svc.AddArtist(ctx, AddArtistInput{Name: "Bob Marley", Monitored: false})
-	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", false)
+	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(false))
 	if pendingWanted(t, repo, albumID) != 0 {
 		t.Fatal("wanted rows exist before monitoring; want 0 (added unmonitored)")
 	}

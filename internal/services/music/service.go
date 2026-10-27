@@ -82,14 +82,18 @@ func New(deps Deps) *Service {
 
 // AddArtistInput is the add-artist use-case input (Lidarr L1 grid + L2 add
 // modal). Omitted optional fields keep pre-L1 behavior: an empty quality
-// profile stores "none", and an empty path uses the artist name (Lidarr
-// creates a same-named subfolder under the root folder).
+// profile stores "none", an empty path uses the artist name (Lidarr
+// creates a same-named subfolder under the root folder), an empty monitor
+// policy stores "" (= all).
 type AddArtistInput struct {
-	Name           string
-	MBID           string // MusicBrainz artist id ("" = unset, M6 #42)
-	Monitored      bool
-	QualityProfile string // "" = none
-	Path           string // "" = use the artist name
+	Name             string
+	MBID             string // MusicBrainz artist id ("" = unset, M6 #42)
+	Monitored        bool
+	QualityProfile   string   // "" = none
+	Path             string   // "" = use the artist name
+	MonitorPolicy    string   // PolicyAll/...; "" = all
+	MonitorNewAlbums string   // "all_albums"; "" = all_albums
+	Tags             []string // free-form tags; empty = none
 }
 
 // newArtist builds the domain artist from input, applying the L1 defaults:
@@ -105,12 +109,15 @@ func newArtist(in AddArtistInput) dom.Artist {
 		artistPath = name
 	}
 	return dom.Artist{
-		MBID:           in.MBID,
-		Name:           name,
-		Monitored:      in.Monitored,
-		Status:         dom.StatusContinuing,
-		QualityProfile: in.QualityProfile,
-		Path:           artistPath,
+		MBID:             in.MBID,
+		Name:             name,
+		Monitored:        in.Monitored,
+		Status:           dom.StatusContinuing,
+		QualityProfile:   in.QualityProfile,
+		Path:             artistPath,
+		MonitorPolicy:    in.MonitorPolicy,
+		MonitorNewAlbums: in.MonitorNewAlbums,
+		Tags:             in.Tags,
 	}
 }
 
@@ -129,13 +136,24 @@ func (s *Service) AddArtist(ctx context.Context, in AddArtistInput) (int64, erro
 	return id, nil
 }
 
-// AddAlbum creates a known album within an artist (if new) and, when the album
-// is monitored, ensures a pending whole-album wanted row for it. Returns the
-// album id.
-func (s *Service) AddAlbum(ctx context.Context, artistID int64, name string, year int, qualityProfile string, monitored bool) (int64, error) {
+// AddAlbum creates a known album within an artist (if new) and, when the
+// album is monitored, ensures a pending whole-album wanted row for it.
+// Returns the album id.
+//
+// monitored is nil when the caller did not request a value explicitly
+// (Lidarr L2: the artist's monitor policy then decides — all/missing →
+// true, none/existing → false, future → the release year is after the
+// current year, first/last → it is the chronologically first/last known
+// album of the artist); an explicit value always wins.
+func (s *Service) AddAlbum(ctx context.Context, artistID int64, name string, year int, qualityProfile string, monitored *bool) (int64, error) {
 	if strings.TrimSpace(name) == "" {
 		return 0, fmt.Errorf("music: album name is required")
 	}
+	artist, err := s.deps.Repo.GetArtist(ctx, artistID)
+	if err != nil {
+		return 0, err
+	}
+	mon := s.resolveMonitored(ctx, artist, year, monitored)
 	profile := qualityProfile
 	if profile == "" {
 		profile = s.deps.DefaultProfile
@@ -145,7 +163,7 @@ func (s *Service) AddAlbum(ctx context.Context, artistID int64, name string, yea
 		Name:            strings.TrimSpace(name),
 		Year:            year,
 		QualityProfile:  profile,
-		Monitored:       monitored,
+		Monitored:       mon,
 		VerifyChecksums: true,    // default on (PLAN §15.5); callers may override
 		AlbumType:       "album", // L1: empty = album; the OpenAPI enum allows no empty value, so the service normalizes it (TV series_type convention)
 	}
@@ -153,13 +171,122 @@ func (s *Service) AddAlbum(ctx context.Context, artistID int64, name string, yea
 	if err != nil {
 		return 0, err
 	}
-	if monitored {
+	if mon {
 		if err := s.deps.Repo.EnsureWantedAlbum(ctx, id); err != nil {
 			return 0, err
 		}
 	}
 	s.record(ctx, artistID, "album-added", fmt.Sprintf("%s (%d)", name, year))
 	return id, nil
+}
+
+// resolveMonitored resolves the album's monitored flag: an explicit
+// request wins; otherwise the artist's monitor policy (L2) decides.
+// first/last compare the release year against the artist's known albums
+// (the album being added included); a year of 0 is chronologically
+// unknowable, so first/last fall back to unmonitored.
+func (s *Service) resolveMonitored(ctx context.Context, artist *dom.Artist, year int, explicit *bool) bool {
+	if explicit != nil {
+		return *explicit
+	}
+	switch artist.MonitorPolicy {
+	case dom.PolicyAll, dom.PolicyMissing, "":
+		return true
+	case dom.PolicyNone, dom.PolicyExisting:
+		return false
+	case dom.PolicyFuture:
+		return year > time.Now().UTC().Year()
+	case dom.PolicyFirst, dom.PolicyLast:
+		if year <= 0 {
+			return false
+		}
+		albums, err := s.deps.Repo.ListAlbums(ctx, artist.ID)
+		if err != nil {
+			return false
+		}
+		minY, maxY := year, year
+		for _, a := range albums {
+			if a.Year <= 0 {
+				continue // chronologically unknowable
+			}
+			if a.Year < minY {
+				minY = a.Year
+			}
+			if a.Year > maxY {
+				maxY = a.Year
+			}
+		}
+		if artist.MonitorPolicy == dom.PolicyFirst {
+			return year == minY
+		}
+		return year == maxY
+	default:
+		return true
+	}
+}
+
+// UpdateArtistInput is the Edit Artist modal input (Lidarr L2). Pointer
+// fields mean "apply this value"; nil means "keep the current value" — the
+// L1 monitored toggle sends only Monitored and must not clobber the other
+// fields. When Monitored is applied and differs from the current state it
+// fans out to the artist's known albums (the L1 artist-level toggle).
+type UpdateArtistInput struct {
+	Monitored        *bool
+	MonitorPolicy    *string
+	MonitorNewAlbums *string
+	QualityProfile   *string
+	Path             *string
+	Tags             *[]string
+}
+
+// UpdateArtist applies the Edit Artist modal fields to one artist and, when
+// the monitored state changed, propagates it to every known album (the L1
+// artist-level fan-out). It returns the updated artist (the API responds
+// with its monitored state).
+func (s *Service) UpdateArtist(ctx context.Context, id int64, in UpdateArtistInput) (*dom.Artist, error) {
+	cur, err := s.deps.Repo.GetArtist(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	a := *cur
+	if in.Monitored != nil {
+		a.Monitored = *in.Monitored
+	}
+	if in.MonitorPolicy != nil {
+		a.MonitorPolicy = *in.MonitorPolicy
+	}
+	if in.MonitorNewAlbums != nil {
+		a.MonitorNewAlbums = *in.MonitorNewAlbums
+	}
+	if in.QualityProfile != nil {
+		a.QualityProfile = *in.QualityProfile
+	}
+	if in.Path != nil {
+		a.Path = *in.Path
+	}
+	if in.Tags != nil {
+		a.Tags = *in.Tags
+	}
+	if err := s.deps.Repo.UpdateArtist(ctx, a); err != nil {
+		return nil, err
+	}
+	if in.Monitored != nil && *in.Monitored != cur.Monitored {
+		albums, err := s.deps.Repo.ListAlbums(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		for _, al := range albums {
+			if err := s.SetAlbumMonitored(ctx, al.ID, *in.Monitored); err != nil {
+				return nil, err
+			}
+		}
+		event := "monitored"
+		if !*in.Monitored {
+			event = "unmonitored"
+		}
+		s.record(ctx, id, event, "artist-level toggle")
+	}
+	return &a, nil
 }
 
 // AddTrack creates a known track within an album (if new) and, when the track

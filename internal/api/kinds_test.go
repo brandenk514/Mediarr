@@ -115,6 +115,24 @@ func (r *kindsMusicRepo) SetArtistMonitored(_ context.Context, id int64, monitor
 	return nil
 }
 
+// UpdateArtist mirrors the real repo's L2 edit semantics: the L1/L2 editable
+// fields are written on the stored artist; unknown artist → ErrArtistNotFound.
+func (r *kindsMusicRepo) UpdateArtist(_ context.Context, a musicdom.Artist) error {
+	cur, ok := r.artists[a.ID]
+	if !ok {
+		return musicdom.ErrArtistNotFound
+	}
+	cur.Monitored = a.Monitored
+	cur.Status = a.Status
+	cur.QualityProfile = a.QualityProfile
+	cur.Path = a.Path
+	cur.MonitorPolicy = a.MonitorPolicy
+	cur.MonitorNewAlbums = a.MonitorNewAlbums
+	cur.Tags = a.Tags
+	r.artists[a.ID] = cur
+	return nil
+}
+
 func (r *kindsMusicRepo) CreateAlbum(_ context.Context, a musicdom.Album) (int64, error) {
 	id := r.nextID
 	r.nextID++

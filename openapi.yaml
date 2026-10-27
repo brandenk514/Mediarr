@@ -4130,14 +4130,14 @@ components:
                 type: string
         MonitorPolicy:
           type: string
-          enum: [all, future, missing, existing, first, last, none]
+          enum: [all, future, missing, existing, first, last, none, '']
           description: >-
             Which albums are monitored when the artist is added
             (one-time, applies to albums added to this artist).
             Empty = all.
         MonitorNewAlbums:
           type: string
-          enum: [all_albums]
+          enum: [all_albums, '']
           description: Which new albums get monitored; empty = all_albums.
         Tags:
           type: array
@@ -4183,11 +4183,11 @@ components:
           description: Subfolder under the root folder; omitted = the artist name (same-named subfolder).
         monitor_policy:
           type: string
-          enum: [all, future, missing, existing, first, last, none]
+          enum: [all, future, missing, existing, first, last, none, '']
           description: Which albums are monitored when the artist is added; omitted = all.
         monitor_new_albums:
           type: string
-          enum: [all_albums]
+          enum: [all_albums, '']
           description: Which new albums get monitored; omitted = all_albums.
         tags:
           type: array
@@ -4206,11 +4206,11 @@ components:
           type: boolean
         monitor_policy:
           type: string
-          enum: [all, future, missing, existing, first, last, none]
+          enum: [all, future, missing, existing, first, last, none, '']
           description: Empty = all.
         monitor_new_albums:
           type: string
-          enum: [all_albums]
+          enum: [all_albums, '']
           description: Empty = all_albums.
         quality_profile:
           type: string
@@ -5243,6 +5243,10 @@ components:
         already_added:
           type: boolean
           description: True when an artist with this mbid/name is already in the library.
+        library_id:
+          type: integer
+          format: int64
+          description: The music library artist row id when already_added (the add page jumps to its detail page); 0 when not in the library.
     ReleaseGroupHit:
       type: object
       description: |

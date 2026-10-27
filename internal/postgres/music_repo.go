@@ -60,11 +60,13 @@ func (r *MusicRepo) CreateArtist(ctx context.Context, a music.Artist) (int64, er
 		return 0, fmt.Errorf("music: create artist: %w", err)
 	}
 	err = r.db.QueryRowContext(ctx, `
-		INSERT INTO music_artists (mbid, name, monitored, status, quality_profile, path, rating, genre, links)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO music_artists (mbid, name, monitored, status, quality_profile, path, rating, genre, links,
+		 monitor_policy, monitor_new_albums, tags)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id`,
 		a.MBID, a.Name, a.Monitored, a.Status, a.QualityProfile, a.Path,
 		a.Rating, a.Genre, marshalLinks(a.Links),
+		a.MonitorPolicy, a.MonitorNewAlbums, nullSafeTags(a.Tags),
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("music: create artist: %w", err)
@@ -80,7 +82,7 @@ func (r *MusicRepo) CreateArtist(ctx context.Context, a music.Artist) (int64, er
 // All derived, never stored.
 const artistSelectCols = `
 id, mbid, name, monitored, status, quality_profile, path,
-rating, genre, links, added_at,
+rating, genre, links, monitor_policy, monitor_new_albums, tags, added_at,
 (SELECT COUNT(*) FROM music_tracks t
   JOIN music_albums al ON al.id = t.album_id
   WHERE al.artist_id = a.id) AS track_count,
@@ -99,13 +101,19 @@ func scanArtist(row interface {
 	Scan(dest ...any) error
 }, a *music.Artist) error {
 	var links string
+	var tags []string
 	err := row.Scan(&a.ID, &a.MBID, &a.Name, &a.Monitored, &a.Status,
-		&a.QualityProfile, &a.Path, &a.Rating, &a.Genre, &links, &a.AddedAt,
+		&a.QualityProfile, &a.Path, &a.Rating, &a.Genre, &links,
+		&a.MonitorPolicy, &a.MonitorNewAlbums, &tags, &a.AddedAt,
 		&a.TrackCount, &a.FileCount, &a.QueuedCount, &a.TotalSize)
 	if err != nil {
 		return err
 	}
 	a.Links = parseLinks(links)
+	if tags == nil {
+		tags = []string{}
+	}
+	a.Tags = tags
 	return nil
 }
 
@@ -149,6 +157,27 @@ func (r *MusicRepo) SetArtistMonitored(ctx context.Context, id int64, monitored 
 		UPDATE music_artists SET monitored = $2 WHERE id = $1`, id, monitored)
 	if err != nil {
 		return fmt.Errorf("music: set artist monitored: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return music.ErrArtistNotFound
+	}
+	return nil
+}
+
+// UpdateArtist updates the L1/L2 editable artist fields in one row (L2
+// Edit Artist modal). The caller passes the full merged artist (current
+// values plus the edits); only the editable columns are written.
+func (r *MusicRepo) UpdateArtist(ctx context.Context, a music.Artist) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE music_artists
+		SET monitored = $2, status = $3, quality_profile = $4, path = $5,
+		    monitor_policy = $6, monitor_new_albums = $7, tags = $8
+		WHERE id = $1`,
+		a.ID, a.Monitored, a.Status, a.QualityProfile, a.Path,
+		a.MonitorPolicy, a.MonitorNewAlbums, nullSafeTags(a.Tags),
+	)
+	if err != nil {
+		return fmt.Errorf("music: update artist: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return music.ErrArtistNotFound

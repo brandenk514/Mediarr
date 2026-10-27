@@ -27,6 +27,19 @@ const (
 	StatusInactive   = "inactive"
 )
 
+// Artist monitoring policies (Lidarr L2 add/edit "Monitor" select). The
+// policy decides which albums get monitored when an album is added to the
+// artist (an explicit monitored value still wins). "" = all (legacy rows).
+const (
+	PolicyAll      = "all"
+	PolicyFuture   = "future"
+	PolicyMissing  = "missing"
+	PolicyExisting = "existing"
+	PolicyFirst    = "first"
+	PolicyLast     = "last"
+	PolicyNone     = "none"
+)
+
 // ArtistLink is one named external link (MusicBrainz URLs, socials, ...).
 type ArtistLink struct {
 	Name string
@@ -47,6 +60,10 @@ type Artist struct {
 	Rating         float64      // 0 = unknown
 	Genre          string       // "" = unknown
 	Links          []ArtistLink // empty = none
+	// L2 (Lidarr add/edit modal): monitoring model + tags.
+	MonitorPolicy    string   // PolicyAll/... ; "" = all
+	MonitorNewAlbums string   // "all_albums"; "" = all_albums
+	Tags             []string // free-form tags; empty = none
 	// Per-artist aggregates for the Lidarr grid ribbon (L1 spec gap): computed
 	// by the repository from the tracks and the download queue — never stored.
 	TrackCount  int   // known tracks across the artist's albums
@@ -198,6 +215,9 @@ type Repo interface {
 	GetArtist(ctx context.Context, id int64) (*Artist, error)
 	ListArtists(ctx context.Context) ([]Artist, error)
 	SetArtistMonitored(ctx context.Context, id int64, monitored bool) error
+	// UpdateArtist updates the L1/L2 editable fields (monitored, policy,
+	// quality profile, path, tags) in one row.
+	UpdateArtist(ctx context.Context, a Artist) error
 
 	// Albums
 	CreateAlbum(ctx context.Context, a Album) (int64, error)
