@@ -228,6 +228,9 @@ func (stubMusicRepo) AddHistory(context.Context, musicdom.HistoryEntry) error {
 func (stubMusicRepo) ListHistory(context.Context, int64, int) ([]musicdom.HistoryEntry, error) {
 	panic("stubMusicRepo.ListHistory should not be called")
 }
+func (stubMusicRepo) LibrarySummary(context.Context) (musicdom.LibrarySummary, error) {
+	panic("stubMusicRepo.LibrarySummary should not be called")
+}
 
 // TestBooksRoutesRegister wires the full books route table onto a server so
 // that an ambiguous pattern in SetBooks (e.g. a bare /api/v1/books/{id}

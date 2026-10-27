@@ -1,0 +1,21 @@
+-- Revert the Lidarr L1 display fields.
+ALTER TABLE music_artists DROP COLUMN IF EXISTS status;
+ALTER TABLE music_artists DROP COLUMN IF EXISTS quality_profile;
+ALTER TABLE music_artists DROP COLUMN IF EXISTS path;
+ALTER TABLE music_artists DROP COLUMN IF EXISTS rating;
+ALTER TABLE music_artists DROP COLUMN IF EXISTS genre;
+ALTER TABLE music_artists DROP COLUMN IF EXISTS links;
+ALTER TABLE music_albums DROP COLUMN IF EXISTS album_type;
+ALTER TABLE music_albums DROP COLUMN IF EXISTS release_date;
+ALTER TABLE music_albums DROP COLUMN IF EXISTS rating;
+ALTER TABLE music_albums DROP COLUMN IF EXISTS duration;
+ALTER TABLE music_albums DROP COLUMN IF EXISTS size;
+ALTER TABLE music_tracks DROP COLUMN IF EXISTS duration;
+ALTER TABLE music_tracks DROP COLUMN IF EXISTS codec;
+ALTER TABLE music_tracks DROP COLUMN IF EXISTS channels;
+ALTER TABLE music_tracks DROP COLUMN IF EXISTS kbps;
+ALTER TABLE music_tracks DROP COLUMN IF EXISTS sample_rate;
+ALTER TABLE music_tracks DROP COLUMN IF EXISTS bit_depth;
+ALTER TABLE music_tracks DROP COLUMN IF EXISTS size;
+ALTER TABLE music_tracks DROP COLUMN IF EXISTS status;
+DROP INDEX IF EXISTS idx_music_tracks_status;

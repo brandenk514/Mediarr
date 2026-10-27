@@ -1,32 +1,63 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { client } from '../../api/client'
-import type { Album, Artist, ListQuery, PageArtist, Track } from '../../api/types'
-import { AddButton, MonitoredField, ProfilePicker } from '../../components/addflow'
+import type { ListQuery, MusicLibrarySummary, PageArtist } from '../../api/types'
+import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
   MonitoredToggle,
   Pagination,
   usePagedList,
 } from '../../components/list'
-import { Menu, Toolbar, TbButton } from '../../components/ui'
+import { MUSIC_RIBBON_LEGEND, deriveMusicRibbon, humanBytes } from '../../components/music'
+import { MusicGrid, fromArtist } from '../../components/musicgrid'
+import {
+  EmptyState,
+  Menu,
+  Toolbar,
+  TbButton,
+  ViewToggle,
+  type ViewMode,
+} from '../../components/ui'
 
-// MusicPage is the P7 music library — Lidarr-shaped within the shared shell.
-// P1 built the three-level lazy expansion (artist → album → track, each level
-// fetched on expand); P7 layers the shared toolbar pattern (Update All /
-// RSS Sync / Select / Options + Filter menu, same as TV and Movies) on top
-// and adds the lossless quality dimension the plan asks for: each album row
-// shows its lossless quality profile, and every artist has an "Add album"
-// form prefilled with the music kind's built-in lossless profiles (FLAC /
-// ALAC / …).
-type MonitoredFilter = 'all' | 'monitored' | 'unmonitored'
+// MusicPage is the Lidarr L1 artists library: a 6-up square-cover card grid
+// with the five-state status ribbon (Downloading / Continuing / Ended /
+// Missing Tracks ×2), a red corner fold on unmonitored (flagged) artists,
+// the library footer legend, and the library summary status bar (Artist ·
+// Inactive · Continuing · Monitored · Unmonitored · Tracks · Files · Total
+// File Size from GET /music/library/summary). The toolbar follows Lidarr's
+// order: Update All, RSS Sync | Select Artists | Options | View · Sort ·
+// Filter — buttons without a backend behind them are disabled stubs with a
+// "later phase" title (the P7 pattern); Update All re-fetches the library.
+// The A–Z quick jump and the list view carry over from the prior table.
+type SortKey = 'name-asc' | 'name-desc' | 'added-asc' | 'added-desc'
 
-const FILTER_OPTIONS: { value: MonitoredFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'monitored', label: 'Monitored' },
-  { value: 'unmonitored', label: 'Unmonitored' },
-]
+const SORT_OPTIONS = [
+  { value: 'name-asc', label: 'Name ↑' },
+  { value: 'name-desc', label: 'Name ↓' },
+  { value: 'added-asc', label: 'Added ↑' },
+  { value: 'added-desc', label: 'Added ↓' },
+] as const
+
+// statusFilterValue: the toolbar Filter menu's status-group options (the
+// five ribbon states). 'all' / 'monitored' / 'unmonitored' are server-side.
+type FilterValue = 'all' | 'monitored' | 'unmonitored' | 'downloading' | 'continuing' | 'ended' | 'missing-monitored' | 'missing-unmonitored'
+
+function sortArtists(items: PageArtist['items'], key: SortKey): PageArtist['items'] {
+  const dir = key.endsWith('-desc') ? -1 : 1
+  const arr = [...items]
+  arr.sort((a, b) => {
+    let cmp = 0
+    if (key.startsWith('name')) cmp = a.Name.localeCompare(b.Name)
+    else cmp = String(a.AddedAt).localeCompare(String(b.AddedAt))
+    if (cmp === 0) cmp = a.ID - b.ID // stable tiebreak
+    return cmp * dir
+  })
+  return arr
+}
 
 export function MusicPage() {
+  const navigate = useNavigate()
   const load = useCallback((q: ListQuery) => client.listArtists(q), [])
   const {
     data,
@@ -38,21 +69,60 @@ export function MusicPage() {
     setPage,
     total,
     reload,
-    expanded,
-    toggleExpanded,
   } = usePagedList<PageArtist>(load)
 
+  const [view, setView] = useState<ViewMode>('grid')
+  const [sort, setSort] = useState<SortKey>('name-asc')
+  const [statusFilter, setStatusFilter] = useState<Exclude<FilterValue, 'all' | 'monitored' | 'unmonitored'> | null>(null)
+  const [summary, setSummary] = useState<MusicLibrarySummary | null>(null)
   const [status, setStatus] = useState<string | null>(null)
+
+  // Library summary for the footer status bar (Lidarr-specific; no Sonarr
+  // equivalent). Cosmetic — a failure must not break the grid.
+  const loadSummary = useCallback(() => {
+    client
+      .getMusicLibrarySummary()
+      .then(setSummary)
+      .catch(() => setSummary(null))
+  }, [])
+
+  useEffect(() => {
+    loadSummary()
+  }, [loadSummary, data])
+
+  const baseItems = useMemo(() => (data ? data.items : []), [data])
+
+  const items = useMemo(() => {
+    const filtered = statusFilter
+      ? baseItems.filter((a) => deriveMusicRibbon(a).state === statusFilter)
+      : baseItems
+    return sortArtists(filtered, sort)
+  }, [baseItems, statusFilter, sort])
+
+  // Live counts for the Filter menu's status-group options (over the
+  // server-filtered page, before the status filter is applied).
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      downloading: 0,
+      continuing: 0,
+      ended: 0,
+      'missing-monitored': 0,
+      'missing-unmonitored': 0,
+    }
+    for (const a of baseItems) counts[deriveMusicRibbon(a).state]++
+    return counts
+  }, [baseItems])
 
   function updateAll() {
     setStatus(`Updated ${total} artists just now`)
     reload()
+    loadSummary()
   }
 
   return (
     <div className="list-page">
       <div className="dash-head">
-        <h2 data-testid="music-title">Music</h2>
+        <h2 data-testid="music-title">Artists</h2>
         <div className="dash-head-right">
           <AddButton to="/music/add" label="Add artist" testId="music-add" />
         </div>
@@ -89,12 +159,36 @@ export function MusicPage() {
               disabled
               title="More actions land in a later phase"
             />
+            <ViewToggle view={view} onChange={setView} testId="music-view" />
+            <Menu
+              label="Sort"
+              icon="↕"
+              options={[...SORT_OPTIONS]}
+              selected={sort}
+              onSelect={(v) => setSort(v as SortKey)}
+              testId="music-sort"
+            />
             <Menu
               label="Filter"
               icon="⚲"
-              options={[...FILTER_OPTIONS]}
-              selected={monitored}
-              onSelect={(v) => setMonitored(v as MonitoredFilter)}
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'monitored', label: 'Monitored' },
+                { value: 'unmonitored', label: 'Unmonitored' },
+                ...MUSIC_RIBBON_LEGEND.map((l) => ({
+                  value: l.state,
+                  label: `${l.label} (${statusCounts[l.state] ?? 0})`,
+                })),
+              ]}
+              selected={statusFilter ?? monitored}
+              onSelect={(v) => {
+                if (v === 'monitored' || v === 'unmonitored' || v === 'all') {
+                  setStatusFilter(null)
+                  setMonitored(v as 'all' | 'monitored' | 'unmonitored')
+                } else {
+                  setStatusFilter(v as Exclude<FilterValue, 'all' | 'monitored' | 'unmonitored'>)
+                }
+              }}
               testId="music-filter"
             />
           </>
@@ -109,269 +203,138 @@ export function MusicPage() {
 
       {error && !data ? (
         <div className="card" data-testid="music-error">
-          <h3>Music unavailable</h3>
+          <h3>Artists unavailable</h3>
           <p className="error" data-testid="music-error-message">
             {error}
           </p>
           <button onClick={reload}>Retry</button>
         </div>
       ) : (
-        <div className="list-list" data-testid="music-list">
-          {loading && !data ? (
-            <p className="dim">Loading artists…</p>
-          ) : data && data.items.length === 0 ? (
-            <p className="dim" data-testid="music-empty">
-              No artists match.
-            </p>
-          ) : (
-            data?.items.map((a) => (
-              <div className="list-item" key={a.ID} data-testid={`artist-${a.ID}`}>
-                <div className="item-head">
-                  <button
-                    type="button"
-                    className={`row-head ${expanded.has(a.ID) ? 'open' : ''}`}
-                    onClick={() => toggleExpanded(a.ID)}
-                    aria-expanded={expanded.has(a.ID)}
-                    data-testid={`artist-toggle-${a.ID}`}
-                  >
-                    <span className={`chevron ${expanded.has(a.ID) ? 'chevron-open' : ''}`}>
-                      {expanded.has(a.ID) ? '▾' : '▸'}
-                    </span>
-                    <span className="lt-name" title={a.Name}>
-                      {a.Name}
-                    </span>
-                  </button>
-                  <MonitoredToggle
-                    monitored={a.Monitored}
-                    onToggle={async (next) => {
-                      await client.setArtistMonitored(a.ID, next)
-                      reload()
-                    }}
-                    label={`${a.Name} monitoring`}
-                    testId={`artist-mon-${a.ID}`}
-                  />
-                </div>
-                {expanded.has(a.ID) && (
-                  <>
-                    <AlbumList artistId={a.ID} />
-                    <AddAlbumForm artist={a} onAdded={reload} />
-                  </>
-                )}
-              </div>
-            ))
+        <>
+          {view === 'grid' && (
+            <>
+              {loading && !data ? (
+                <p className="dim" data-testid="music-loading">
+                  Loading artists…
+                </p>
+              ) : items.length === 0 ? (
+                <EmptyState
+                  title={statusFilter ? 'No artists in this state' : 'No artists'}
+                  message={
+                    statusFilter
+                      ? 'Try a different filter.'
+                      : 'Add your first artist to get started.'
+                  }
+                >
+                  {!statusFilter && (
+                    <Link to="/music/add" data-testid="music-empty-add">
+                      + Add artist
+                    </Link>
+                  )}
+                </EmptyState>
+              ) : (
+                <MusicGrid
+                  items={items.map(fromArtist)}
+                  gridTestId="music-grid"
+                  azTestId="music-az"
+                  onOpen={(i) => navigate(`/music/${i.id}`)}
+                />
+              )}
+            </>
           )}
+
+          {view === 'list' && (
+            <div className="list-table" data-testid="music-table">
+              <div className="lt-head">
+                <span>Artist</span>
+                <span>Monitor</span>
+                <span>Quality</span>
+                <span>Status</span>
+                <span>Tracks</span>
+                <span>Files</span>
+                <span>Size</span>
+              </div>
+              {loading && !data ? (
+                <p className="dim">Loading artists…</p>
+              ) : items.length === 0 ? (
+                <p className="dim" data-testid="music-empty">
+                  No artists match.
+                </p>
+              ) : (
+                items.map((a) => (
+                  <div className="lt-row" key={a.ID} data-testid={`artist-${a.ID}`}>
+                    <span className="lt-name" title={a.Name}>
+                      <Link to={`/music/${a.ID}`} data-testid={`artist-link-${a.ID}`}>
+                        {a.Name}
+                      </Link>
+                    </span>
+                    <span>
+                      <MonitoredToggle
+                        monitored={a.Monitored}
+                        onToggle={async (next) => {
+                          await client.setArtistMonitored(a.ID, next)
+                          reload()
+                        }}
+                        label={`${a.Name} monitoring`}
+                        testId={`artist-mon-${a.ID}`}
+                      />
+                    </span>
+                    <span className="lt-dim">{a.QualityProfile || '—'}</span>
+                    <span className="lt-dim">{deriveMusicRibbon(a).state.replace('-', ' ')}</span>
+                    <span className="lt-dim">{a.TrackCount ?? 0}</span>
+                    <span className="lt-dim">{a.FileCount ?? 0}</span>
+                    <span className="lt-dim">
+                      {a.TotalSize ? humanBytes(a.TotalSize) : '—'}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
           <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} total={total} onPage={setPage} />
-        </div>
-      )}
-    </div>
-  )
-}
 
-// AddAlbumForm is the per-artist "add an album" form (Lidarr's artist →
-// album flow, P7). Lossless quality: the quality profile select is the music
-// kind's built-in lossless profiles, prefilled with the kind default.
-function AddAlbumForm({ artist, onAdded }: { artist: Artist; onAdded: () => void }) {
-  const [name, setName] = useState('')
-  const [year, setYear] = useState('')
-  const [quality, setQuality] = useState('')
-  const [monitored, setMonitored] = useState(true)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (busy || !name.trim()) return
-    setBusy(true)
-    setError(null)
-    setDone(null)
-    try {
-      const req: Parameters<typeof client.addAlbum>[1] = {
-        name: name.trim(),
-        quality_profile: quality || undefined,
-        monitored,
-      }
-      const y = Number(year)
-      if (year && !Number.isNaN(y)) req.year = y
-      await client.addAlbum(artist.ID, req)
-      setName('')
-      setYear('')
-      setQuality('')
-      setMonitored(true)
-      setDone(`Added “${req.name}”.`)
-      onAdded()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to add album')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <form
-      className="search-block"
-      onSubmit={(e) => void submit(e)}
-      data-testid={`artist-add-album-${artist.ID}`}
-    >
-      <div className="search-row">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Album name"
-          aria-label="Album name"
-          data-testid={`album-name-${artist.ID}`}
-          required
-        />
-        <input
-          value={year}
-          onChange={(e) => setYear(e.target.value)}
-          placeholder="Year"
-          aria-label="Album year"
-          inputMode="numeric"
-          maxLength={4}
-          data-testid={`album-year-${artist.ID}`}
-        />
-        <button
-          type="submit"
-          disabled={busy || !name.trim()}
-          data-testid={`album-submit-${artist.ID}`}
-        >
-          Add album
-        </button>
-      </div>
-      <div className="search-row">
-        <ProfilePicker
-          kind="music"
-          value={quality}
-          onChange={setQuality}
-          testId={`add-album-quality-${artist.ID}`}
-        />
-        <MonitoredField
-          checked={monitored}
-          onChecked={setMonitored}
-          label="Monitor album"
-          testId={`album-monitored-${artist.ID}`}
-        />
-      </div>
-      {error && (
-        <p className="error" data-testid={`album-error-${artist.ID}`}>
-          {error}
-        </p>
-      )}
-      {done && (
-        <p className="dim small" role="status" data-testid={`album-status-${artist.ID}`}>
-          {done}
-        </p>
-      )}
-    </form>
-  )
-}
-
-// AlbumList fetches an artist's albums on expand; each album expands to tracks.
-function AlbumList({ artistId }: { artistId: number }) {
-  const [albums, setAlbums] = useState<Album[] | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-  const [open, setOpen] = useState<Set<number>>(() => new Set())
-
-  useEffect(() => {
-    let cancelled = false
-    client
-      .listAlbums(artistId)
-      .then((a) => !cancelled && setAlbums(a))
-      .catch((e: unknown) => !cancelled && setErr(e instanceof Error ? e.message : 'failed to load albums'))
-    return () => {
-      cancelled = true
-    }
-  }, [artistId])
-
-  function toggleAlbum(id: number) {
-    setOpen((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  if (err) return <p className="error">Album error: {err}</p>
-  if (!albums) return <p className="dim">Loading albums…</p>
-  if (albums.length === 0) return <p className="dim">No albums yet.</p>
-  return (
-    <div className="child-list" data-testid={`albums-${artistId}`}>
-      {albums.map((al) => (
-        <div className="child-item" key={al.ID}>
-          <div className="item-head">
-            <button
-              type="button"
-              className={`row-head small ${open.has(al.ID) ? 'open' : ''}`}
-              onClick={() => toggleAlbum(al.ID)}
-              aria-expanded={open.has(al.ID)}
-              data-testid={`album-toggle-${al.ID}`}
-            >
-              <span className={`chevron ${open.has(al.ID) ? 'chevron-open' : ''}`}>
-                {open.has(al.ID) ? '▾' : '▸'}
+          {/* Library footer: summary status bar + ribbon legend (Lidarr's
+              "library footer"). */}
+          {summary && (
+            <div className="stats-bar" data-testid="music-summary">
+              <span>
+                Artist <b data-testid="summary-artists">{summary.artists}</b>
               </span>
-              <span className="lt-name">{al.Name}</span>
-              {al.Year ? <span className="lt-dim">{al.Year}</span> : null}
-              {al.QualityProfile ? (
-                <span className="lt-dim" data-testid={`album-${al.ID}-quality`}>
-                  {al.QualityProfile}
-                </span>
-              ) : null}
-            </button>
-            <MonitoredToggle
-              monitored={al.Monitored}
-              onToggle={async (next) => {
-                await client.setAlbumMonitored(al.ID, next)
-              }}
-              label={`${al.Name} monitoring`}
-              testId={`album-mon-${al.ID}`}
-            />
+              <span>
+                Inactive <b data-testid="summary-inactive">{summary.inactive}</b>
+              </span>
+              <span>
+                Continuing <b data-testid="summary-continuing">{summary.continuing}</b>
+              </span>
+              <span>
+                Monitored <b data-testid="summary-monitored">{summary.monitored}</b>
+              </span>
+              <span>
+                Unmonitored <b data-testid="summary-unmonitored">{summary.unmonitored}</b>
+              </span>
+              <span>
+                Tracks <b data-testid="summary-tracks">{summary.tracks}</b>
+              </span>
+              <span>
+                Files <b data-testid="summary-files">{summary.files}</b>
+              </span>
+              <span>
+                Total File Size <b data-testid="summary-size">{humanBytes(summary.total_file_size)}</b>
+              </span>
+            </div>
+          )}
+
+          <div className="ribbon-legend" data-testid="music-legend">
+            {MUSIC_RIBBON_LEGEND.map((l) => (
+              <span key={l.state} data-testid={`legend-${l.state}`}>
+                <span className={`legend-swatch ${l.tone}`} aria-hidden />
+                {l.label}
+              </span>
+            ))}
           </div>
-          {open.has(al.ID) && <TrackList albumId={al.ID} />}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// TrackList fetches an album's tracks on expand.
-function TrackList({ albumId }: { albumId: number }) {
-  const [tracks, setTracks] = useState<Track[] | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    client
-      .listTracks(albumId)
-      .then((t) => !cancelled && setTracks(t))
-      .catch((e: unknown) => !cancelled && setErr(e instanceof Error ? e.message : 'failed to load tracks'))
-    return () => {
-      cancelled = true
-    }
-  }, [albumId])
-
-  if (err) return <p className="error">Track error: {err}</p>
-  if (!tracks) return <p className="dim">Loading tracks…</p>
-  if (tracks.length === 0) return <p className="dim">No tracks yet.</p>
-  return (
-    <div className="child-list nested" data-testid={`tracks-${albumId}`}>
-      {tracks.map((tr) => (
-        <div className="child-row" key={tr.ID}>
-          <span className="child-label">
-            {tr.Disc}.{tr.Number}
-          </span>
-          <span className="lt-name">{tr.Title || '—'}</span>
-          <MonitoredToggle
-            monitored={tr.Monitored}
-            onToggle={async (next) => {
-              await client.setTrackMonitored(albumId, tr.Disc, tr.Number, next)
-            }}
-            label={`track ${tr.Number} monitoring`}
-            testId={`track-mon-${tr.ID}`}
-          />
-        </div>
-      ))}
+        </>
+      )}
     </div>
   )
 }

@@ -2173,3 +2173,354 @@ button.danger:hover {
   gap: 0.75rem;
   margin-top: 1rem;
 }
+
+/* ---- Lidarr L1: artist grid (square covers, status ribbon strip, corner
+       fold) + library footer legend ---- */
+
+/* Square cover tile (artist artwork isn't served in L1; initials stand-in). */
+.music-cover {
+  aspect-ratio: 1 / 1;
+  background: var(--panel-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Thin colored status ribbon strip between the cover and the footer. */
+.music-ribbon {
+  display: block;
+  background: var(--err);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 0.14rem 0.3rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music-ribbon.ok {
+  background: var(--ok);
+}
+
+.music-ribbon.warn {
+  background: var(--warn);
+}
+
+.music-ribbon.muted {
+  background: #6b7280;
+}
+
+/* Red corner fold on the flagged (unmonitored) card, top-right. A separate
+   visual from the status ribbon strip — Lidarr's "flagged" corner. */
+.corner-flag {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 1.4rem solid var(--err);
+  border-left: 1.4rem solid transparent;
+  z-index: 2;
+}
+
+/* Light three-line footer: name (bold) / Monitored / quality profile. */
+.music-foot {
+  background: var(--foot-bg);
+  color: var(--foot-text);
+  padding: 0.35rem 0.5rem;
+  text-align: center;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.music-foot .mf-name {
+  display: block;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-foot .mf-mon {
+  display: block;
+  font-weight: 600;
+}
+
+.music-foot .mf-q {
+  display: block;
+  color: #4a5560;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Library footer legend — the five ribbon states with a colored swatch. */
+.ribbon-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.2rem;
+  padding: 0.45rem 0.8rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+
+.ribbon-legend .legend-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 3px;
+  margin-right: 0.4rem;
+  vertical-align: -1px;
+}
+
+.legend-swatch.ok {
+  background: var(--ok);
+}
+
+.legend-swatch.warn {
+  background: var(--warn);
+}
+
+.legend-swatch.muted {
+  background: #6b7280;
+}
+
+.legend-swatch.err {
+  background: var(--err);
+}
+
+/* ---- Lidarr L1: artist detail ---- */
+
+/* Banner header: placeholder gradient (artist photo not served in L1) with
+   the artist name, rating line and green pill row. Nav arrows sit at the
+   banner's right edge. */
+.artist-banner {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.1rem 1.2rem;
+  background: linear-gradient(135deg, #2b3a4a 0%, #1b2733 60%, #141c25 100%);
+  color: #fff;
+  overflow: hidden;
+}
+
+.artist-banner h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #fff;
+}
+
+.artist-banner .ab-meta {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.85rem;
+  margin-top: 0.15rem;
+}
+
+.artist-banner .ab-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+
+/* Green pill badges (root path, size, profile, monitored, status, links). */
+.pill-green {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: rgba(22, 139, 84, 0.28);
+  border: 1px solid rgba(53, 191, 116, 0.6);
+  color: #b6f2d0;
+  border-radius: 999px;
+  padding: 0.18rem 0.7rem;
+  font-size: 0.75rem;
+}
+
+.pill-green a {
+  color: #d3f7e4;
+  text-decoration: underline;
+}
+
+.pill-green:hover {
+  border-color: #35bf74;
+  color: #d3f7e4;
+}
+
+/* Circular prev/next paging arrows at the banner's right edge. */
+.banner-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  right: 0.7rem;
+}
+
+.banner-nav .nav-arrow {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.banner-nav .nav-arrow:hover {
+  border-color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* Albums accordion: group header (type + count badge + size) -> album rows
+   -> disc sections -> track tables. */
+.type-group {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.6rem;
+}
+
+.type-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.type-group-head .tg-count {
+  background: var(--err);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.08rem 0.5rem;
+}
+
+.type-group-head .tg-size {
+  color: var(--dim);
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.album-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.8rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.album-row .ar-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-sub {
+  padding: 0.4rem 0.8rem 0;
+  font-size: 0.8rem;
+  color: var(--dim);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+}
+
+.disc-head {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--dim);
+  border-top: 1px solid var(--border);
+}
+
+.track-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.track-table th {
+  text-align: left;
+  padding: 0.35rem 0.8rem;
+  color: var(--dim);
+  font-weight: 600;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.track-table td {
+  padding: 0.3rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.track-table td.dim {
+  color: var(--dim);
+}
+
+/* History modal rows. */
+.history-row {
+  display: flex;
+  gap: 0.8rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.history-row .hr-event {
+  flex: 0 0 8rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.history-row .hr-detail {
+  flex: 1;
+  min-width: 0;
+  color: var(--dim);
+}
+
+.history-row .hr-at {
+  flex: 0 0 auto;
+  color: var(--dim);
+  font-size: 0.78rem;
+}
+
+/* Bottom helper line (Metadata Profile / Search links, L2/L3 wire them). */
+.helper-line {
+  font-size: 0.8rem;
+  color: var(--dim);
+  padding: 0.4rem 0.2rem 0;
+}
+
+.helper-line a {
+  color: var(--accent);
+  cursor: pointer;
+}

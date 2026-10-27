@@ -930,6 +930,35 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/music/artists/{id}/history:
+    get:
+      tags: [music]
+      summary: List an artist's history (Lidarr L1 detail toolbar).
+      operationId: getArtistHistory
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+        - name: limit
+          in: query
+          required: false
+          description: Max entries (default 200, clamped to 1..1000).
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: The artist's history entries, newest first (empty array when the artist has none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MusicHistoryEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/music/artists/{id}/albums:
     get:
       tags: [music]
@@ -1003,6 +1032,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/library/summary:
+    get:
+      tags: [music]
+      summary: Library-wide counts for the footer status bar (Lidarr-specific; no Sonarr equivalent).
+      operationId: musicLibrarySummary
+      responses:
+        "200":
+          description: The library counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicLibrarySummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/music/albums/{id}:
@@ -4041,6 +4086,49 @@ components:
           type: string
         Monitored:
           type: boolean
+        Status:
+          type: string
+          enum: [continuing, ended, inactive]
+          description: The artist's release status (Lidarr grid ribbon); empty = unknown.
+        QualityProfile:
+          type: string
+          description: Name of this artist's default quality profile; empty = none.
+        Path:
+          type: string
+          description: Subfolder under the root folder; empty = use the artist name.
+        Rating:
+          type: number
+          description: 0 = unknown.
+        Genre:
+          type: string
+          description: Empty = unknown.
+        Links:
+          type: array
+          description: Named external links; empty array = none.
+          items:
+            type: object
+            required: [Name, URL]
+            properties:
+              Name:
+                type: string
+              URL:
+                type: string
+        TrackCount:
+          type: integer
+          format: int64
+          description: Number of known tracks across the artist's albums (computed); 0 = none.
+        FileCount:
+          type: integer
+          format: int64
+          description: Tracks that have an imported file (computed); 0 = none.
+        QueuedCount:
+          type: integer
+          format: int64
+          description: Active queue entries (states queued/downloading, computed); 0 = none.
+        TotalSize:
+          type: integer
+          format: int64
+          description: Bytes across the artist's imported tracks (computed); 0 = unknown.
         AddedAt:
           type: string
           format: date-time
@@ -4056,6 +4144,12 @@ components:
         monitored:
           type: boolean
           description: Omitted = monitored (default).
+        quality_profile:
+          type: string
+          description: Per-artist default quality profile (Lidarr L2 modal); omitted keeps current behavior.
+        path:
+          type: string
+          description: Subfolder under the root folder; omitted = the artist name (same-named subfolder).
     Album:
       type: object
       required: [ID, ArtistID, MBID, Name, Year, QualityProfile, Monitored, VerifyChecksums, Checksum, AddedAt]
@@ -4082,6 +4176,29 @@ components:
         Checksum:
           type: string
           description: Expected sha256 of the whole-album file, when known.
+        AlbumType:
+          type: string
+          enum: [album, ep, single, compilation, live, remix, broadcast, demo, djmix, other]
+          description: The release type (Lidarr accordion groups); empty = album.
+        ReleaseDate:
+          type: string
+          description: Calendar date (YYYY-MM-DD); empty = unknown. The Year field is kept as-is.
+        Rating:
+          type: number
+          description: 0 = unknown.
+        Duration:
+          type: integer
+          description: Seconds; 0 = unknown.
+        Size:
+          type: integer
+          format: int64
+          description: Bytes; 0 = unknown.
+        TrackCount:
+          type: integer
+          description: Number of known tracks (computed over the tracks).
+        FileCount:
+          type: integer
+          description: Tracks that have an imported file (computed; powers Lidarr's "3/9" badge).
         AddedAt:
           type: string
           format: date-time
@@ -4124,6 +4241,31 @@ components:
           description: Expected sha256 of the file, when known.
         Monitored:
           type: boolean
+        Duration:
+          type: integer
+          description: Seconds; 0 = unknown.
+        Codec:
+          type: string
+          description: e.g. FLAC, MP3; empty = unknown.
+        Channels:
+          type: integer
+          description: 0 = unknown.
+        Kbps:
+          type: integer
+          description: 0 = unknown.
+        SampleRate:
+          type: integer
+          description: kHz; 0 = unknown.
+        BitDepth:
+          type: integer
+          description: 0 = unknown.
+        Size:
+          type: integer
+          format: int64
+          description: Bytes; 0 = unknown.
+        Status:
+          type: string
+          description: Empty = missing/no file; otherwise the quality string of the imported file (e.g. FLAC).
         AddedAt:
           type: string
           format: date-time
@@ -4142,6 +4284,47 @@ components:
         monitored:
           type: boolean
           description: Omitted = monitored (default).
+    MusicHistoryEntry:
+      type: object
+      required: [Event, Detail, At]
+      properties:
+        Event:
+          type: string
+          description: "e.g. added, monitored, searched, download, import"
+        Detail:
+          type: string
+        At:
+          type: string
+          format: date-time
+    MusicLibrarySummary:
+      type: object
+      required: [artists, inactive, continuing, monitored, unmonitored, tracks, files, total_file_size]
+      properties:
+        artists:
+          type: integer
+          format: int64
+        inactive:
+          type: integer
+          format: int64
+        continuing:
+          type: integer
+          format: int64
+        monitored:
+          type: integer
+          format: int64
+        unmonitored:
+          type: integer
+          format: int64
+        tracks:
+          type: integer
+          format: int64
+        files:
+          type: integer
+          format: int64
+        total_file_size:
+          type: integer
+          format: int64
+          description: Bytes across all tracks with an imported file.
     AlbumWanted:
       type: object
       required: [AlbumID, TrackID, Status, ReleaseTitle, CreatedAt, SatisfiedAt]

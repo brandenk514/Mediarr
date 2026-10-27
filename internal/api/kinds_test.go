@@ -67,6 +67,7 @@ type kindsMusicRepo struct {
 	stubMusicRepo
 	artists map[int64]musicdom.Artist
 	albums  map[int64]musicdom.Album
+	tracks  map[int64][]musicdom.Track
 	nextID  int64
 }
 
@@ -74,6 +75,7 @@ func newKindsMusicRepo() *kindsMusicRepo {
 	return &kindsMusicRepo{
 		artists: map[int64]musicdom.Artist{},
 		albums:  map[int64]musicdom.Album{},
+		tracks:  map[int64][]musicdom.Track{},
 		nextID:  1,
 	}
 }
@@ -166,6 +168,54 @@ func (r *kindsMusicRepo) ListWanted(_ context.Context, _ int64) ([]musicdom.Want
 }
 func (r *kindsMusicRepo) ListHistory(_ context.Context, _ int64, _ int) ([]musicdom.HistoryEntry, error) {
 	return nil, nil
+}
+
+// CreateTrack and ListTracks override the stub's panics so the L1 endpoint
+// tests can exercise the track/file footer counts through the real handlers.
+func (r *kindsMusicRepo) CreateTrack(_ context.Context, t musicdom.Track) (int64, error) {
+	t.ID = r.nextID
+	r.nextID++
+	if t.AddedAt.IsZero() {
+		t.AddedAt = time.Now().UTC()
+	}
+	r.tracks[t.AlbumID] = append(r.tracks[t.AlbumID], t)
+	return t.ID, nil
+}
+func (r *kindsMusicRepo) ListTracks(_ context.Context, albumID int64) ([]musicdom.Track, error) {
+	out := make([]musicdom.Track, len(r.tracks[albumID]))
+	copy(out, r.tracks[albumID])
+	return out, nil
+}
+
+// LibrarySummary computes the footer counts from the in-memory state with the
+// same semantics as the SQL: "files" = tracks with a non-empty status (an
+// imported file).
+func (r *kindsMusicRepo) LibrarySummary(_ context.Context) (musicdom.LibrarySummary, error) {
+	var s musicdom.LibrarySummary
+	s.Artists = int64(len(r.artists))
+	for _, a := range r.artists {
+		switch a.Status {
+		case musicdom.StatusInactive:
+			s.Inactive++
+		case musicdom.StatusContinuing:
+			s.Continuing++
+		}
+		if a.Monitored {
+			s.Monitored++
+		} else {
+			s.Unmonitored++
+		}
+	}
+	for _, ts := range r.tracks {
+		for _, t := range ts {
+			s.Tracks++
+			if t.Status != "" {
+				s.Files++
+				s.TotalFileSize += t.Size
+			}
+		}
+	}
+	return s, nil
 }
 
 // ---- In-memory books repo (same pattern). ----

@@ -42,6 +42,8 @@ import type {
   MovieStats,
   MediaKind,
   MovieWanted,
+  MusicHistoryEntry,
+  MusicLibrarySummary,
   PageArtist,
   PageAuthor,
   PageMovie,
@@ -263,6 +265,11 @@ export const client = {
   runMusicPipeline: (artistId: number) =>
     request<{ imported: string }>('POST', `/music/artists/${artistId}/pipeline`),
   listAlbumWanted: (albumId: number) => request<AlbumWanted[]>('GET', `/music/albums/${albumId}/wanted`),
+
+  // Lidarr L1: artist history (detail toolbar) + library summary (grid
+  // footer status bar).
+  getArtistHistory: (id: number) => request<MusicHistoryEntry[]>('GET', `/music/artists/${id}/history`),
+  getMusicLibrarySummary: () => request<MusicLibrarySummary>('GET', '/music/library/summary'),
 
   // ---- books ----
   listAuthors: (q?: ListQuery) => request<PageAuthor>('GET', `/books/authors${buildListQuery(q)}`),
