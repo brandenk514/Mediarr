@@ -4113,6 +4113,22 @@ components:
                 type: string
               URL:
                 type: string
+        TrackCount:
+          type: integer
+          format: int64
+          description: Number of known tracks across the artist's albums (computed); 0 = none.
+        FileCount:
+          type: integer
+          format: int64
+          description: Tracks that have an imported file (computed); 0 = none.
+        QueuedCount:
+          type: integer
+          format: int64
+          description: Active queue entries (states queued/downloading, computed); 0 = none.
+        TotalSize:
+          type: integer
+          format: int64
+          description: Bytes across the artist's imported tracks (computed); 0 = unknown.
         AddedAt:
           type: string
           format: date-time

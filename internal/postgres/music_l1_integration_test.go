@@ -237,3 +237,78 @@ func TestMusicRepo_L1LibrarySummary(t *testing.T) {
 		t.Errorf("total_file_size = %d, want 300 (sum of file-bearing tracks only)", s.TotalFileSize)
 	}
 }
+
+// TestMusicRepo_L1ArtistCounts checks the per-artist grid ribbon aggregates
+// (L1 spec gap): TrackCount/FileCount/QueuedCount/TotalSize are computed from
+// the tracks and the active queue (queued/downloading only), never stored.
+func TestMusicRepo_L1ArtistCounts(t *testing.T) {
+	r := startMusicPG(t)
+	ctx := context.Background()
+
+	a1, err := r.CreateArtist(ctx, music.Artist{Name: "Bob Marley", Monitored: true})
+	if err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+	if _, err := r.CreateArtist(ctx, music.Artist{Name: "Queen"}); err != nil {
+		t.Fatalf("create second artist: %v", err)
+	}
+
+	albumID, err := r.CreateAlbum(ctx, music.Album{ArtistID: a1, Name: "Legend", Year: 1977, Monitored: true, VerifyChecksums: true})
+	if err != nil {
+		t.Fatalf("create album: %v", err)
+	}
+	for _, tr := range []music.Track{
+		{AlbumID: albumID, Disc: 1, Number: 1, Title: "A", Status: "FLAC", Size: 300},
+		{AlbumID: albumID, Disc: 1, Number: 2, Title: "B", Status: "MP3", Size: 280},
+		{AlbumID: albumID, Disc: 1, Number: 3, Title: "C"},
+	} {
+		if _, err := r.CreateTrack(ctx, tr); err != nil {
+			t.Fatalf("create track %d: %v", tr.Number, err)
+		}
+	}
+
+	// Two queue entries: one active (queued), one finished (complete).
+	for _, q := range []music.QueueEntry{
+		{ArtistID: a1, AlbumID: albumID, ReleaseTitle: "Legend.flac", State: music.QueueQueued},
+		{ArtistID: a1, AlbumID: albumID, ReleaseTitle: "Legend.mp3", State: music.QueueComplete},
+	} {
+		if _, err := r.CreateQueue(ctx, q); err != nil {
+			t.Fatalf("create queue: %v", err)
+		}
+	}
+
+	assertCounts := func(a *music.Artist, where string) {
+		t.Helper()
+		if a.TrackCount != 3 {
+			t.Errorf("%s: track_count = %d, want 3", where, a.TrackCount)
+		}
+		if a.FileCount != 2 {
+			t.Errorf("%s: file_count = %d, want 2 (tracks with an imported file)", where, a.FileCount)
+		}
+		if a.QueuedCount != 1 {
+			t.Errorf("%s: queued_count = %d, want 1 (queued only; complete is not active)", where, a.QueuedCount)
+		}
+		if a.TotalSize != 580 {
+			t.Errorf("%s: total_size = %d, want 580 (file-bearing tracks only)", where, a.TotalSize)
+		}
+	}
+
+	a, err := r.GetArtist(ctx, a1)
+	if err != nil {
+		t.Fatalf("get artist: %v", err)
+	}
+	assertCounts(a, "get")
+
+	all, err := r.ListArtists(ctx)
+	if err != nil {
+		t.Fatalf("list artists: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("list artists len = %d, want 2", len(all))
+	}
+	assertCounts(&all[0], "list[0]")
+	// The trackless artist reads all-zero aggregates.
+	if all[1].TrackCount != 0 || all[1].FileCount != 0 || all[1].QueuedCount != 0 || all[1].TotalSize != 0 {
+		t.Errorf("trackless artist counts = %+v, want all zero", all[1])
+	}
+}

@@ -104,3 +104,29 @@ func TestL1_AddArtistFields(t *testing.T) {
 		t.Errorf("artist = %+v, want profile FLAC, path Radiohead (1992), status continuing", a)
 	}
 }
+
+// TestL1_ArtistCountsWire pins the L1 spec-gap fields on the wire: a fresh
+// artist serializes TrackCount/FileCount/QueuedCount/TotalSize (the kinds
+// repo doesn't compute them, so they read 0 here; the computed values are
+// covered by the postgres integration test).
+func TestL1_ArtistCountsWire(t *testing.T) {
+	music, books := newKindsMusicRepo(), newKindsBooksRepo()
+	f := newKindsServer(t, music, books)
+	h := f.s.Handler()
+
+	rec := f.post(t, "/api/v1/music/artists", map[string]any{"name": "Radiohead"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add artist status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = getJSON(t, h, "/api/v1/music/artists/1", f.token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get artist status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, key := range []string{`"TrackCount":`, `"FileCount":`, `"QueuedCount":`, `"TotalSize":`} {
+		if !strings.Contains(body, key) {
+			t.Errorf("artist JSON missing %s: %s", key, body)
+		}
+	}
+}

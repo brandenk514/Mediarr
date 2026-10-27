@@ -72,32 +72,62 @@ func (r *MusicRepo) CreateArtist(ctx context.Context, a music.Artist) (int64, er
 	return id, nil
 }
 
+// artistSelectCols is the shared artist SELECT list. The four trailing
+// aggregates power the Lidarr grid ribbon: TrackCount/FileCount over the
+// artist's tracks (FileCount counts tracks with a non-empty status, i.e.
+// an imported file), QueuedCount over active queue entries
+// (queued/downloading), and TotalSize over the imported tracks' sizes.
+// All derived, never stored.
+const artistSelectCols = `
+id, mbid, name, monitored, status, quality_profile, path,
+rating, genre, links, added_at,
+(SELECT COUNT(*) FROM music_tracks t
+  JOIN music_albums al ON al.id = t.album_id
+  WHERE al.artist_id = a.id) AS track_count,
+(SELECT COUNT(*) FROM music_tracks t
+  JOIN music_albums al ON al.id = t.album_id
+  WHERE al.artist_id = a.id AND t.status <> '') AS file_count,
+(SELECT COUNT(*) FROM music_queue q
+  WHERE q.artist_id = a.id
+  AND q.state IN ('queued', 'downloading')) AS queued_count,
+COALESCE((SELECT SUM(t.size) FROM music_tracks t
+  JOIN music_albums al ON al.id = t.album_id
+  WHERE al.artist_id = a.id AND t.status <> ''), 0) AS total_size`
+
+// scanArtist maps one artist row (see artistSelectCols) onto an Artist.
+func scanArtist(row interface {
+	Scan(dest ...any) error
+}, a *music.Artist) error {
+	var links string
+	err := row.Scan(&a.ID, &a.MBID, &a.Name, &a.Monitored, &a.Status,
+		&a.QualityProfile, &a.Path, &a.Rating, &a.Genre, &links, &a.AddedAt,
+		&a.TrackCount, &a.FileCount, &a.QueuedCount, &a.TotalSize)
+	if err != nil {
+		return err
+	}
+	a.Links = parseLinks(links)
+	return nil
+}
+
 // GetArtist loads an artist by id.
 func (r *MusicRepo) GetArtist(ctx context.Context, id int64) (*music.Artist, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, mbid, name, monitored, status, quality_profile, path,
-		       rating, genre, links, added_at
-		FROM music_artists WHERE id = $1`, id)
+		SELECT `+artistSelectCols+`
+		FROM music_artists a WHERE a.id = $1`, id)
 	a := &music.Artist{}
-	var links string
-	err := row.Scan(&a.ID, &a.MBID, &a.Name, &a.Monitored, &a.Status,
-		&a.QualityProfile, &a.Path, &a.Rating, &a.Genre, &links, &a.AddedAt)
-	if err == sql.ErrNoRows {
+	if err := scanArtist(row, a); err == sql.ErrNoRows {
 		return nil, music.ErrArtistNotFound
-	}
-	if err != nil {
+	} else if err != nil {
 		return nil, fmt.Errorf("music: get artist: %w", err)
 	}
-	a.Links = parseLinks(links)
 	return a, nil
 }
 
 // ListArtists returns all artists, oldest first.
 func (r *MusicRepo) ListArtists(ctx context.Context) ([]music.Artist, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, mbid, name, monitored, status, quality_profile, path,
-		       rating, genre, links, added_at
-		FROM music_artists ORDER BY id`)
+		SELECT `+artistSelectCols+`
+		FROM music_artists a ORDER BY a.id`)
 	if err != nil {
 		return nil, fmt.Errorf("music: list artists: %w", err)
 	}
@@ -105,12 +135,9 @@ func (r *MusicRepo) ListArtists(ctx context.Context) ([]music.Artist, error) {
 	var out []music.Artist
 	for rows.Next() {
 		var a music.Artist
-		var links string
-		if err := rows.Scan(&a.ID, &a.MBID, &a.Name, &a.Monitored, &a.Status,
-			&a.QualityProfile, &a.Path, &a.Rating, &a.Genre, &links, &a.AddedAt); err != nil {
+		if err := scanArtist(rows, &a); err != nil {
 			return nil, fmt.Errorf("music: scan artist: %w", err)
 		}
-		a.Links = parseLinks(links)
 		out = append(out, a)
 	}
 	return out, rows.Err()

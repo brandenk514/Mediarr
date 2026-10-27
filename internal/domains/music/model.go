@@ -47,7 +47,13 @@ type Artist struct {
 	Rating         float64      // 0 = unknown
 	Genre          string       // "" = unknown
 	Links          []ArtistLink // empty = none
-	AddedAt        time.Time
+	// Per-artist aggregates for the Lidarr grid ribbon (L1 spec gap): computed
+	// by the repository from the tracks and the download queue — never stored.
+	TrackCount  int   // known tracks across the artist's albums
+	FileCount   int   // tracks that have an imported file
+	QueuedCount int   // active queue entries (states queued/downloading)
+	TotalSize   int64 // bytes across imported tracks; 0 = unknown
+	AddedAt     time.Time
 }
 
 // Album is a known album within an artist.

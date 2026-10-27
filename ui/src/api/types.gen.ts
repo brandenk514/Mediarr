@@ -2381,6 +2381,26 @@ export interface components {
                 Name: string;
                 URL: string;
             }[];
+            /**
+             * Format: int64
+             * @description Number of known tracks across the artist's albums (computed); 0 = none.
+             */
+            TrackCount?: number;
+            /**
+             * Format: int64
+             * @description Tracks that have an imported file (computed); 0 = none.
+             */
+            FileCount?: number;
+            /**
+             * Format: int64
+             * @description Active queue entries (states queued/downloading, computed); 0 = none.
+             */
+            QueuedCount?: number;
+            /**
+             * Format: int64
+             * @description Bytes across the artist's imported tracks (computed); 0 = unknown.
+             */
+            TotalSize?: number;
             /** Format: date-time */
             AddedAt: string;
         };
