@@ -2,9 +2,9 @@ package providers
 
 import (
 	"context"
-	"encoding/json"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -107,20 +107,21 @@ type mbArtistDetail struct {
 }
 
 // mbReleaseGroupSearchResponse is the ws/2 /release-group search payload.
+// The live API names the group's title `title`, the type `primary-type`,
+// and carries `first-release-date` (a date prefix, e.g. "1998") and `count`
+// (number of releases in the group).
 type mbReleaseGroupSearchResponse struct {
 	ReleaseGroups []struct {
 		ID               string `json:"id"`
-		Name             string `json:"name"`
-		FirstReleaseYear int    `json:"first-release-year"`
-		Type             string `json:"type"`
+		Title            string `json:"title"`
+		FirstReleaseDate string `json:"first-release-date"`
+		PrimaryType      string `json:"primary-type"`
+		Count            int    `json:"count"`
 		ArtistCredit     []struct {
 			Artist struct {
 				Name string `json:"name"`
 			} `json:"artist"`
 		} `json:"artist-credit"`
-		// MusicBrainz returns release objects here (id, date, status, ...);
-		// only the count is used, so keep the raw messages.
-		Releases []json.RawMessage `json:"releases"`
 	} `json:"release-groups"`
 }
 
@@ -275,7 +276,7 @@ func (m *MusicBrainz) SearchReleaseGroupHits(ctx context.Context, q string) ([]R
 	}
 	out := make([]ReleaseGroupHit, 0, len(resp.ReleaseGroups))
 	for _, g := range resp.ReleaseGroups {
-		if g.Name == "" {
+		if g.Title == "" {
 			continue
 		}
 		var artists []string
@@ -286,14 +287,27 @@ func (m *MusicBrainz) SearchReleaseGroupHits(ctx context.Context, q string) ([]R
 		}
 		out = append(out, ReleaseGroupHit{
 			ID:           g.ID,
-			Title:        g.Name,
-			Year:         g.FirstReleaseYear,
-			ReleaseCount: len(g.Releases),
-			Type:         normalizeReleaseGroupType(g.Type),
+			Title:        g.Title,
+			Year:         releaseGroupYear(g.FirstReleaseDate),
+			ReleaseCount: g.Count,
+			Type:         normalizeReleaseGroupType(g.PrimaryType),
 			Artist:       strings.Join(artists, ", "),
 		})
 	}
 	return out, nil
+}
+
+// releaseGroupYear extracts the year from the MusicBrainz first-release-date
+// search field ("1998", "1998-06-01", ...); 0 when unknown.
+func releaseGroupYear(date string) int {
+	if len(date) < 4 {
+		return 0
+	}
+	n, err := strconv.Atoi(date[:4])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // normalizeReleaseGroupType maps a MusicBrainz release-group type onto the

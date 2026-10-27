@@ -215,10 +215,10 @@ func TestSearchReleaseGroupHits(t *testing.T) {
 		}
 		lastQuery = r.URL.Query().Get("query")
 		_, _ = w.Write([]byte(`{"release-groups":[
-			{"id":"g1","name":"OK Computer","first-release-year":1997,"type":"Album",
-			 "releases":[{"id":"r1"},{"id":"r2"}],"artist-credit":[{"artist":{"name":"Radiohead"},"joinphrase":""}]},
-			{"id":"g2","name":"Mixes","type":"DJ-Mix","releases":[{"id":"r1"}],"artist-credit":[]},
-			{"id":"g3","name":"Words","type":"Spoken Word","releases":[],
+			{"id":"g1","title":"OK Computer","first-release-date":"1997-06-01","primary-type":"Album",
+			 "count":2,"artist-credit":[{"artist":{"name":"Radiohead"},"joinphrase":""}]},
+			{"id":"g2","title":"Mixes","primary-type":"DJ-Mix","count":1,"artist-credit":[]},
+			{"id":"g3","title":"Words","primary-type":"Spoken Word","count":0,
 			 "artist-credit":[{"artist":{"name":"A"}},{"artist":{"name":"B"}}]}]}`))
 	}))
 	defer srv.Close()
