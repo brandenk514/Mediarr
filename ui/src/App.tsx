@@ -17,6 +17,7 @@ import { QueuePage } from './pages/queue/Queue'
 import { SettingsShell } from './pages/settings/SettingsShell'
 import { MovieDetailPage } from './pages/movies/MovieDetail'
 import { SeriesDetailPage } from './pages/tv/SeriesDetail'
+import { ArtistDetailPage } from './pages/music/ArtistDetail'
 import { LibraryImportPage } from './pages/tv/LibraryImport'
 import { CalendarPage } from './pages/Calendar'
 import { HistoryPage } from './pages/activity/History'
@@ -65,6 +66,9 @@ export default function App() {
         <Route path="/movies/add" element={<MovieAddPage />} />
         <Route path="/tv/add" element={<TvAddPage />} />
         <Route path="/music/add" element={<ArtistAddPage />} />
+        {/* Lidarr L1: the artist detail deep route (the static /music/add
+            ranks above /music/:id). */}
+        <Route path="/music/:id" element={<ArtistDetailPage />} />
         <Route path="/books/add" element={<BookAddPage />} />
         {/* Radarr R3: static collection/discover routes rank above the
             /movies/:id deep route (same as /movies/add). */}
