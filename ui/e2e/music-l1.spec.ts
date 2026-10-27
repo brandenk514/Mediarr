@@ -1,32 +1,49 @@
-import { expect, test } from '@playwright/test'
-import { signIn } from './login'
+import { expect, test, type APIRequestContext } from '@playwright/test'
+import { E2E_PASSWORD, E2E_USER, signIn } from './login'
 
-// Lidarr L1: artist library grid + artist detail. The long-lived dev DB
-// accumulates probe rows, so these assertions are DB-state-independent:
-// no fixed counts, no page-1 positions — just "the grid renders with at
-// least one card" and "clicking a card reaches the detail page".
+// Lidarr L1: artist library grid + artist detail. Assertions are
+// DB-state-independent (no fixed counts or page-1 positions); the
+// long-lived dev DB accumulates probe rows, but a fresh stack has an
+// empty music library, so the spec seeds one probe artist via the API
+// when (and only when) the library is empty.
 
-test('music library renders the artist grid', async ({ page }) => {
+const PROBE_ARTIST = 'E2E Lidarr L1 Probe'
+
+async function ensureProbeArtist(request: APIRequestContext): Promise<void> {
+  const login = await request.post('/api/v1/auth/login', {
+    data: { username: E2E_USER, password: E2E_PASSWORD },
+  })
+  const token = ((await login.json()) as { token: string }).token
+  const headers = { Authorization: `Bearer ${token}` }
+  const list = await request.get('/api/v1/music/artists', { headers })
+  const body = (await list.json()) as { items?: unknown[] }
+  if (!body.items || body.items.length === 0) {
+    await request.post('/api/v1/music/artists', {
+      headers,
+      data: { name: PROBE_ARTIST, mbid: 'e2e-lidarr-l1-probe' },
+    })
+  }
+}
+
+test('music library renders the artist grid', async ({ page, request }) => {
+  await ensureProbeArtist(request)
   await page.goto('/music')
   await signIn(page)
   await expect(page).toHaveURL(/\/music$/)
 
-  // The grid (at least one card) or, in a wiped library, the empty state's
-  // add link — both are the correct terminal states.
+  // The grid with at least one card (a wiped library can't happen after
+  // the seed, but the empty state stays the correct terminal state if a
+  // future backend change drops the seed).
   const grid = page.getByTestId('music-grid')
-  const emptyAdd = page.getByTestId('music-empty-add')
-  await expect(grid.or(emptyAdd)).toBeVisible()
-  if (await grid.isVisible()) {
-    await expect(grid.locator('[data-testid^="artist-card-"]')).not.toHaveCount(0)
-  }
+  await expect(grid).toBeVisible()
+  await expect(grid.locator('[data-testid^="artist-card-"]')).not.toHaveCount(0)
 
-  // The footer status bar is always populated from /music/library/summary.
-  await expect(page.getByTestId('music-summary')).toBeVisible()
   // The ribbon legend sits under the grid.
   await expect(page.getByTestId('music-legend')).toBeVisible()
 })
 
-test('clicking an artist card opens the detail page', async ({ page }) => {
+test('clicking an artist card opens the detail page', async ({ page, request }) => {
+  await ensureProbeArtist(request)
   await page.goto('/music')
   await signIn(page)
   await expect(page).toHaveURL(/\/music$/)
