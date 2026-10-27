@@ -81,7 +81,19 @@ type mbArtistSearchResponse struct {
 	} `json:"artists"`
 }
 
-// mbArtistDetail is the ws/2 /artist/{id} payload with inc=genres+urls.
+// mbArtistRelation is one entry of the artist detail `relations` array.
+// URL relations (target-type "url") carry the external link in
+// url.resource.
+type mbArtistRelation struct {
+	TargetType string `json:"target-type"`
+	Type       string `json:"type"`
+	URL        struct {
+		Resource string `json:"resource"`
+	} `json:"url"`
+}
+
+// mbArtistDetail is the ws/2 /artist/{id} payload with
+// inc=genres+url-rels.
 type mbArtistDetail struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -91,10 +103,7 @@ type mbArtistDetail struct {
 	Genres         []struct {
 		Name string `json:"name"`
 	} `json:"genres"`
-	URLs []struct {
-		ResourceString string `json:"resource-string"`
-		ResourceID     string `json:"resource-id"`
-	} `json:"urls"`
+	Relations []mbArtistRelation `json:"relations"`
 }
 
 // mbReleaseGroupSearchResponse is the ws/2 /release-group search payload.
@@ -167,7 +176,7 @@ func (m *MusicBrainz) SearchArtistHits(ctx context.Context, q string) ([]ArtistS
 // hit (one detail request — the lookup itself).
 func (m *MusicBrainz) lookupArtistHit(ctx context.Context, id string) ([]ArtistSearchHit, error) {
 	values := url.Values{}
-	values.Set("inc", "genres+urls")
+	values.Set("inc", "genres+url-rels")
 	var d mbArtistDetail
 	if err := m.getJSON(ctx, "/artist/"+id, values, &d); err != nil {
 		return nil, err
@@ -187,7 +196,7 @@ func hitFromDetail(d mbArtistDetail) ArtistSearchHit {
 		Country:        d.Country,
 		Disambiguation: d.Disambiguation,
 		Genres:         genreNames(d.Genres),
-		Links:          linkURLs(d.URLs),
+		Links:          linkURLs(d.Relations),
 	}
 }
 
@@ -199,7 +208,7 @@ func (m *MusicBrainz) enrichArtistHit(ctx context.Context, h *ArtistSearchHit) {
 		return
 	}
 	values := url.Values{}
-	values.Set("inc", "genres+urls")
+	values.Set("inc", "genres+url-rels")
 	var d mbArtistDetail
 	if err := m.getJSON(ctx, "/artist/"+h.ID, values, &d); err != nil {
 		return // best-effort: "empty when unknown"
@@ -216,8 +225,8 @@ func (m *MusicBrainz) enrichArtistHit(ctx context.Context, h *ArtistSearchHit) {
 	if d.Genres != nil {
 		h.Genres = genreNames(d.Genres)
 	}
-	if d.URLs != nil {
-		h.Links = linkURLs(d.URLs)
+	if d.Relations != nil {
+		h.Links = linkURLs(d.Relations)
 	}
 }
 
@@ -233,18 +242,14 @@ func genreNames(gs []struct {
 	return out
 }
 
-func linkURLs(us []struct {
-	ResourceString string `json:"resource-string"`
-	ResourceID     string `json:"resource-id"`
-}) []string {
+func linkURLs(rels []mbArtistRelation) []string {
 	out := []string{}
-	for _, u := range us {
-		link := u.ResourceString
-		if link == "" {
-			link = u.ResourceID
+	for _, u := range rels {
+		if u.TargetType != "url" {
+			continue
 		}
-		if link != "" {
-			out = append(out, link)
+		if u.URL.Resource != "" {
+			out = append(out, u.URL.Resource)
 		}
 	}
 	return out

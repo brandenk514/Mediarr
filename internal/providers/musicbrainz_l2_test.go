@@ -80,7 +80,10 @@ func TestSearchArtistHits_EnrichesTopHits(t *testing.T) {
 				detailPaths = append(detailPaths, r.URL.Path)
 				_, _ = w.Write([]byte(`{"id":"x","name":"x",
 					"genres":[{"name":"Rock"},{"name":""}],
-					"urls":[{"resource-string":"https://example.com/x"},{"resource-id":"http://other.example"}]}`))
+					"relations":[
+					 {"target-type":"url","type":"official homepage","url":{"resource":"https://example.com/x"}},
+					 {"target-type":"work","type":"other","url":{"resource":"http://other.example"}},
+					 {"target-type":"url","type":"social network","url":{"resource":"https://social.example/x"}}]}`))
 				return
 			}
 			w.WriteHeader(http.StatusNotFound)
@@ -104,7 +107,7 @@ func TestSearchArtistHits_EnrichesTopHits(t *testing.T) {
 	if len(hits[0].Genres) != 1 || hits[0].Genres[0] != "Rock" {
 		t.Errorf("genres = %v, want [Rock] (blank genre name skipped)", hits[0].Genres)
 	}
-	wantLinks := []string{"https://example.com/x", "http://other.example"}
+	wantLinks := []string{"https://example.com/x", "https://social.example/x"}
 	if len(hits[0].Links) != 2 || hits[0].Links[0] != wantLinks[0] || hits[0].Links[1] != wantLinks[1] {
 		t.Errorf("links = %v, want %v", hits[0].Links, wantLinks)
 	}
@@ -168,7 +171,7 @@ func TestSearchArtistHits_MbidDirect(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"` + mbTestUUID + `","name":"Radiohead","type":"Group",
 			"country":"UK","disambiguation":"alternative rock band",
 			"genres":[{"name":"Rock"},{"name":"Alternative"}],
-			"urls":[{"resource-string":"https://en.wikipedia.org/wiki/Radiohead"}]}`))
+			"relations":[{"target-type":"url","type":"official homepage","url":{"resource":"https://en.wikipedia.org/wiki/Radiohead"}}]}`))
 	}))
 	defer srv.Close()
 	mb := NewMusicBrainz()
