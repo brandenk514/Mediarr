@@ -19,6 +19,7 @@ import type {
   Album,
   AlbumWanted,
   Artist,
+  ArtistSearchResult,
   Author,
   Dashboard,
   DownloadClientRequest,
@@ -66,6 +67,7 @@ import type {
   TitleWanted,
   Track,
   TrackMonitoredResult,
+  UpdateArtistRequest,
   UpdateSeriesRequest,
   GlobalHistoryItem,
   BlocklistEntry,
@@ -249,6 +251,11 @@ export const client = {
   addArtist: (req: AddArtistRequest) => request<AddedId>('POST', '/music/artists', req),
   setArtistMonitored: (id: number, monitored: boolean) =>
     request<MonitoredResult>('PUT', `/music/artists/${id}`, { monitored }),
+  // Lidarr L2: the full Edit Artist modal persists through the same PUT —
+  // omitted fields keep their current value; a monitored change fans out to
+  // the artist's known albums server-side.
+  updateArtist: (id: number, req: UpdateArtistRequest) =>
+    request<MonitoredResult>('PUT', `/music/artists/${id}`, req),
   listAlbums: (artistId: number) => request<Album[]>('GET', `/music/artists/${artistId}/albums`),
   getAlbum: (id: number) => request<Album>('GET', `/music/albums/${id}`),
   addAlbum: (artistId: number, req: AddAlbumRequest) =>
@@ -460,8 +467,12 @@ export const client = {
   searchMovies: (q: string) => request<MovieSearchHit[]>('GET', `/search/movies?query=${encodeURIComponent(q)}`),
   searchTv: (q: string) => request<SearchResult[]>('GET', `/search/tv?query=${encodeURIComponent(q)}`),
   searchTvTmdb: (q: string) => request<SearchResult[]>('GET', `/search/tv-tmdb?query=${encodeURIComponent(q)}`),
+  // Lidarr L2: /search/artists returns enriched artist hits + release-group
+  // hits for the Add Artist page (L1 returned a flat SearchResult[]; the
+  // music add flow is the only consumer, so the response shape moved in
+  // place — see the spec's endpoint description).
   searchArtists: (q: string) =>
-    request<SearchResult[]>('GET', `/search/artists?query=${encodeURIComponent(q)}`),
+    request<ArtistSearchResult>('GET', `/search/artists?query=${encodeURIComponent(q)}`),
   searchBookAuthors: (q: string) =>
     request<SearchResult[]>('GET', `/search/books/authors?query=${encodeURIComponent(q)}`),
   searchBookWorks: (q: string, author: string) => {

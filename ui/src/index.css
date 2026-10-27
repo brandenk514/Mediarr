@@ -1496,6 +1496,8 @@ button.danger:hover {
 
 .modal-body {
   padding: 1.2rem;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
 .modal-foot {
@@ -1707,6 +1709,32 @@ button.danger:hover {
   .two-pane {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- Lidarr L2: Add New Artist modal (artwork left, fields right) ---- */
+.add-artist-modal {
+  display: flex;
+  gap: 1rem;
+}
+.add-artist-artwork {
+  flex: 0 0 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--bg, #111);
+  border: 1px solid var(--border);
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--dim);
+}
+.add-artist-fields {
+  flex: 1;
+  min-width: 0;
+}
+.add-artist-fields h3 {
+  margin: 0 0 0.8rem;
 }
 
 /* Empty-state placeholder for scaffolded pages. */
