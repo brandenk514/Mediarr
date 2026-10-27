@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"regexp"
 	"strings"
@@ -108,7 +109,9 @@ type mbReleaseGroupSearchResponse struct {
 				Name string `json:"name"`
 			} `json:"artist"`
 		} `json:"artist-credit"`
-		Releases []string `json:"releases"`
+		// MusicBrainz returns release objects here (id, date, status, ...);
+		// only the count is used, so keep the raw messages.
+		Releases []json.RawMessage `json:"releases"`
 	} `json:"release-groups"`
 }
 

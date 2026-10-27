@@ -213,8 +213,8 @@ func TestSearchReleaseGroupHits(t *testing.T) {
 		lastQuery = r.URL.Query().Get("query")
 		_, _ = w.Write([]byte(`{"release-groups":[
 			{"id":"g1","name":"OK Computer","first-release-year":1997,"type":"Album",
-			 "releases":["r1","r2"],"artist-credit":[{"artist":{"name":"Radiohead"},"joinphrase":""}]},
-			{"id":"g2","name":"Mixes","type":"DJ-Mix","releases":["r1"],"artist-credit":[]},
+			 "releases":[{"id":"r1"},{"id":"r2"}],"artist-credit":[{"artist":{"name":"Radiohead"},"joinphrase":""}]},
+			{"id":"g2","name":"Mixes","type":"DJ-Mix","releases":[{"id":"r1"}],"artist-credit":[]},
 			{"id":"g3","name":"Words","type":"Spoken Word","releases":[],
 			 "artist-credit":[{"artist":{"name":"A"}},{"artist":{"name":"B"}}]}]}`))
 	}))
