@@ -50,18 +50,25 @@ func (s *Server) SetMusic(deps *MusicDeps) {
 // so "omitted" (defaults to monitored) is distinguishable from an explicit
 // false. MBID is the MusicBrainz id of the selected result (M6 #42); "" = unset.
 // QualityProfile and Path are the optional L1/L2 modal fields: "" = none /
-// same-named subfolder under the root folder.
+// same-named subfolder under the root folder. MonitorPolicy and
+// MonitorNewAlbums are the L2 monitoring-model fields ("" = all); Tags are
+// the L2 free-form tags (nil/absent = none).
 type addArtistRequest struct {
-	Name           string `json:"name"`
-	MBID           string `json:"mbid"`
-	Monitored      *bool  `json:"monitored"`
-	QualityProfile string `json:"quality_profile"`
-	Path           string `json:"path"`
+	Name             string   `json:"name"`
+	MBID             string   `json:"mbid"`
+	Monitored        *bool    `json:"monitored"`
+	QualityProfile   string   `json:"quality_profile"`
+	Path             string   `json:"path"`
+	MonitorPolicy    string   `json:"monitor_policy"`
+	MonitorNewAlbums string   `json:"monitor_new_albums"`
+	Tags             []string `json:"tags"`
 }
 
 // AddArtist handles POST /api/v1/music/artists. An artist is monitored by
 // default; an explicit "monitored": false opts out (PLAN §4 artist-level
-// monitor). Omitted quality_profile/path keep the pre-L1 behavior.
+// monitor). Omitted quality_profile/path keep the pre-L1 behavior; omitted
+// monitor_policy/monitor_new_albums/tags store the empty (= all / none)
+// defaults.
 func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 	var req addArtistRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -77,11 +84,14 @@ func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 		monitored = *req.Monitored
 	}
 	id, err := s.musicDeps.Svc.AddArtist(r.Context(), musicsvc.AddArtistInput{
-		Name:           req.Name,
-		MBID:           req.MBID,
-		Monitored:      monitored,
-		QualityProfile: req.QualityProfile,
-		Path:           req.Path,
+		Name:             req.Name,
+		MBID:             req.MBID,
+		Monitored:        monitored,
+		QualityProfile:   req.QualityProfile,
+		Path:             req.Path,
+		MonitorPolicy:    req.MonitorPolicy,
+		MonitorNewAlbums: req.MonitorNewAlbums,
+		Tags:             req.Tags,
 	})
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
@@ -156,9 +166,9 @@ func (s *Server) MusicLibrarySummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, summary)
 }
 
-// addAlbumRequest is the body for POST /api/v1/music/{id}/albums. Monitored is
-// a pointer so "omitted" (defaults to monitored) is distinguishable from an
-// explicit false.
+// addAlbumRequest is the body for POST /api/v1/music/{id}/albums. Monitored
+// is a pointer: "omitted" derives the value from the artist's L2 monitor
+// policy, an explicit false opts out, an explicit true forces on.
 type addAlbumRequest struct {
 	Name           string `json:"name"`
 	Year           int    `json:"year"`
@@ -166,8 +176,9 @@ type addAlbumRequest struct {
 	Monitored      *bool  `json:"monitored"`
 }
 
-// AddAlbum handles POST /api/v1/music/{id}/albums. A newly added album is
-// monitored by default (PLAN §4); an explicit "monitored": false opts out.
+// AddAlbum handles POST /api/v1/music/{id}/albums. A newly added album
+// follows the artist's monitor policy (L2) unless the request sets
+// "monitored" explicitly (PLAN §4; Lidarr L2 policy application).
 func (s *Server) AddAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -182,11 +193,7 @@ func (s *Server) AddAlbum(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	monitored := true
-	if req.Monitored != nil {
-		monitored = *req.Monitored
-	}
-	albumID, err := s.musicDeps.Svc.AddAlbum(r.Context(), id, req.Name, req.Year, req.QualityProfile, monitored)
+	albumID, err := s.musicDeps.Svc.AddAlbum(r.Context(), id, req.Name, req.Year, req.QualityProfile, req.Monitored)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -323,23 +330,54 @@ func writeMusicMonitoredError(w http.ResponseWriter, err error) {
 	writeError(w, status, err.Error())
 }
 
-// SetArtistMonitored handles PUT /api/v1/music/artists/{id}. It toggles the
-// artist-level monitor, which fans out to the artist's known albums (PLAN §4).
+// updateArtistRequest is the body for PUT /api/v1/music/artists/{id} (L2 Edit
+// Artist modal). Every field is a pointer: omitted = keep the current value
+// (the L1 toggle sends only {"monitored": bool}), provided = apply — an
+// explicit empty string for policy/profile/path is a real value. When
+// monitored is provided and differs from the current state, the change fans
+// out to the artist's known albums.
+type updateArtistRequest struct {
+	Monitored        *bool     `json:"monitored"`
+	MonitorPolicy    *string   `json:"monitor_policy"`
+	MonitorNewAlbums *string   `json:"monitor_new_albums"`
+	QualityProfile   *string   `json:"quality_profile"`
+	Path             *string   `json:"path"`
+	Tags             *[]string `json:"tags"`
+}
+
+// SetArtistMonitored handles PUT /api/v1/music/artists/{id}. L1: the
+// monitored toggle ({"monitored": bool} — the response's monitored state is
+// what the L1 UI checkbox binds to). L2: the full Edit Artist modal
+// (Monitored + Monitor Policy + Monitor New Albums + Quality Profile + Path
+// + Tags) persists through the same endpoint.
 func (s *Server) SetArtistMonitored(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
-	var req monitoredRequest
+	var req updateArtistRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if err := s.musicDeps.Svc.SetArtistMonitored(r.Context(), id, req.Monitored); err != nil {
+	if req.Monitored == nil && req.MonitorPolicy == nil && req.MonitorNewAlbums == nil &&
+		req.QualityProfile == nil && req.Path == nil && req.Tags == nil {
+		writeError(w, http.StatusBadRequest, "monitored is required")
+		return
+	}
+	a, err := s.musicDeps.Svc.UpdateArtist(r.Context(), id, musicsvc.UpdateArtistInput{
+		Monitored:        req.Monitored,
+		MonitorPolicy:    req.MonitorPolicy,
+		MonitorNewAlbums: req.MonitorNewAlbums,
+		QualityProfile:   req.QualityProfile,
+		Path:             req.Path,
+		Tags:             req.Tags,
+	})
+	if err != nil {
 		writeMusicMonitoredError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "monitored": req.Monitored})
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "monitored": a.Monitored})
 }
 
 // SetAlbumMonitored handles PUT /api/v1/music/albums/{id}. It toggles a single

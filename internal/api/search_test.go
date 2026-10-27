@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"github.com/brandenk514/mediarr/internal/auth"
+	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/health"
 	"github.com/brandenk514/mediarr/internal/providers"
+	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 )
 
 // newSearchTestServer returns an authenticated server with SearchDeps wired
@@ -197,7 +199,11 @@ func TestSearchTVTMDB_HappyPath(t *testing.T) {
 }
 
 func TestSearchArtists_HappyPath(t *testing.T) {
-	body := `{"artists":[{"id":"52615704-c35c-475d-bcd0-3b4ba1a4e151","name":"Radiohead","begin-date":"1985-02-01","country":"UK"}]}`
+	// The stub answers every path (artist search, artist detail, release
+	// group search) with the same artist payload; the detail parse yields no
+	// badge fields and the release-group parse yields no groups, so the hit
+	// keeps its search-payload fields.
+	body := `{"artists":[{"id":"52615704-c35c-475d-bcd0-3b4ba1a4e151","name":"Radiohead","type":"Group","country":"UK","disambiguation":"rock band"}]}`
 	stub := stubProvider(t, body, 0)
 	defer stub.Close()
 	deps := &SearchDeps{MusicBrainz: providers.NewMusicBrainz()}
@@ -208,13 +214,107 @@ func TestSearchArtists_HappyPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	var got []searchResult
+	var got artistSearchResult
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Title != "Radiohead" || got[0].Year != 1985 {
-		t.Fatalf("unexpected result: %+v", got)
+	if got.Query != "radiohead" {
+		t.Errorf("query = %q, want radiohead", got.Query)
 	}
+	if len(got.Artists) != 1 {
+		t.Fatalf("want 1 artist hit, got %d", len(got.Artists))
+	}
+	h := got.Artists[0]
+	if h.ID != "52615704-c35c-475d-bcd0-3b4ba1a4e151" || h.Title != "Radiohead" || h.Type != "Group" ||
+		h.Country != "UK" || h.Disambiguation != "rock band" || h.Score != 0 {
+		t.Fatalf("unexpected hit: %+v", h)
+	}
+	if h.AlreadyAdded {
+		t.Error("already_added = true, want false (no music library wired)")
+	}
+	if len(got.ReleaseGroups) != 0 {
+		t.Errorf("release_groups = %v, want none", got.ReleaseGroups)
+	}
+	if len(h.Genres) != 0 || len(h.Links) != 0 {
+		t.Errorf("empty badge fields expected, got %v / %v", h.Genres, h.Links)
+	}
+}
+
+// TestSearchArtists_AlreadyAdded verifies the server-side already_added
+// computation: a hit whose mbid (or exact name) is in the music library
+// renders as already added.
+func TestSearchArtists_AlreadyAdded(t *testing.T) {
+	t.Run("by mbid", func(t *testing.T) {
+		body := `{"artists":[{"id":"` + "52615704-c35c-475d-bcd0-3b4ba1a4e151" + `","name":"Radiohead","type":"Group"}]}`
+		stub := stubProvider(t, body, 0)
+		defer stub.Close()
+		deps := &SearchDeps{MusicBrainz: providers.NewMusicBrainz()}
+		deps.MusicBrainz.BaseURL = stub.URL
+		s, token := newSearchTestServer(t, deps)
+		mrepo := newKindsMusicRepo()
+		mrepo.artists[1] = musicdom.Artist{ID: 1, Name: "Someone Else", MBID: "52615704-c35c-475d-bcd0-3b4ba1a4e151"}
+		s.SetMusic(&MusicDeps{Svc: musicsvc.New(musicsvc.Deps{Repo: mrepo})})
+
+		rec := getJSON(t, s.Handler(), "/api/v1/search/artists?query=radiohead", token)
+		var got artistSearchResult
+		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Artists) != 1 || !got.Artists[0].AlreadyAdded {
+			t.Fatalf("already_added = %v, want true (mbid in library)", got.Artists)
+		}
+		if got.Artists[0].LibraryID != 1 {
+			t.Errorf("library_id = %d, want 1 (the library artist row for the jump)", got.Artists[0].LibraryID)
+		}
+	})
+
+	t.Run("by name", func(t *testing.T) {
+		body := `{"artists":[{"id":"11111111-1111-1111-1111-111111111111","name":"Radiohead","type":"Group"}]}`
+		stub := stubProvider(t, body, 0)
+		defer stub.Close()
+		deps := &SearchDeps{MusicBrainz: providers.NewMusicBrainz()}
+		deps.MusicBrainz.BaseURL = stub.URL
+		s, token := newSearchTestServer(t, deps)
+		mrepo := newKindsMusicRepo()
+		mrepo.artists[1] = musicdom.Artist{ID: 1, Name: "Radiohead"} // no mbid stored
+		s.SetMusic(&MusicDeps{Svc: musicsvc.New(musicsvc.Deps{Repo: mrepo})})
+
+		rec := getJSON(t, s.Handler(), "/api/v1/search/artists?query=radiohead", token)
+		var got artistSearchResult
+		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Artists) != 1 || !got.Artists[0].AlreadyAdded {
+			t.Fatalf("already_added = %v, want true (exact name in library)", got.Artists)
+		}
+		if got.Artists[0].LibraryID != 1 {
+			t.Errorf("library_id = %d, want 1 (the library artist row for the jump)", got.Artists[0].LibraryID)
+		}
+	})
+
+	t.Run("not in library", func(t *testing.T) {
+		body := `{"artists":[{"id":"11111111-1111-1111-1111-111111111111","name":"Radiohead","type":"Group"}]}`
+		stub := stubProvider(t, body, 0)
+		defer stub.Close()
+		deps := &SearchDeps{MusicBrainz: providers.NewMusicBrainz()}
+		deps.MusicBrainz.BaseURL = stub.URL
+		s, token := newSearchTestServer(t, deps)
+		mrepo := newKindsMusicRepo()
+		mrepo.artists[1] = musicdom.Artist{ID: 1, Name: "Nirvana", MBID: "22222222-2222-2222-2222-222222222222"}
+		s.SetMusic(&MusicDeps{Svc: musicsvc.New(musicsvc.Deps{Repo: mrepo})})
+
+		rec := getJSON(t, s.Handler(), "/api/v1/search/artists?query=radiohead", token)
+		var got artistSearchResult
+		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Artists) != 1 || got.Artists[0].AlreadyAdded {
+			t.Fatalf("already_added = %v, want false (not in library)", got.Artists)
+		}
+		if got.Artists[0].LibraryID != 0 {
+			t.Errorf("library_id = %d, want 0 (not in library)", got.Artists[0].LibraryID)
+		}
+	})
 }
 
 func TestSearchBookAuthors_HappyPath(t *testing.T) {

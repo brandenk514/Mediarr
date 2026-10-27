@@ -22,6 +22,10 @@ vi.mock('../../api/client', () => ({
     getArtistHistory: vi.fn(),
     setArtistMonitored: vi.fn(),
     setAlbumMonitored: vi.fn(),
+    // Lidarr L2: the full Edit Artist modal persists through updateArtist,
+    // and its Quality Profile picker reads the music profiles.
+    getProfiles: vi.fn(),
+    updateArtist: vi.fn(),
   },
 }))
 
@@ -101,6 +105,8 @@ beforeEach(() => {
   vi.mocked(client.getArtistHistory).mockReset()
   vi.mocked(client.setArtistMonitored).mockReset()
   vi.mocked(client.setAlbumMonitored).mockReset()
+  vi.mocked(client.getProfiles).mockReset()
+  vi.mocked(client.updateArtist).mockReset()
   vi.mocked(client.getArtist).mockResolvedValue(
     artist(7, {
       Name: 'Radiohead',
@@ -118,6 +124,8 @@ beforeEach(() => {
   vi.mocked(client.getArtistHistory).mockResolvedValue([])
   vi.mocked(client.setArtistMonitored).mockResolvedValue({ id: 7, monitored: false })
   vi.mocked(client.setAlbumMonitored).mockResolvedValue({ id: 11, monitored: false })
+  vi.mocked(client.getProfiles).mockResolvedValue({ profiles: ['FLAC', 'MP3 320'], default: 'FLAC' })
+  vi.mocked(client.updateArtist).mockResolvedValue({ id: 7, monitored: true })
 })
 
 afterEach(() => {
@@ -323,21 +331,81 @@ describe('ArtistDetailPage', () => {
     expect(client.setAlbumMonitored).toHaveBeenCalledWith(11, false)
   })
 
-  it('saves the L1 edit modal fields (Monitored persists)', async () => {
+  it('opens the L2 edit modal with the full field set in Lidarr order', async () => {
     const user = userEvent.setup()
     renderDetail()
     await screen.findByTestId('artist-detail')
     await user.click(screen.getByTestId('artist-detail-edit'))
 
-    const modal = await screen.findByTestId('edit-modal')
-    expect(modal).toBeInTheDocument()
-    // Fields the artist model carries today: Monitored / Quality Profile / Path.
+    await screen.findByTestId('edit-modal')
+    // Field order: Monitored · Monitor New Albums · Monitor Policy ·
+    // Quality Profile · Metadata Profile (L3 stub, disabled) · Path · Tags.
+    const order = [
+      'edit-monitored',
+      'edit-monitor-new-albums',
+      'edit-monitor-policy',
+      'edit-profile',
+      'edit-metadata-profile',
+      'edit-path',
+      'edit-tags-input',
+    ]
+    const byPosition = [...document.querySelectorAll('[data-testid^="edit-"]')]
+      .map((el) => el.getAttribute('data-testid'))
+      .filter((id) => id !== null && id !== 'edit-save' && id !== 'edit-tags-chips')
+    expect(
+      order.every((id) => byPosition.includes(id)),
+    ).toBe(true)
+    const seven = byPosition.filter((id) => order.includes(id as (typeof order)[number]))
+    expect(seven).toEqual(order)
+
+    // Pre-filled from the artist row (the '' wire form of the monitor
+    // fields coerces to the Lidarr default).
+    expect(screen.getByTestId('edit-monitored')).toBeChecked()
+    expect(screen.getByTestId('edit-monitor-new-albums')).toHaveValue('all_albums')
+    expect(screen.getByTestId('edit-monitor-policy')).toHaveValue('all')
     expect(screen.getByTestId('edit-profile')).toHaveValue('FLAC')
     expect(screen.getByTestId('edit-path')).toHaveValue('Music/Radiohead')
-    expect(screen.getByTestId('edit-monitored')).toBeInTheDocument()
+
+    // The 7 monitor options, Lidarr's "Lastest" spelling included.
+    const monitor = screen.getByTestId('edit-monitor-policy') as HTMLSelectElement
+    expect(Array.from(monitor.options).map((o) => o.label)).toEqual([
+      'All Albums',
+      'Future Albums',
+      'Missing Albums',
+      'Existing Albums',
+      'First Album',
+      'Lastest Album',
+      'None',
+    ])
+    // Metadata profiles land in L3: the select renders disabled with the note.
+    expect(screen.getByTestId('edit-metadata-profile')).toBeDisabled()
+    expect(screen.getByText(/Metadata profiles land in a later phase/)).toBeInTheDocument()
+  })
+
+  it('saves the L2 edit modal fields through the artist update endpoint', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('artist-detail')
+    await user.click(screen.getByTestId('artist-detail-edit'))
+    await screen.findByTestId('edit-modal')
+
+    await user.click(screen.getByTestId('edit-monitored')) // un-monitor
+    await user.selectOptions(screen.getByTestId('edit-monitor-policy'), 'future')
+    await user.selectOptions(screen.getByTestId('edit-profile'), 'MP3 320')
+    await user.type(screen.getByTestId('edit-tags-input'), 'lossless{Enter}')
+    expect(screen.getByTestId('edit-tags-chips')).toHaveTextContent('lossless')
 
     await user.click(screen.getByTestId('edit-save'))
-    expect(client.setArtistMonitored).toHaveBeenCalledWith(7, true)
+    await vi.waitFor(() =>
+      expect(client.updateArtist).toHaveBeenCalledWith(7, {
+        monitored: false,
+        monitor_policy: 'future',
+        monitor_new_albums: 'all_albums',
+        quality_profile: 'MP3 320',
+        path: 'Music/Radiohead',
+        tags: ['lossless'],
+      }),
+    )
     expect(await screen.findByTestId('artist-detail-status')).toHaveTextContent('Artist updated.')
   })
 

@@ -171,6 +171,9 @@ func (stubMusicRepo) ListArtists(context.Context) ([]musicdom.Artist, error) {
 func (stubMusicRepo) SetArtistMonitored(context.Context, int64, bool) error {
 	panic("stubMusicRepo.SetArtistMonitored should not be called")
 }
+func (stubMusicRepo) UpdateArtist(context.Context, musicdom.Artist) error {
+	panic("stubMusicRepo.UpdateArtist should not be called")
+}
 func (stubMusicRepo) CreateAlbum(context.Context, musicdom.Album) (int64, error) {
 	panic("stubMusicRepo.CreateAlbum should not be called")
 }

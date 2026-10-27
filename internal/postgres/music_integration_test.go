@@ -18,6 +18,10 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
+// boolPtr wraps a bool for the *bool monitored parameter of the L2 AddAlbum
+// use-case (an explicit value that wins over the artist's monitor policy).
+func boolPtr(b bool) *bool { return &b }
+
 // startMusicPG spins up a Postgres container, opens a pool, runs migrations,
 // and returns a *MusicRepo. Mirrors the TV/auth integration-test harness.
 func startMusicPG(t *testing.T) *postgres.MusicRepo {
@@ -361,12 +365,12 @@ func TestMusicPipeline_EndToEnd_Postgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
-	legendID, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", true)
+	legendID, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true))
 	if err != nil {
 		t.Fatalf("add album: %v", err)
 	}
 	// An unmonitored second album (its release is a distractor, not imported).
-	if _, err := svc.AddAlbum(ctx, artistID, "Uprising", 1980, "Lossless", false); err != nil {
+	if _, err := svc.AddAlbum(ctx, artistID, "Uprising", 1980, "Lossless", boolPtr(false)); err != nil {
 		t.Fatalf("add album 2: %v", err)
 	}
 

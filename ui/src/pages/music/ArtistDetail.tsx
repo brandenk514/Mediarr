@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
-import type { Album, Artist, MusicHistoryEntry, PageArtist, Track } from '../../api/types'
+import type {
+  Album,
+  Artist,
+  MusicHistoryEntry,
+  PageArtist,
+  ProfilesResponse,
+  Track,
+  UpdateArtistRequest,
+} from '../../api/types'
 import { MonitoredToggle } from '../../components/list'
 import {
   ALBUM_TYPE_ORDER,
+  MONITOR_POLICY_OPTIONS,
   albumTypeLabel,
   fmtAudioInfo,
   fmtDuration,
@@ -25,13 +34,12 @@ import { Modal, Toolbar, TbButton } from '../../components/ui'
 // L1 wiring: Refresh & Scan and Search Monitored hit the existing artist
 // pipeline endpoint; History opens a modal over GET /music/artists/{id}/history;
 // Artist Monitoring opens the artist + per-album toggles; Edit opens the
-// L1 edit modal (Monitored persists via PUT — Quality Profile / Path are
-// displayed and accepted into the form, but only L2's update endpoint
-// persists them; L2 also extends the modal with Monitor New Albums /
-// Metadata Profile / Tags). Delete is a stub — no artist delete endpoint
-// exists yet. Interactive Search / Preview Rename / Preview Retag / Manage
-// Tracks / Manual Import are buttons (stubs) — those music-only endpoints
-// land in later phases.
+// L2 Edit Artist modal (Monitored · Monitor New Albums · Monitor Policy ·
+// Quality Profile · Metadata Profile (L3 stub) · Path · Tags) which persists
+// through PUT /music/artists/{id}. Delete is a stub — no artist delete
+// endpoint exists yet. Interactive Search / Preview Rename / Preview Retag /
+// Manage Tracks / Manual Import are buttons (stubs) — those music-only
+// endpoints land in later phases.
 const DASH = '—'
 
 type ModalKind = 'history' | 'monitoring' | 'edit'
@@ -62,7 +70,18 @@ export function ArtistDetailPage() {
   const [modal, setModal] = useState<ModalKind | null>(null)
   const [history, setHistory] = useState<MusicHistoryEntry[] | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
-  const [edit, setEdit] = useState<{ monitored: boolean; profile: string; path: string } | null>(null)
+  const [edit, setEdit] = useState<{
+    monitored: boolean
+    monitorPolicy: NonNullable<UpdateArtistRequest['monitor_policy']>
+    monitorNewAlbums: NonNullable<UpdateArtistRequest['monitor_new_albums']>
+    profile: string
+    path: string
+    tags: string[]
+    tagDraft: string
+  } | null>(null)
+  // The Edit modal's Quality Profile picker (L2): music profiles loaded
+  // lazily when the modal opens.
+  const [editProfiles, setEditProfiles] = useState<ProfilesResponse | null>(null)
 
   const load = useCallback(async () => {
     if (!artistId || Number.isNaN(artistId)) {
@@ -105,6 +124,17 @@ export function ArtistDetailPage() {
       .then(setHistory)
       .catch((e: unknown) => setHistoryError(e instanceof Error ? e.message : 'failed to load history'))
   }, [modal, artistId])
+
+  // The Edit modal's Quality Profile picker loads the music profiles lazily
+  // when the modal opens (L2).
+  useEffect(() => {
+    if (modal !== 'edit') return
+    setEditProfiles(null)
+    client
+      .getProfiles('music')
+      .then(setEditProfiles)
+      .catch(() => setEditProfiles(null))
+  }, [modal])
 
   // Open one more toolbar action (refresh/search). Both wire to the existing
   // per-artist pipeline endpoint (the only search backend in L1).
@@ -299,10 +329,17 @@ export function ArtistDetailPage() {
               label="Edit"
               testId="artist-detail-edit"
               onClick={() => {
+                // '' is the wire form of "all"/"all_albums" for artists added
+                // before the UI offers a choice — coerce so the selects show
+                // a selected option.
                 setEdit({
                   monitored: artist.Monitored,
+                  monitorPolicy: artist.MonitorPolicy || 'all',
+                  monitorNewAlbums: artist.MonitorNewAlbums || 'all_albums',
                   profile: artist.QualityProfile ?? '',
                   path: artist.Path ?? '',
+                  tags: artist.Tags ?? [],
+                  tagDraft: '',
                 })
                 setModal('edit')
               }}
@@ -535,10 +572,11 @@ export function ArtistDetailPage() {
         </Modal>
       )}
 
-      {/* Edit modal (L1). Monitored persists via PUT /music/artists/{id};
-          Quality Profile and Path are the fields the artist model carries
-          today (set at add time) — the update endpoint for them lands in
-          L2, along with Monitor New Albums / Metadata Profile / Tags. */}
+      {/* Edit modal (L2). Persists through PUT /music/artists/{id}
+          (UpdateArtistRequest): Monitored · Monitor New Albums · Monitor
+          Policy · Quality Profile · Metadata Profile (L3 stub — disabled) ·
+          Path · Tags, in the Lidarr Edit Artist order. A monitored change
+          fans out to the artist's known albums server-side. */}
       {modal === 'edit' && edit && (
         <Modal
           title="Edit Artist"
@@ -554,16 +592,17 @@ export function ArtistDetailPage() {
                 data-testid="edit-save"
                 onClick={() => {
                   void (async () => {
-                    await client.setArtistMonitored(artist.ID, edit.monitored)
+                    await client.updateArtist(artist.ID, {
+                      monitored: edit.monitored,
+                      monitor_policy: edit.monitorPolicy,
+                      monitor_new_albums: edit.monitorNewAlbums,
+                      quality_profile: edit.profile,
+                      path: edit.path,
+                      tags: edit.tags,
+                    })
                     setModal(null)
                     setArtist({ ...artist, Monitored: edit.monitored })
-                    const changed =
-                      edit.profile !== (artist.QualityProfile ?? '') || edit.path !== (artist.Path ?? '')
-                    setStatus(
-                      changed
-                        ? 'Monitored saved. Quality profile and path editing land in a later phase (L2).'
-                        : 'Artist updated.',
-                    )
+                    setStatus('Artist updated.')
                     void load()
                   })()
                 }}
@@ -573,27 +612,84 @@ export function ArtistDetailPage() {
             </>
           }
         >
-          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
-            <span className="dim small">Monitored</span>
-            <MonitoredToggle
-              monitored={edit.monitored}
-              onToggle={async (next) => {
-                setEdit({ ...edit, monitored: next })
-              }}
-              label="Monitored"
-              testId="edit-monitored"
+          <label className="check" htmlFor="edit-monitored" style={{ marginBottom: '0.6rem' }}>
+            <input
+              id="edit-monitored"
+              type="checkbox"
+              checked={edit.monitored}
+              onChange={(e) => setEdit({ ...edit, monitored: e.target.checked })}
+              data-testid="edit-monitored"
             />
+            Monitored
           </label>
+          <p className="dim small" style={{ marginTop: '0' }}>
+            Download monitored albums from this artist
+          </p>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span className="dim small">Monitor New Albums</span>
+            <select
+              value={edit.monitorNewAlbums}
+              onChange={(e) => setEdit({ ...edit, monitorNewAlbums: e.target.value as 'all_albums' })}
+              data-testid="edit-monitor-new-albums"
+            >
+              <option value="all_albums">All Albums</option>
+            </select>
+          </label>
+          <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
+            Which new albums should be monitored
+          </p>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span className="dim small">Monitor Policy</span>
+            <select
+              value={edit.monitorPolicy}
+              onChange={(e) =>
+                setEdit({ ...edit, monitorPolicy: e.target.value as NonNullable<UpdateArtistRequest['monitor_policy']> })
+              }
+              data-testid="edit-monitor-policy"
+            >
+              {MONITOR_POLICY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
+            Which albums should be monitored after the artist is added (one-time adjustment)
+          </p>
+
           <label style={{ display: 'block', marginBottom: '0.6rem' }}>
             <span className="dim small">Quality Profile</span>
-            <input
-              type="text"
+            <select
               value={edit.profile}
               onChange={(e) => setEdit({ ...edit, profile: e.target.value })}
               data-testid="edit-profile"
-            />
+            >
+              {(editProfiles?.profiles ?? []).map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                  {editProfiles?.default === p ? ' (default)' : ''}
+                </option>
+              ))}
+              {editProfiles !== null && (editProfiles.profiles ?? []).length === 0 && (
+                <option value="">— No profiles —</option>
+              )}
+            </select>
           </label>
-          <label style={{ display: 'block' }}>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span className="dim small">Metadata Profile</span>
+            <select value="Standard" disabled data-testid="edit-metadata-profile">
+              <option value="Standard">Standard</option>
+            </select>
+          </label>
+          <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
+            Metadata profiles land in a later phase (L3).
+          </p>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
             <span className="dim small">Path</span>
             <input
               type="text"
@@ -602,6 +698,45 @@ export function ArtistDetailPage() {
               data-testid="edit-path"
             />
           </label>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span className="dim small">Tags</span>
+            <input
+              type="text"
+              value={edit.tagDraft}
+              onChange={(e) => setEdit({ ...edit, tagDraft: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                  e.preventDefault()
+                  const t = edit.tagDraft.trim().replace(/,+$/, '')
+                  if (t && !edit.tags.includes(t)) setEdit({ ...edit, tags: [...edit.tags, t], tagDraft: '' })
+                }
+              }}
+              onBlur={() => {
+                const t = edit.tagDraft.trim().replace(/,+$/, '')
+                if (t && !edit.tags.includes(t)) setEdit({ ...edit, tags: [...edit.tags, t], tagDraft: '' })
+              }}
+              placeholder="Add a tag, press Enter"
+              data-testid="edit-tags-input"
+            />
+          </label>
+          {edit.tags.length > 0 && (
+            <span className="tag-chips" data-testid="edit-tags-chips">
+              {edit.tags.map((t) => (
+                <span className="tag-chip" key={t}>
+                  {t}
+                  <button
+                    type="button"
+                    aria-label={`Remove tag ${t}`}
+                    onClick={() => setEdit({ ...edit, tags: edit.tags.filter((x) => x !== t) })}
+                    data-testid={`edit-tag-remove-${t}`}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </span>
+          )}
         </Modal>
       )}
     </div>

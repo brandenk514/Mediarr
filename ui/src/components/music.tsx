@@ -144,6 +144,19 @@ export const ALBUM_TYPE_ORDER = [
   'other',
 ] as const
 
+// The 7 Lidarr Monitor options (which albums are monitored when the artist
+// is added). 'last' renders Lidarr's own spelling, "Lastest Album". Shared by
+// the Add New Artist modal and the Edit Artist modal.
+export const MONITOR_POLICY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'all', label: 'All Albums' },
+  { value: 'future', label: 'Future Albums' },
+  { value: 'missing', label: 'Missing Albums' },
+  { value: 'existing', label: 'Existing Albums' },
+  { value: 'first', label: 'First Album' },
+  { value: 'last', label: 'Lastest Album' },
+  { value: 'none', label: 'None' },
+]
+
 // relTime renders an ISO timestamp as a compact relative date for the
 // history modal ('just now', '5 min ago', '3 days ago', else the date).
 export function relTime(iso: string): string {
