@@ -19,6 +19,14 @@ const FRESH = {
   generate_subtitles: false,
   language: 'en',
   kinds: { movie: true, tv: true, music: true, book: true },
+  // Lidarr L3 music block (server defaults: tag on, no scrub, consumers off).
+  tag_audio_files: true,
+  scrub_existing_tags: false,
+  consumers: [
+    { name: 'Kodi (XBMC)/Emby', enabled: false },
+    { name: 'Roksbox', enabled: false },
+    { name: 'WDTV', enabled: false },
+  ],
 }
 
 function renderSection() {
@@ -64,7 +72,46 @@ describe('MetadataSection', () => {
         generate_subtitles: true,
         language: 'fr',
         kinds: { movie: true, tv: true, music: false, book: true },
+        // Lidarr L3 music fields round-trip unchanged (the doc's values).
+        tag_audio_files: true,
+        scrub_existing_tags: false,
+        consumers: [
+          { name: 'Kodi (XBMC)/Emby', enabled: false },
+          { name: 'Roksbox', enabled: false },
+          { name: 'WDTV', enabled: false },
+        ],
       }),
+    )
+  })
+
+  it('renders the L3 music block and saves consumer + scrub edits', async () => {
+    const user = userEvent.setup()
+    renderSection()
+    // Seeded state: tag on, scrub off, the 3 consumers all disabled. The
+    // consumer rows only exist once the document load has seeded them.
+    expect(await screen.findByTestId('md-tag-audio')).toBeChecked()
+    expect(screen.getByTestId('md-scrub')).not.toBeChecked()
+    await screen.findByTestId('md-consumer-Roksbox')
+    for (const name of ['Kodi (XBMC)/Emby', 'Roksbox', 'WDTV']) {
+      expect(screen.getByTestId(`md-consumer-${name}`)).not.toBeChecked()
+    }
+
+    await user.click(screen.getByTestId('md-scrub'))
+    await user.click(screen.getByTestId('md-consumer-Roksbox'))
+    await user.click(screen.getByTestId('metadata-save'))
+    await vi.waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'metadata',
+        expect.objectContaining({
+          tag_audio_files: true,
+          scrub_existing_tags: true,
+          consumers: [
+            { name: 'Kodi (XBMC)/Emby', enabled: false },
+            { name: 'Roksbox', enabled: true },
+            { name: 'WDTV', enabled: false },
+          ],
+        }),
+      ),
     )
   })
 })
