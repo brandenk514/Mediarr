@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
-import type { MediaKind, MetadataSettings } from '../../../api/types'
+import type { MediaKind, MetadataConsumer, MetadataSettings } from '../../../api/types'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
 // MetadataSection is the metadata section of the P5 settings shell: the
 // metadata file writer options (NFO sidecars + subtitles on import/refresh,
-// in which language, for which kinds). The NFO toggle gates the
+// in which language, for which kinds), plus the Lidarr L3 music block —
+// tagging imported audio files with the generated metadata, scrubbing
+// existing tags, and the metadata consumers (Kodi (XBMC)/Emby, Roksbox,
+// WDTV) that run against the generated files. The NFO toggle gates the
 // metawrite.Writer wired into the wanted manual-import flow (P5 wave 2).
 const KINDS: MediaKind[] = ['movie', 'tv', 'music', 'book']
 
@@ -15,6 +18,12 @@ export function MetadataSection() {
   const [generateSubtitles, setGenerateSubtitles] = useState(false)
   const [language, setLanguage] = useState('en')
   const [kinds, setKinds] = useState<Record<string, boolean>>({ movie: true, tv: true, music: true, book: true })
+  // Lidarr L3 music fields. The ?? defaults mirror the server's
+  // DefaultMetadata() for documents that predate the fields (a missing key
+  // must seed the default, or the shell's stale-fixture render would throw).
+  const [tagAudioFiles, setTagAudioFiles] = useState(true)
+  const [scrubExistingTags, setScrubExistingTags] = useState(false)
+  const [consumers, setConsumers] = useState<MetadataConsumer[]>([])
   const [saved, setSaved] = useState(false)
   const { busy, error: saveError, submit } = useSubmit()
 
@@ -24,19 +33,30 @@ export function MetadataSection() {
     setGenerateSubtitles(doc.generate_subtitles)
     setLanguage(doc.language)
     setKinds(doc.kinds ?? { movie: true, tv: true, music: true, book: true })
+    setTagAudioFiles(doc.tag_audio_files ?? true)
+    setScrubExistingTags(doc.scrub_existing_tags ?? false)
+    setConsumers(doc.consumers ?? [])
   }, [doc])
 
   if (error) {
     return <SectionError message={error} authLost={authLost} onRetry={refresh} testId="metadata-error" />
   }
 
+  function toggleConsumer(name: string, enabled: boolean) {
+    setConsumers((prev) => prev.map((c) => (c.name === name ? { ...c, enabled } : c)))
+  }
+
   function handleSave() {
+    if (!doc) return
     void submit(async () => {
       const next: MetadataSettings = {
         generate_nfo: generateNfo,
         generate_subtitles: generateSubtitles,
         language,
         kinds: Object.fromEntries(KINDS.map((k) => [k, kinds[k] ?? false])),
+        tag_audio_files: tagAudioFiles,
+        scrub_existing_tags: scrubExistingTags,
+        consumers,
       }
       await client.putSettingsSection<MetadataSettings>('metadata', next)
       setSaved(true)
@@ -82,6 +102,44 @@ export function MetadataSection() {
               data-testid={`md-kind-${k}`}
             />
             {k}
+          </label>
+        ))}
+      </div>
+
+      <h4>Music metadata</h4>
+      <label className="check" htmlFor="md-tag-audio">
+        <input
+          id="md-tag-audio"
+          type="checkbox"
+          checked={tagAudioFiles}
+          onChange={(e) => setTagAudioFiles(e.target.checked)}
+          data-testid="md-tag-audio"
+        />
+        Tag Audio Files with Metadata
+      </label>
+      <label className="check" htmlFor="md-scrub">
+        <input
+          id="md-scrub"
+          type="checkbox"
+          checked={scrubExistingTags}
+          onChange={(e) => setScrubExistingTags(e.target.checked)}
+          data-testid="md-scrub"
+        />
+        Scrub Existing Tags
+      </label>
+      <h4>Metadata Consumers</h4>
+      {consumers.length === 0 && <p className="dim small">No metadata consumers.</p>}
+      <div data-testid="md-consumers">
+        {consumers.map((c) => (
+          <label className="check" key={c.name} htmlFor={`md-consumer-${c.name}`}>
+            <input
+              id={`md-consumer-${c.name}`}
+              type="checkbox"
+              checked={c.enabled}
+              onChange={(e) => toggleConsumer(c.name, e.target.checked)}
+              data-testid={`md-consumer-${c.name}`}
+            />
+            {c.name}
           </label>
         ))}
       </div>

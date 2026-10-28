@@ -135,3 +135,41 @@ test('radarr R5b settings surfaces render (movie naming, movie profiles, movie q
   await expect(page.getByTestId('import-lists-card')).toBeVisible()
   await expect(page.getByTestId('il-new-kind')).toHaveValue('trakt')
 })
+
+// Lidarr L3: the music settings surfaces render across the five sections.
+// The assertions are block/heading level (not seeded-value level) so the
+// spec stays green whether the running backend is pre-L3 (empty blocks) or
+// seeded with the Lidarr defaults.
+test('lidarr L3 music settings surfaces render (track naming, music quality, music profiles, consumers, expand-by-default)', async ({
+  page,
+}) => {
+  await page.goto('/settings/media-management')
+  await signIn(page)
+  await expect(page).toHaveURL(/\/settings\/media-management$/)
+  // Media management: the track-naming block beside the movie-naming block.
+  await expect(page.getByRole('heading', { name: 'Track naming' })).toBeVisible()
+  await expect(page.getByTestId('mm-track-format')).toBeVisible()
+
+  // Quality: the music definitions table sits beside the TV/movie tables.
+  await page.getByTestId('settings-nav-quality').click()
+  await expect(page).toHaveURL(/\/settings\/quality$/)
+  await expect(page.getByRole('heading', { name: 'Music quality definitions' })).toBeVisible()
+
+  // Profiles: the music quality + metadata profile sub-sections render.
+  await page.getByTestId('settings-nav-profiles').click()
+  await expect(page).toHaveURL(/\/settings\/profiles$/)
+  await expect(page.getByRole('heading', { name: 'Music quality profiles' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Metadata profiles' })).toBeVisible()
+
+  // Metadata: the music metadata block (tag / scrub / consumers).
+  await page.getByTestId('settings-nav-metadata').click()
+  await expect(page).toHaveURL(/\/settings\/metadata$/)
+  await expect(page.getByRole('heading', { name: 'Music metadata' })).toBeVisible()
+  await expect(page.getByTestId('md-tag-audio')).toBeVisible()
+
+  // UI: the Expand Items by Default block with the five release-type checks.
+  await page.getByTestId('settings-nav-ui').click()
+  await expect(page).toHaveURL(/\/settings\/ui$/)
+  await expect(page.getByRole('heading', { name: 'Expand Items by Default' })).toBeVisible()
+  await expect(page.getByTestId('ui-expand-albums')).toBeVisible()
+})

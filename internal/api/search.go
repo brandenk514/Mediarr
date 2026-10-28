@@ -8,9 +8,9 @@ import (
 
 	booksdom "github.com/brandenk514/mediarr/internal/domains/books"
 	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
-	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/providers"
+	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // SearchDeps bundles the metadata-provider adapters the add-flow search
@@ -386,7 +386,10 @@ func profilesForKind(kind string) ([]string, string) {
 	case "tv":
 		return namesOfTVProfiles(tvdom.BuiltInProfiles()), "HD-1080p"
 	case "music":
-		return namesOfMusicProfiles(musicdom.BuiltInProfiles()), "Lossless"
+		// L3: the music picker lists the SETTINGS-seeded Lidarr profiles
+		// (the 4 factory defaults), not the release-matching domain
+		// built-ins (the matching engine is a separate layer).
+		return namesOfMusicProfiles(settings.DefaultMusicProfiles()), settings.DefaultMusicQualityProfile
 	case "books":
 		return namesOfBookProfiles(booksdom.BuiltInProfiles()), "Best"
 	default:
@@ -410,7 +413,7 @@ func namesOfTVProfiles(ps []tvdom.Profile) []string {
 	return out
 }
 
-func namesOfMusicProfiles(ps []musicdom.Profile) []string {
+func namesOfMusicProfiles(ps []settings.QualityProfile) []string {
 	out := make([]string, 0, len(ps))
 	for _, p := range ps {
 		out = append(out, p.Name)

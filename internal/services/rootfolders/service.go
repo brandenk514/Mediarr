@@ -79,6 +79,13 @@ func (s *Service) Update(rf rfdom.RootFolder) (*rfdom.RootFolder, error) {
 	if rf.Name == "" {
 		rf.Name = existing.Name
 	}
+	// L3: omitted default profiles keep their stored values.
+	if rf.DefaultQualityProfile == "" {
+		rf.DefaultQualityProfile = existing.DefaultQualityProfile
+	}
+	if rf.DefaultMetadataProfile == "" {
+		rf.DefaultMetadataProfile = existing.DefaultMetadataProfile
+	}
 	if err := s.repo.Update(rf); err != nil {
 		return nil, err
 	}

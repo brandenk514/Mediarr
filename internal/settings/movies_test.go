@@ -43,13 +43,14 @@ func TestR5a_MovieLevelDefaults(t *testing.T) {
 }
 
 // TestR5a_TVLevelsRegression is the TV contract: the TV matrix must stay
-// byte-identical (P5) — the Radarr movie set is additive only.
+// byte-identical (P5) — the Radarr movie set is additive only. (Lidarr L3
+// added the group field to QualityLevel; TV rows carry "".)
 func TestR5a_TVLevelsRegression(t *testing.T) {
 	got, err := json.Marshal(DefaultQuality().Levels)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `[{"id":1,"name":"SD","source":"dvd","resolution":"480p","size_limit_mb":1024},{"id":2,"name":"720p WEB","source":"webrip","resolution":"720p","size_limit_mb":1536},{"id":3,"name":"720p","source":"blu-ray","resolution":"720p","size_limit_mb":2560},{"id":4,"name":"720p REMUX","source":"remux","resolution":"720p","size_limit_mb":7168},{"id":5,"name":"1080p WEB","source":"webrip","resolution":"1080p","size_limit_mb":1536},{"id":6,"name":"1080p","source":"blu-ray","resolution":"1080p","size_limit_mb":4096},{"id":7,"name":"1080p REMUX","source":"remux","resolution":"1080p","size_limit_mb":11264},{"id":8,"name":"2160p WEB","source":"webrip","resolution":"2160p","size_limit_mb":5120},{"id":9,"name":"2160p","source":"blu-ray","resolution":"2160p","size_limit_mb":8192},{"id":10,"name":"2160p REMUX","source":"remux","resolution":"2160p","size_limit_mb":20480}]`
+	want := `[{"id":1,"name":"SD","group":"","source":"dvd","resolution":"480p","size_limit_mb":1024},{"id":2,"name":"720p WEB","group":"","source":"webrip","resolution":"720p","size_limit_mb":1536},{"id":3,"name":"720p","group":"","source":"blu-ray","resolution":"720p","size_limit_mb":2560},{"id":4,"name":"720p REMUX","group":"","source":"remux","resolution":"720p","size_limit_mb":7168},{"id":5,"name":"1080p WEB","group":"","source":"webrip","resolution":"1080p","size_limit_mb":1536},{"id":6,"name":"1080p","group":"","source":"blu-ray","resolution":"1080p","size_limit_mb":4096},{"id":7,"name":"1080p REMUX","group":"","source":"remux","resolution":"1080p","size_limit_mb":11264},{"id":8,"name":"2160p WEB","group":"","source":"webrip","resolution":"2160p","size_limit_mb":5120},{"id":9,"name":"2160p","group":"","source":"blu-ray","resolution":"2160p","size_limit_mb":8192},{"id":10,"name":"2160p REMUX","group":"","source":"remux","resolution":"2160p","size_limit_mb":20480}]`
 	if string(got) != want {
 		t.Errorf("TV levels drifted:\ngot  %s\nwant %s", got, want)
 	}

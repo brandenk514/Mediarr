@@ -20,6 +20,11 @@ type RootFolder struct {
 	// FreeSpace is the free bytes on the volume holding the root folder;
 	// nil when the backend cannot stat it (Radarr R2).
 	FreeSpace *int64
+	// Lidarr L3: per-root default profiles. Names (not ids) of the seeded
+	// quality / metadata profiles to apply to media added under this root;
+	// "" = unset (the app-level default applies).
+	DefaultQualityProfile  string
+	DefaultMetadataProfile string
 }
 
 // Sentinel errors for the registry.

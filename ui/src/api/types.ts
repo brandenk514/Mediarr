@@ -139,6 +139,9 @@ export type TagsSettings = components["schemas"]["TagsSettings"]
 export type TagUsage = components["schemas"]["TagUsage"]
 export type NamingTemplate = components["schemas"]["NamingTemplate"]
 export type MovieNaming = components["schemas"]["MovieNaming"]
+// Lidarr L3 music settings (music naming block + music metadata consumers).
+export type MusicNaming = components["schemas"]["MusicNaming"]
+export type MetadataConsumer = components["schemas"]["MetadataConsumer"]
 export type FileManagement = components["schemas"]["FileManagement"]
 export type RemotePathMapping = components["schemas"]["RemotePathMapping"]
 export type MediaManagementSettings = components["schemas"]["MediaManagementSettings"]
@@ -163,6 +166,8 @@ export type ImportRunItem = components["schemas"]["ImportRunItem"]
 export type ImportRunResult = components["schemas"]["ImportRunResult"]
 export type DelayProfile = components["schemas"]["DelayProfile"]
 export type ReleaseProfile = components["schemas"]["ReleaseProfile"]
+// Lidarr L3: the metadata profiles (Standard / Album / Studio item lists).
+export type MetadataProfile = components["schemas"]["MetadataProfile"]
 
 // ---- P6: System area (Status / Tasks / Backup / Updates / Events / Logs / migration) ----
 export type HealthCheck = components["schemas"]["HealthCheck"]

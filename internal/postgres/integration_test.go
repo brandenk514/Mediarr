@@ -113,8 +113,8 @@ func TestVersion_TracksAppliedMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after migrate: %v", err)
 	}
-	if v != "0016_music_l2" {
-		t.Errorf("version = %q, want 0016_music_l2 (highest applied)", v)
+	if v != "0017_root_folder_defaults" {
+		t.Errorf("version = %q, want 0017_root_folder_defaults (highest applied)", v)
 	}
 }
 

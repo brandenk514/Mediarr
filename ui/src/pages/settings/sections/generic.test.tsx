@@ -27,6 +27,8 @@ vi.mock('../../../api/client', () => ({
     putSettingsSection: vi.fn(),
     getTagUsage: vi.fn(),
     listRootFolders: vi.fn(),
+    getProfiles: vi.fn(),
+    updateRootFolder: vi.fn(),
   },
 }))
 
@@ -42,7 +44,20 @@ function freshDoc(section: string): unknown {
         auth_pinning: true,
       }
     case 'ui':
-      return { default_view: 'dashboard', date_format: 'YYYY-MM-DD', time_format: '24h', items_per_page: 50 }
+      return {
+        default_view: 'dashboard',
+        date_format: 'YYYY-MM-DD',
+        time_format: '24h',
+        items_per_page: 50,
+        // Lidarr L3 music bits (server defaults: albums expanded, theme auto).
+        expand_albums: true,
+        expand_eps: false,
+        expand_singles: false,
+        expand_broadcast: false,
+        expand_other: false,
+        theme: 'auto',
+        color_impaired: false,
+      }
     case 'quality':
       return {
         levels: [
@@ -55,6 +70,15 @@ function freshDoc(section: string): unknown {
           { id: 100, name: '480p', source: 'dvd', resolution: '480p', size_limit_mb: 1024 },
           { id: 104, name: '1080p WEB', source: 'webrip', resolution: '1080p', size_limit_mb: 1536 },
           { id: 105, name: '1080p', source: 'blu-ray', resolution: '1080p', size_limit_mb: 4096 },
+        ],
+        // Lidarr L3: the doc carries the music ladder (200+ id space). A
+        // 4-row subset of the factory table, so the Reset test can assert
+        // the reset restores the full 38-row ladder.
+        music_levels: [
+          { id: 213, name: 'WAV', group: '', source: '', resolution: '', size_limit_mb: 0 },
+          { id: 206, name: 'FLAC', group: 'Lossless', source: '', resolution: '', size_limit_mb: 0 },
+          { id: 204, name: 'MP3-320', group: 'High Quality Lossy', source: '', resolution: '', size_limit_mb: 350 },
+          { id: 200, name: 'Unknown', group: '', source: '', resolution: '', size_limit_mb: 350 },
         ],
       }
     case 'profiles':
@@ -118,6 +142,32 @@ function freshDoc(section: string): unknown {
             hdtv: true,
           },
         ],
+        // Lidarr L3: the seeded music quality profiles (200+ id space; items
+        // reference the music level ids from the quality doc) + the three
+        // metadata profiles.
+        music_profiles: [
+          {
+            id: 200,
+            name: 'Lossless Best Effort',
+            cutoff: 206,
+            items: [
+              { quality: 213, approved: true },
+              { quality: 206, approved: true },
+              { quality: 204, approved: true },
+            ],
+          },
+          { id: 201, name: 'WAV', cutoff: 213, items: [{ quality: 213, approved: true }] },
+        ],
+        metadata_profiles: [
+          {
+            id: 1,
+            name: 'Standard',
+            description: 'The standard metadata set.',
+            items: ['Embedded', 'Music XML', 'Music Image'],
+          },
+          { id: 2, name: 'Album', description: 'Album-scoped metadata.', items: ['Embedded', 'Album TXT'] },
+          { id: 3, name: 'Studio', description: 'Artist/label-scoped metadata.', items: ['Embedded', 'Artist TXT'] },
+        ],
       }
     case 'tags':
       return { tags: [{ id: 1, label: 'family', description: 'Family TV' }] }
@@ -138,6 +188,14 @@ function freshDoc(section: string): unknown {
           replace_illegal_characters: true,
           colon_replacement: '',
           standard_format: '{movie-title} ({year}) {quality} {edition}',
+        },
+        // Lidarr L3: the track-naming block (the server's seeded defaults).
+        music_naming: {
+          rename_tracks: true,
+          replace_illegal_characters: true,
+          colon_replacement: '',
+          standard_format: '{artist} - {track:0} - {track-title}',
+          multi_disc_format: '{artist} - {album} - CD {disc:0} - {track:0} - {track-title}',
         },
         file_management: {
           min_file_age_hours: 0,
@@ -172,6 +230,25 @@ beforeEach(() => {
     episodes: 42,
   })
   ;(client.listRootFolders as ReturnType<typeof vi.fn>).mockResolvedValue([])
+  // Lidarr L3: the music profile names for the per-root pickers.
+  ;(client.getProfiles as ReturnType<typeof vi.fn>).mockResolvedValue({
+    profiles: ['Lossless Best Effort', 'Lossless', 'VBR Best Effort', 'WAV'],
+    default: 'Lossless Best Effort',
+  })
+  // The registry echo: the updated root returns the requested defaults, like
+  // the real server (so a second pick carries the first pick's value along).
+  ;(client.updateRootFolder as ReturnType<typeof vi.fn>).mockImplementation(
+    async (id: number, req: { default_quality_profile?: string; default_metadata_profile?: string }) =>
+      ({
+        ID: id,
+        Path: '/srv/music',
+        Name: 'Music',
+        CreatedAt: '2026-01-01T00:00:00Z',
+        FreeSpace: null,
+        DefaultQualityProfile: req.default_quality_profile ?? '',
+        DefaultMetadataProfile: req.default_metadata_profile ?? '',
+      }) as never,
+  )
 })
 
 afterEach(() => {
@@ -216,7 +293,46 @@ describe('UISection', () => {
         date_format: 'YYYY-MM-DD',
         time_format: '24h',
         items_per_page: 50,
+        // Lidarr L3 music bits round-trip unchanged (the doc's values).
+        expand_albums: true,
+        expand_eps: false,
+        expand_singles: false,
+        expand_broadcast: false,
+        expand_other: false,
+        theme: 'auto',
+        color_impaired: false,
       }),
+    )
+  })
+
+  it('renders the L3 music bits and saves the theme + an expand toggle', async () => {
+    const user = userEvent.setup()
+    renderSection(<UISection />)
+    // The Expand Items by Default block seeds from the doc (albums on, rest off).
+    expect(await screen.findByTestId('ui-expand-albums')).toBeChecked()
+    expect(screen.getByTestId('ui-expand-eps')).not.toBeChecked()
+    expect(screen.getByTestId('ui-expand-broadcast')).not.toBeChecked()
+    const theme = screen.getByTestId('ui-theme') as HTMLSelectElement
+    expect(theme).toHaveValue('auto')
+    expect(screen.getByTestId('ui-color-impaired')).not.toBeChecked()
+
+    await user.click(screen.getByTestId('ui-expand-eps'))
+    await user.selectOptions(theme, 'dark')
+    await user.click(screen.getByTestId('ui-color-impaired'))
+    await user.click(screen.getByTestId('ui-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'ui',
+        expect.objectContaining({
+          expand_albums: true,
+          expand_eps: true,
+          expand_singles: false,
+          expand_broadcast: false,
+          expand_other: false,
+          theme: 'dark',
+          color_impaired: true,
+        }),
+      ),
     )
   })
 })
@@ -247,6 +363,13 @@ describe('QualitySection', () => {
             { id: 104, name: '1080p WEB', source: 'webrip', resolution: '1080p', size_limit_mb: 1536 },
             { id: 105, name: '1080p', source: 'blu-ray', resolution: '1080p', size_limit_mb: 4096 },
           ],
+          // Lidarr L3: the music ladder round-trips untouched too.
+          music_levels: [
+            { id: 213, name: 'WAV', group: '', source: '', resolution: '', size_limit_mb: 0 },
+            { id: 206, name: 'FLAC', group: 'Lossless', source: '', resolution: '', size_limit_mb: 0 },
+            { id: 204, name: 'MP3-320', group: 'High Quality Lossy', source: '', resolution: '', size_limit_mb: 350 },
+            { id: 200, name: 'Unknown', group: '', source: '', resolution: '', size_limit_mb: 350 },
+          ],
         },
       ),
     )
@@ -276,6 +399,61 @@ describe('QualitySection', () => {
         }),
       ),
     )
+  })
+
+  it('renders the music quality definitions (L3) and saves a renamed music level', async () => {
+    const user = userEvent.setup()
+    renderSection(<QualitySection />)
+    // The music ladder renders with its Title (group) and Size Limit columns;
+    // a 0 limit renders as "Unlimited" (the Lidarr convention).
+    expect(await screen.findByTestId('music-quality-name-213')).toHaveValue('WAV')
+    expect(screen.getByTestId('music-quality-group-206')).toHaveTextContent('Lossless')
+    expect(screen.getByTestId('music-quality-size-206')).toHaveTextContent('Unlimited')
+    expect(screen.getByTestId('music-quality-size-204')).toHaveTextContent('350 MB')
+    expect(screen.getByTestId('music-quality-group-213')).toHaveTextContent('')
+
+    // Rename a level; the size column is display-only (the table is a seed
+    // view — the edit granularity is the name, like the TV/movie tables).
+    fireEvent.change(screen.getByTestId('music-quality-name-204'), { target: { value: 'MP3-320-R' } })
+    await user.click(screen.getByTestId('quality-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'quality',
+        expect.objectContaining({
+          music_levels: [
+            expect.objectContaining({ id: 213, name: 'WAV' }),
+            expect.objectContaining({ id: 206, name: 'FLAC' }),
+            expect.objectContaining({ id: 204, name: 'MP3-320-R' }),
+            expect.objectContaining({ id: 200, name: 'Unknown' }),
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('resets the music definitions to the 38-row factory ladder (L3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<QualitySection />)
+    await screen.findByTestId('music-quality-name-213')
+
+    await user.click(screen.getByTestId('music-quality-reset'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'quality',
+        expect.objectContaining({
+          music_levels: expect.arrayContaining([
+            expect.objectContaining({ id: 213, name: 'WAV', size_limit_mb: 0 }),
+            expect.objectContaining({ id: 235, name: 'APE', group: 'Lossless', size_limit_mb: 0 }),
+            expect.objectContaining({ id: 204, name: 'MP3-320', group: 'High Quality Lossy' }),
+            expect.objectContaining({ id: 200, name: 'Unknown', size_limit_mb: 350 }),
+          ]),
+        }),
+      ),
+    )
+    // The reset PUTs the FULL factory table: 38 rows.
+    const calls = (client.putSettingsSection as ReturnType<typeof vi.fn>).mock.calls
+    const lastCall = calls[calls.length - 1]
+    expect((lastCall[1] as { music_levels: unknown[] }).music_levels).toHaveLength(38)
   })
 })
 
@@ -396,6 +574,65 @@ describe('ProfilesSection', () => {
         expect.objectContaining({
           release_profiles: [
             expect.objectContaining({ id: 1, name: 'Default', bluray: false, webrip: true }),
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('renders and edits the music quality + metadata profiles (L3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<ProfilesSection />)
+    // The seeded music profile renders with its name and cutoff.
+    expect(await screen.findByTestId('musicprofile-name-200')).toHaveValue('Lossless Best Effort')
+    // The level checkboxes come from the quality doc (second fetch) — wait
+    // for one before driving the form.
+    await screen.findByTestId('musicprofile-level-200-213')
+    expect(screen.getByTestId('musicprofile-level-200-213')).toBeChecked()
+    expect(screen.getByTestId('musicprofile-level-200-200')).not.toBeChecked()
+    const cutoff = screen.getByTestId('musicprofile-cutoff-200') as HTMLSelectElement
+    expect(cutoff).toHaveValue('206')
+    // The metadata profiles render as read-only name/description/item lists.
+    expect(await screen.findByTestId('metadataprofile-1')).toHaveTextContent('Standard')
+    expect(screen.getByTestId('metadataprofile-items-1')).toHaveTextContent('Music XML')
+    expect(screen.getByTestId('metadataprofile-items-2')).toHaveTextContent('Album TXT')
+
+    // Edit: rename profile 201, approve Unknown (200) on profile 200, and
+    // move its cutoff to WAV (213).
+    await user.clear(screen.getByTestId('musicprofile-name-201'))
+    await user.type(screen.getByTestId('musicprofile-name-201'), 'WAV Plus')
+    await user.click(screen.getByTestId('musicprofile-level-200-200'))
+    await user.selectOptions(screen.getByTestId('musicprofile-cutoff-200'), '213')
+
+    await user.click(screen.getByTestId('profiles-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'profiles',
+        expect.objectContaining({
+          music_profiles: [
+            expect.objectContaining({
+              id: 200,
+              name: 'Lossless Best Effort',
+              cutoff: 213,
+              items: [
+                expect.objectContaining({ quality: 213, approved: true }),
+                expect.objectContaining({ quality: 206, approved: true }),
+                expect.objectContaining({ quality: 204, approved: true }),
+                expect.objectContaining({ quality: 200, approved: true }),
+              ],
+            }),
+            expect.objectContaining({ id: 201, name: 'WAV Plus' }),
+          ],
+          // The metadata profiles round-trip untouched.
+          metadata_profiles: [
+            {
+              id: 1,
+              name: 'Standard',
+              description: 'The standard metadata set.',
+              items: ['Embedded', 'Music XML', 'Music Image'],
+            },
+            { id: 2, name: 'Album', description: 'Album-scoped metadata.', items: ['Embedded', 'Album TXT'] },
+            { id: 3, name: 'Studio', description: 'Artist/label-scoped metadata.', items: ['Embedded', 'Artist TXT'] },
           ],
         }),
       ),
@@ -525,6 +762,78 @@ describe('MediaManagementSection', () => {
           file_management: expect.objectContaining({ unmonitor_deleted_movies: false }),
         }),
       ),
+    )
+  })
+
+  it('renders the track naming block and saves its edits (L3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<MediaManagementSection />)
+    const format = await screen.findByTestId('mm-track-format')
+    // The document loads async; wait for the seeded template to apply.
+    await waitFor(() => expect(format).toHaveValue('{artist} - {track:0} - {track-title}'))
+    expect(screen.getByTestId('mm-track-rename')).toBeChecked()
+    expect(screen.getByTestId('mm-track-illegal')).toBeChecked()
+    expect(screen.getByTestId('mm-track-colon')).toHaveValue('')
+    expect(screen.getByTestId('mm-track-multidisc')).toHaveValue(
+      '{artist} - {album} - CD {disc:0} - {track:0} - {track-title}',
+    )
+
+    // Uncheck Rename Tracks and swap the standard format (braces break
+    // userEvent key-sequence parsing; set the template directly).
+    await user.click(screen.getByTestId('mm-track-rename'))
+    fireEvent.change(format, { target: { value: '{artist} - {track:0} - {track-title} (Lossless)' } })
+    await user.click(screen.getByTestId('media-management-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'media-management',
+        expect.objectContaining({
+          music_naming: {
+            rename_tracks: false,
+            replace_illegal_characters: true,
+            colon_replacement: '',
+            standard_format: '{artist} - {track:0} - {track-title} (Lossless)',
+            multi_disc_format: '{artist} - {album} - CD {disc:0} - {track:0} - {track-title}',
+          },
+        }),
+      ),
+    )
+  })
+
+  it('picks per-root default music quality + metadata profiles (L3)', async () => {
+    const user = userEvent.setup()
+    // One root folder with no defaults set.
+    ;(client.listRootFolders as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        ID: 1,
+        Path: '/srv/music',
+        Name: 'Music',
+        CreatedAt: '2026-01-01T00:00:00Z',
+        FreeSpace: null,
+      },
+    ])
+    renderSection(<MediaManagementSection />)
+    const quality = (await screen.findByTestId('mm-root-quality-1')) as HTMLSelectElement
+    // The picker options load async (profiles endpoint + profiles doc); wait
+    // for the music names to arrive: "(none)" + the 4 seeded profiles.
+    await waitFor(() => expect(quality.options).toHaveLength(5))
+    expect(screen.getByTestId('mm-root-metadata-1')).toHaveValue('')
+
+    // Pick WAV for the root's default music quality profile.
+    await user.selectOptions(quality, 'WAV')
+    await waitFor(() =>
+      expect(client.updateRootFolder).toHaveBeenCalledWith(1, {
+        default_quality_profile: 'WAV',
+        default_metadata_profile: '',
+      }),
+    )
+
+    // Pick a metadata profile; the quality pick rides along (no clear).
+    await user.selectOptions(screen.getByTestId('mm-root-metadata-1'), 'Standard')
+    await waitFor(() =>
+      expect(client.updateRootFolder).toHaveBeenCalledWith(1, {
+        default_quality_profile: 'WAV',
+        default_metadata_profile: 'Standard',
+      }),
     )
   })
 })
