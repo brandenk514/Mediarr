@@ -571,6 +571,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/music/artists/{id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh an artist's metadata and refresh its known albums (L4).
+         * @description Re-fetches the artist's metadata from the keyless MusicBrainz + Cover Art Archive adapter (status, genres, links, cover — best effort; a failed lookup leaves the artist unchanged) and refreshes every known album that carries a release MBID (metadata replaced, tracks rebuilt; surviving tracks matched by MBID then disc/number keep their monitored flag, new monitored tracks get wanted rows).
+         */
+        post: operations["refreshArtist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/music/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan a root folder for artists and match it to the library (L4, phase 1).
+         * @description Library import, phase 1 (scan -> match -> confirm): scans the given root folder, treats each immediate subfolder as a candidate artist (a trailing year in parens is stripped from the title; a folder with only audio files directly in it — a single-artist flat layout — is still a candidate), counts its audio files, and reports which candidates match a tracked artist. Confirmation of an import happens through the regular add-artist flow; this endpoint performs no file moves and creates no artists.
+         */
+        post: operations["importMusicLibrary"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/music/library/summary": {
         parameters: {
             query?: never;
@@ -2427,6 +2467,8 @@ export interface components {
             MonitorNewAlbums?: "all_albums" | "";
             /** @description Free-form tags; empty = none. */
             Tags?: string[];
+            /** @description The artist's Cover Art Archive front cover URL (L4); empty = none/unknown. */
+            Cover?: string;
             /**
              * Format: int64
              * @description Number of known tracks across the artist's albums (computed); 0 = none.
@@ -2523,6 +2565,12 @@ export interface components {
              * @description Bytes; 0 = unknown.
              */
             Size?: number;
+            /** @description The release's Cover Art Archive front cover URL (L4); empty = none/unknown. */
+            Cover?: string;
+            /** @description Record labels (L4); empty = none. */
+            Labels?: string[];
+            /** @description Music genres (L4); empty = none. */
+            Genres?: string[];
             /** @description Number of known tracks (computed over the tracks). */
             TrackCount?: number;
             /** @description Tracks that have an imported file (computed; powers Lidarr's "3/9" badge). */
@@ -2536,6 +2584,8 @@ export interface components {
             quality_profile?: string;
             /** @description Omitted = monitored (default). */
             monitored?: boolean;
+            /** @description Optional MusicBrainz release-group (or bare release) id (L4). When present, the album and its tracks are populated from the keyless metadata adapter; a failed lookup is reported in the 201 warnings array, never as a failed add. */
+            release_group_mb_id?: string;
         };
         Track: {
             /** Format: int64 */
@@ -2578,6 +2628,48 @@ export interface components {
             title?: string;
             /** @description Omitted = monitored (default). */
             monitored?: boolean;
+        };
+        AlbumAdded: {
+            /** Format: int64 */
+            id: number;
+            /** @description Non-fatal enrichment problems (L4); empty when the add was un-enriched cleanly or the metadata lookup succeeded. */
+            warnings: string[];
+        };
+        RefreshArtistReport: {
+            /** @description Albums whose metadata and tracks were refreshed. */
+            albums_refreshed: number;
+            /** @description Albums whose re-fetch (or track rebuild) failed. */
+            albums_failed: number;
+        };
+        RefreshArtistResponse: {
+            artist: components["schemas"]["Artist"];
+            report: components["schemas"]["RefreshArtistReport"];
+        };
+        MusicImportCandidate: {
+            /** @description Absolute path of the scanned artist folder. */
+            Path: string;
+            /** @description The parsed artist title (folder name without a trailing year in parens). */
+            Title: string;
+            /** @description Number of audio files under the folder. */
+            Files: number;
+            /**
+             * Format: int64
+             * @description Total bytes of those audio files.
+             */
+            Size: number;
+            /** @description A tracked artist was found for this folder. */
+            Matched: boolean;
+            /**
+             * Format: int64
+             * @description The matched artist's id (0 when not matched).
+             */
+            ArtistID: number;
+        };
+        MusicImportReport: {
+            Root: string;
+            /** @description Number of candidate folders. */
+            Scanned: number;
+            Candidates: components["schemas"]["MusicImportCandidate"][];
         };
         MusicHistoryEntry: {
             /** @description e.g. added, monitored, searched, download, import */
@@ -5047,7 +5139,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AddedId"];
+                    "application/json": components["schemas"]["AlbumAdded"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5086,6 +5178,75 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             /** @description No release matched the wanted request. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
+        };
+    };
+    refreshArtist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The refreshed artist plus the refresh report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefreshArtistResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    importMusicLibrary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The scan report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MusicImportReport"];
+                };
+            };
+            /** @description Bad request (missing root, not a directory, unconfigured root-folder registry, invalid JSON). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The root folder does not exist. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

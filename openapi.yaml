@@ -1005,7 +1005,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AddedId"
+                $ref: "#/components/schemas/AlbumAdded"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1034,6 +1034,76 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "422":
           description: No release matched the wanted request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/artists/{id}/refresh:
+    post:
+      tags: [music]
+      summary: Refresh an artist's metadata and refresh its known albums (L4).
+      operationId: refreshArtist
+      description: >-
+        Re-fetches the artist's metadata from the keyless MusicBrainz +
+        Cover Art Archive adapter (status, genres, links, cover — best
+        effort; a failed lookup leaves the artist unchanged) and refreshes
+        every known album that carries a release MBID (metadata replaced,
+        tracks rebuilt; surviving tracks matched by MBID then disc/number
+        keep their monitored flag, new monitored tracks get wanted rows).
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The refreshed artist plus the refresh report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshArtistResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/import:
+    post:
+      tags: [music]
+      summary: Scan a root folder for artists and match it to the library (L4, phase 1).
+      operationId: importMusicLibrary
+      description: >-
+        Library import, phase 1 (scan -> match -> confirm): scans the given
+        root folder, treats each immediate subfolder as a candidate artist
+        (a trailing year in parens is stripped from the title; a folder with
+        only audio files directly in it — a single-artist flat layout — is
+        still a candidate), counts its audio files, and reports which
+        candidates match a tracked artist. Confirmation of an import happens
+        through the regular add-artist flow; this endpoint performs no file
+        moves and creates no artists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportRequest"
+      responses:
+        "200":
+          description: The scan report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicImportReport"
+        "400":
+          description: Bad request (missing root, not a directory, unconfigured root-folder registry, invalid JSON).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The root folder does not exist.
           content:
             application/json:
               schema:
@@ -4161,6 +4231,9 @@ components:
           items:
             type: string
           description: Free-form tags; empty = none.
+        Cover:
+          type: string
+          description: The artist's Cover Art Archive front cover URL (L4); empty = none/unknown.
         TrackCount:
           type: integer
           format: int64
@@ -4283,6 +4356,19 @@ components:
           type: integer
           format: int64
           description: Bytes; 0 = unknown.
+        Cover:
+          type: string
+          description: The release's Cover Art Archive front cover URL (L4); empty = none/unknown.
+        Labels:
+          type: array
+          items:
+            type: string
+          description: Record labels (L4); empty = none.
+        Genres:
+          type: array
+          items:
+            type: string
+          description: Music genres (L4); empty = none.
         TrackCount:
           type: integer
           description: Number of known tracks (computed over the tracks).
@@ -4305,6 +4391,13 @@ components:
         monitored:
           type: boolean
           description: Omitted = monitored (default).
+        release_group_mb_id:
+          type: string
+          description: >-
+            Optional MusicBrainz release-group (or bare release) id (L4).
+            When present, the album and its tracks are populated from the
+            keyless metadata adapter; a failed lookup is reported in the 201
+            warnings array, never as a failed add.
     Track:
       type: object
       required: [ID, AlbumID, MBID, Disc, Number, Title, Checksum, Monitored, AddedAt]
@@ -4374,6 +4467,75 @@ components:
         monitored:
           type: boolean
           description: Omitted = monitored (default).
+    AlbumAdded:
+      type: object
+      required: [id, warnings]
+      properties:
+        id:
+          type: integer
+          format: int64
+        warnings:
+          type: array
+          items:
+            type: string
+          description: >-
+            Non-fatal enrichment problems (L4); empty when the add was
+            un-enriched cleanly or the metadata lookup succeeded.
+    RefreshArtistReport:
+      type: object
+      required: [albums_refreshed, albums_failed]
+      properties:
+        albums_refreshed:
+          type: integer
+          description: Albums whose metadata and tracks were refreshed.
+        albums_failed:
+          type: integer
+          description: Albums whose re-fetch (or track rebuild) failed.
+    RefreshArtistResponse:
+      type: object
+      required: [artist, report]
+      properties:
+        artist:
+          $ref: "#/components/schemas/Artist"
+        report:
+          $ref: "#/components/schemas/RefreshArtistReport"
+    MusicImportCandidate:
+      type: object
+      required: [Path, Title, Files, Size, Matched, ArtistID]
+      properties:
+        Path:
+          type: string
+          description: Absolute path of the scanned artist folder.
+        Title:
+          type: string
+          description: The parsed artist title (folder name without a trailing year in parens).
+        Files:
+          type: integer
+          description: Number of audio files under the folder.
+        Size:
+          type: integer
+          format: int64
+          description: Total bytes of those audio files.
+        Matched:
+          type: boolean
+          description: A tracked artist was found for this folder.
+        ArtistID:
+          type: integer
+          format: int64
+          description: The matched artist's id (0 when not matched).
+    MusicImportReport:
+      type: object
+      required: [Root, Scanned, Candidates]
+      properties:
+        Root:
+          type: string
+        Scanned:
+          type: integer
+          description: Number of candidate folders.
+        Candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/MusicImportCandidate"
     MusicHistoryEntry:
       type: object
       required: [Event, Detail, At]
