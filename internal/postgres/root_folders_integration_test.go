@@ -119,3 +119,54 @@ func TestRootFoldersRepo_Coverage(t *testing.T) {
 		t.Errorf("folders after delete = %+v, want [movies]", folders)
 	}
 }
+
+// TestRootFoldersRepo_DefaultProfiles (Lidarr L3): per-root default
+// quality/metadata profiles round-trip through the registry.
+func TestRootFoldersRepo_DefaultProfiles(t *testing.T) {
+	rf := startRFPG(t)
+
+	id, err := rf.Create(rfdom.RootFolder{
+		Path:                   "/media/music",
+		Name:                   "Music",
+		DefaultQualityProfile:  "Lossless",
+		DefaultMetadataProfile: "Standard",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	got, err := rf.Get(id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.DefaultQualityProfile != "Lossless" || got.DefaultMetadataProfile != "Standard" {
+		t.Fatalf("profiles after create = %q / %q, want Lossless / Standard",
+			got.DefaultQualityProfile, got.DefaultMetadataProfile)
+	}
+
+	// Update the quality profile; the metadata profile stays.
+	if err := rf.Update(rfdom.RootFolder{
+		ID:                     id,
+		Path:                   "/media/music",
+		DefaultQualityProfile:  "WAV",
+		DefaultMetadataProfile: "Studio",
+	}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, _ = rf.Get(id)
+	if got.DefaultQualityProfile != "WAV" || got.DefaultMetadataProfile != "Studio" {
+		t.Errorf("profiles after update = %q / %q, want WAV / Studio",
+			got.DefaultQualityProfile, got.DefaultMetadataProfile)
+	}
+
+	// A root created without profiles stores "" (unset).
+	unset, err := rf.Create(rfdom.RootFolder{Path: "/media/other"})
+	if err != nil {
+		t.Fatalf("create unset: %v", err)
+	}
+	other, _ := rf.Get(unset)
+	if other.DefaultQualityProfile != "" || other.DefaultMetadataProfile != "" {
+		t.Errorf("unset root profiles = %q / %q, want empty",
+			other.DefaultQualityProfile, other.DefaultMetadataProfile)
+	}
+}

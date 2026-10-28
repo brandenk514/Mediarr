@@ -21,14 +21,15 @@ func NewRootFoldersRepo(db *sql.DB) *RootFoldersRepo {
 
 var _ rfdom.Repo = (*RootFoldersRepo)(nil)
 
-const rootFolderColumns = `id, path, name, created_at`
+const rootFolderColumns = `id, path, name, created_at, default_quality_profile, default_metadata_profile`
 
 // scanRootFolder reads one row into a RootFolder.
 func scanRootFolder(row interface {
 	Scan(...any) error
 }) (*rfdom.RootFolder, error) {
 	var rf rfdom.RootFolder
-	err := row.Scan(&rf.ID, &rf.Path, &rf.Name, &rf.CreatedAt)
+	err := row.Scan(&rf.ID, &rf.Path, &rf.Name, &rf.CreatedAt,
+		&rf.DefaultQualityProfile, &rf.DefaultMetadataProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -80,20 +81,27 @@ func (r *RootFoldersRepo) Get(id int64) (*rfdom.RootFolder, error) {
 func (r *RootFoldersRepo) Create(rf rfdom.RootFolder) (int64, error) {
 	var id int64
 	err := r.db.QueryRow(`
-		INSERT INTO root_folders (path, name)
-		VALUES ($1, $2)
-		RETURNING id`, rf.Path, rf.Name).Scan(&id)
+		INSERT INTO root_folders (path, name, default_quality_profile, default_metadata_profile)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id`, rf.Path, rf.Name,
+		rf.DefaultQualityProfile, rf.DefaultMetadataProfile).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("rootfolders: create %q: %w", rf.Path, err)
 	}
 	return id, nil
 }
 
-// Update replaces a root folder's path/name by id; errors if no row matches.
+// Update replaces a root folder's path/name/default profiles by id; errors
+// if no row matches. (The service resolves omitted — empty — fields to the
+// stored values before calling this.)
 func (r *RootFoldersRepo) Update(rf rfdom.RootFolder) error {
 	res, err := r.db.Exec(
-		`UPDATE root_folders SET path = $2, name = $3 WHERE id = $1`,
-		rf.ID, rf.Path, rf.Name)
+		`UPDATE root_folders
+		 SET path = $2, name = $3,
+		     default_quality_profile = $4, default_metadata_profile = $5
+		 WHERE id = $1`,
+		rf.ID, rf.Path, rf.Name,
+		rf.DefaultQualityProfile, rf.DefaultMetadataProfile)
 	if err != nil {
 		return fmt.Errorf("rootfolders: update %d: %w", rf.ID, err)
 	}

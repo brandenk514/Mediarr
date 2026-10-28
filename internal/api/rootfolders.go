@@ -3,10 +3,12 @@ package api
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 
 	rfdom "github.com/brandenk514/mediarr/internal/domains/rootfolders"
 	rfsvc "github.com/brandenk514/mediarr/internal/services/rootfolders"
+	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // RootFolderDeps bundles what the root-folder registry endpoints need.
@@ -29,6 +31,23 @@ func (s *Server) SetRootFolders(deps *RootFolderDeps) {
 type rootFolderRequest struct {
 	Path string `json:"path"`
 	Name string `json:"name"`
+	// L3: per-root default profiles (names; "" = unset / keep stored on PUT).
+	DefaultQualityProfile  string `json:"default_quality_profile"`
+	DefaultMetadataProfile string `json:"default_metadata_profile"`
+}
+
+// validateRootFolderRequest (L3): when the per-root default profile names are
+// non-empty they must reference a seeded profile name — one of the 4 seeded
+// music quality profiles (MusicProfileNames) / the 3 seeded metadata
+// profiles (MetadataProfileNames). "" = unset is always allowed.
+func validateRootFolderRequest(req rootFolderRequest) string {
+	if req.DefaultQualityProfile != "" && !settings.MusicProfileNames()[req.DefaultQualityProfile] {
+		return fmt.Sprintf("unknown default quality profile %q", req.DefaultQualityProfile)
+	}
+	if req.DefaultMetadataProfile != "" && !settings.MetadataProfileNames()[req.DefaultMetadataProfile] {
+		return fmt.Sprintf("unknown default metadata profile %q", req.DefaultMetadataProfile)
+	}
+	return ""
 }
 
 // writeRootFolderError maps registry service errors to statuses.
@@ -65,7 +84,16 @@ func (s *Server) AddRootFolder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	id, err := s.rootFolderDeps.Svc.Create(rfdom.RootFolder{Path: req.Path, Name: req.Name})
+	if msg := validateRootFolderRequest(req); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	id, err := s.rootFolderDeps.Svc.Create(rfdom.RootFolder{
+		Path:                   req.Path,
+		Name:                   req.Name,
+		DefaultQualityProfile:  req.DefaultQualityProfile,
+		DefaultMetadataProfile: req.DefaultMetadataProfile,
+	})
 	if err != nil {
 		writeRootFolderError(w, err)
 		return
@@ -85,7 +113,17 @@ func (s *Server) UpdateRootFolder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	rf, err := s.rootFolderDeps.Svc.Update(rfdom.RootFolder{ID: id, Path: req.Path, Name: req.Name})
+	if msg := validateRootFolderRequest(req); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	rf, err := s.rootFolderDeps.Svc.Update(rfdom.RootFolder{
+		ID:                     id,
+		Path:                   req.Path,
+		Name:                   req.Name,
+		DefaultQualityProfile:  req.DefaultQualityProfile,
+		DefaultMetadataProfile: req.DefaultMetadataProfile,
+	})
 	if err != nil {
 		writeRootFolderError(w, err)
 		return
