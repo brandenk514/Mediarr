@@ -8,13 +8,18 @@ package api
 // double-registered routes on a shared one).
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 
+	rfdom "github.com/brandenk514/mediarr/internal/domains/rootfolders"
 	"github.com/brandenk514/mediarr/internal/providers"
+	rfsvc "github.com/brandenk514/mediarr/internal/services/rootfolders"
 )
 
 // newL4APIMBServer serves the group → release → CAA chain + the artist
@@ -234,5 +239,134 @@ func TestL4_API_RefreshArtist_Unknown(t *testing.T) {
 	f.s.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("refresh unknown artist status = %d, want 404 body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---- L4 library import (POST /api/v1/music/import, phase 1 ends at the
+// report — no file moves, no artist creation from the endpoint). ----
+
+// writeL4APILibrary lays out a root folder: one tracked artist (nested
+// layout, 2 audio files), one untracked artist (flat layout, 1 file), and a
+// non-directory entry (ignored).
+func writeL4APILibrary(t *testing.T, root string) {
+	t.Helper()
+	paths := map[string]string{
+		filepath.Join(root, "Radiohead", "OK Computer", "01 Airbag.flac"): "x01",
+		filepath.Join(root, "Radiohead", "OK Computer", "02 Lust.mp3"):    "x02",
+		filepath.Join(root, "Duran Duran", "some.mp3"):                    "x04",
+		filepath.Join(root, "notes.txt"):                                  "x",
+	}
+	for p, content := range paths {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// l4FakeRootFolders is a one-entry in-memory root-folder registry for the
+// import endpoint's root_folder_id resolution.
+type l4FakeRootFolders struct{ path string }
+
+func (r l4FakeRootFolders) List() ([]rfdom.RootFolder, error) {
+	rf := rfdom.RootFolder{ID: 1, Path: r.path, Name: "Music"}
+	return []rfdom.RootFolder{rf}, nil
+}
+func (r l4FakeRootFolders) Get(id int64) (*rfdom.RootFolder, error) {
+	if id != 1 {
+		return nil, sql.ErrNoRows
+	}
+	rf := rfdom.RootFolder{ID: 1, Path: r.path, Name: "Music"}
+	return &rf, nil
+}
+func (r l4FakeRootFolders) Create(rf rfdom.RootFolder) (int64, error) { return 0, nil }
+func (r l4FakeRootFolders) Update(rf rfdom.RootFolder) error          { return nil }
+func (r l4FakeRootFolders) Delete(id int64) error                     { return nil }
+
+func TestL4_API_ImportMusic_ByPath(t *testing.T) {
+	music, books := newKindsMusicRepo(), newKindsBooksRepo()
+	f := newKindsServer(t, music, books)
+
+	rec := f.post(t, "/api/v1/music/artists", map[string]any{"name": "Radiohead"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add artist status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	root := t.TempDir()
+	writeL4APILibrary(t, root)
+
+	rec = f.post(t, "/api/v1/music/import", map[string]any{"path": root})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("import status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var report struct {
+		Root       string `json:"Root"`
+		Scanned    int    `json:"Scanned"`
+		Candidates []struct {
+			Path     string `json:"Path"`
+			Title    string `json:"Title"`
+			Files    int    `json:"Files"`
+			Size     int64  `json:"Size"`
+			Matched  bool   `json:"Matched"`
+			ArtistID int64  `json:"ArtistID"`
+		} `json:"Candidates"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&report); err != nil {
+		t.Fatalf("decode report: %v body=%s", err, rec.Body.String())
+	}
+	if report.Root != root || report.Scanned != 2 || len(report.Candidates) != 2 {
+		t.Fatalf("report = %+v, want Root=%q Scanned=2 (2 artist folders, the file ignored)", report, root)
+	}
+	matched := 0
+	for _, c := range report.Candidates {
+		if c.Title == "Radiohead" {
+			if !c.Matched || c.ArtistID != 1 || c.Files != 2 || c.Size != 6 {
+				t.Errorf("Radiohead candidate = %+v, want matched/2 files/6 bytes", c)
+			}
+			matched++
+		}
+		if c.Title == "Duran Duran" && (c.Matched || c.ArtistID != 0 || c.Files != 1) {
+			t.Errorf("Duran Duran candidate = %+v, want unmatched with 1 file", c)
+		}
+	}
+	if matched != 1 {
+		t.Errorf("matched candidates = %d, want 1", matched)
+	}
+}
+
+func TestL4_API_ImportMusic_ByRootFolderID(t *testing.T) {
+	music, books := newKindsMusicRepo(), newKindsBooksRepo()
+	f := newKindsServer(t, music, books)
+	f.s.musicDeps.RootFolders = rfsvc.New(l4FakeRootFolders{path: "no-such-root-but-valid-path"})
+
+	rec := f.post(t, "/api/v1/music/import", map[string]any{"root_folder_id": 1})
+	// The registry resolves to a path that does not exist on disk: the
+	// endpoint maps that to a clean 404 (the resolution path itself is the
+	// point of this test; the scan itself is covered by the service tests
+	// and the by-path test above).
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("import with unknown root-folder path status = %d, want 404 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestL4_API_ImportMusic_MissingRoot(t *testing.T) {
+	music, books := newKindsMusicRepo(), newKindsBooksRepo()
+	f := newKindsServer(t, music, books)
+
+	// Neither root_folder_id nor path: 400.
+	rec := f.post(t, "/api/v1/music/import", map[string]any{})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty import body status = %d, want 400 body=%s", rec.Code, rec.Body.String())
+	}
+	// root_folder_id without a registry configured: 400.
+	rec = f.post(t, "/api/v1/music/import", map[string]any{"root_folder_id": 7})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unconfigured registry status = %d, want 400 body=%s", rec.Code, rec.Body.String())
+	}
+	// A path that does not exist: 404.
+	rec = f.post(t, "/api/v1/music/import", map[string]any{"path": filepath.Join(t.TempDir(), "nope")})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing path status = %d, want 404 body=%s", rec.Code, rec.Body.String())
 	}
 }

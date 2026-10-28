@@ -515,7 +515,7 @@ func run(logSvc *system.LogService) error {
 		// adapter for album/track enrichment and the artist refresh endpoint.
 		Metadata: providers.NewMusicBrainz(),
 	})
-	srv.SetMusic(&api.MusicDeps{Svc: musicSvc})
+	srv.SetMusic(&api.MusicDeps{Svc: musicSvc, RootFolders: rfSvc})
 	logger.Info("music pipeline ready",
 		"media_root", musicMediaRoot,
 		"indexers", "fake",

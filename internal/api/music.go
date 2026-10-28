@@ -4,17 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/paging"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
+	rfsvc "github.com/brandenk514/mediarr/internal/services/rootfolders"
 	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // MusicDeps bundles what the music endpoints need.
 type MusicDeps struct {
 	Svc *musicsvc.Service
+	// RootFolders, when non-nil, backs POST /api/v1/music/import's
+	// root_folder_id resolution (L4). Nil-safe: import by path still works
+	// without it.
+	RootFolders *rfsvc.Service
 }
 
 // SetMusic wires the music endpoints. Called after construction, mirroring
@@ -47,6 +54,7 @@ func (s *Server) SetMusic(deps *MusicDeps) {
 	s.register("GET /api/v1/music/albums/{id}/wanted", s.requireAuth(s.ListAlbumWanted))
 	s.register("POST /api/v1/music/artists/{id}/pipeline", s.requireAuth(s.RunMusicPipeline))
 	s.register("POST /api/v1/music/artists/{id}/refresh", s.requireAuth(s.RefreshArtist))
+	s.register("POST /api/v1/music/import", s.requireAuth(s.ImportMusicLibrary))
 }
 
 // addArtistRequest is the body for POST /api/v1/music. Monitored is a pointer
@@ -237,6 +245,62 @@ func (s *Server) RefreshArtist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"artist": artist, "report": report})
+}
+
+// musicImportRequest is the body for POST /api/v1/music/import (L4).
+// Exactly one of root_folder_id (a registered root folder) or path (an
+// ad-hoc path, the "unmapped" case) is required — same shape as the TV
+// import.
+type musicImportRequest struct {
+	RootFolderID int64  `json:"root_folder_id"`
+	Path         string `json:"path"`
+}
+
+// ImportMusicLibrary handles POST /api/v1/music/import (L4, Lidarr
+// import phase 1, mirroring the TV wizard): it scans a root folder,
+// matches the candidate artist folders against the tracked artists, and
+// reports them for confirmation. Phase 1 ends at the report — no file
+// moves and no artist creation from this endpoint (the UI adds selected
+// new artists through the existing add-artist flow).
+func (s *Server) ImportMusicLibrary(w http.ResponseWriter, r *http.Request) {
+	var req musicImportRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	var rootPath string
+	if req.RootFolderID > 0 {
+		if s.musicDeps.RootFolders == nil {
+			writeError(w, http.StatusBadRequest, "root folder registry is not configured")
+			return
+		}
+		rf, err := s.musicDeps.RootFolders.Get(req.RootFolderID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "root folder not found")
+			return
+		}
+		rootPath = rf.Path
+	} else {
+		rootPath = req.Path
+	}
+	if rootPath == "" {
+		writeError(w, http.StatusBadRequest, "root_folder_id or path is required")
+		return
+	}
+	// Map filesystem problems to a clean 404/400 before the scan.
+	if fi, err := os.Stat(filepath.Clean(rootPath)); err != nil {
+		writeError(w, http.StatusNotFound, "root folder not found: "+rootPath)
+		return
+	} else if !fi.IsDir() {
+		writeError(w, http.StatusBadRequest, "root folder is not a directory: "+rootPath)
+		return
+	}
+	report, err := s.musicDeps.Svc.ScanMusicLibrary(r.Context(), rootPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 // ListAlbums handles GET /api/v1/music/{id}/albums.

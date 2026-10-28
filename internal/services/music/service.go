@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -376,6 +377,68 @@ func (s *Service) RefreshArtist(ctx context.Context, artistID int64) (*dom.Artis
 	}
 	s.record(ctx, artistID, "refreshed", fmt.Sprintf("artist + %d album(s) refreshed", report.AlbumsRefreshed))
 	return fresh, report, nil
+}
+
+// ScanMusicLibrary (L4, Lidarr import phase 1) scans a root folder's
+// immediate subfolders as artist candidates and matches them against the
+// tracked artists. A folder with no subfolders and only audio files
+// directly in it (a single-artist flat layout) is still a candidate: its
+// files are counted. Phase 1 ends at the report — no file moves, no artist
+// creation (the UI adds selected new artists through the add-artist flow).
+func (s *Service) ScanMusicLibrary(ctx context.Context, root string) (*dom.MusicImportReport, error) {
+	if strings.TrimSpace(root) == "" {
+		return nil, fmt.Errorf("music: import: root folder path is required")
+	}
+	clean := filepath.Clean(root)
+	entries, err := os.ReadDir(clean)
+	if err != nil {
+		return nil, fmt.Errorf("music: import: read root folder %q: %w", root, err)
+	}
+	known, err := s.deps.Repo.ListArtists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	report := &dom.MusicImportReport{Root: clean, Candidates: []dom.MusicImportCandidate{}}
+	for _, ent := range entries {
+		if !ent.IsDir() {
+			continue
+		}
+		title, _ := dom.ParseFolderName(ent.Name())
+		cand := dom.MusicImportCandidate{
+			Path:  filepath.Join(clean, ent.Name()),
+			Title: title,
+		}
+		cand.Files, cand.Size = scanArtistDir(cand.Path)
+		for _, ka := range known {
+			if dom.CandidateMatchesArtist(cand.Title, ka) {
+				cand.Matched = true
+				cand.ArtistID = ka.ID
+				break
+			}
+		}
+		report.Scanned++
+		report.Candidates = append(report.Candidates, cand)
+	}
+	return report, nil
+}
+
+// scanArtistDir counts the audio files (and their total size) under dir,
+// recursively: the flat layout keeps files directly in the folder, the
+// standard layout nests albums in subfolders.
+func scanArtistDir(dir string) (files int, size int64) {
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if dom.IsAudioFile(d.Name()) {
+			files++
+			if info, ierr := d.Info(); ierr == nil {
+				size += info.Size()
+			}
+		}
+		return nil
+	})
+	return files, size
 }
 
 // resolveMonitored resolves the album's monitored flag: an explicit

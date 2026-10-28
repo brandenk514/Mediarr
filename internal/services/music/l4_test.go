@@ -10,6 +10,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	dom "github.com/brandenk514/mediarr/internal/domains/music"
@@ -329,5 +331,99 @@ func TestL4_RefreshArtist_NoMBID(t *testing.T) {
 	}
 	if len(*paths) != 0 {
 		t.Errorf("paths = %v, want no adapter calls for an artist without an MBID", *paths)
+	}
+}
+
+// ---- L4 library import (phase 1: scan -> match -> report). ----
+
+// writeL4Library lays out a root folder with: a nested-artist layout
+// (Radiohead/album/tracks), a flat single-artist layout with a trailing
+// year in parens (Queen (1977)/track), an untracked artist (Duran Duran),
+// and a non-directory entry at the root (ignored).
+func writeL4Library(t *testing.T, root string) {
+	t.Helper()
+	paths := map[string]string{
+		filepath.Join(root, "Radiohead", "OK Computer", "01 Airbag.flac"): "x01",
+		filepath.Join(root, "Radiohead", "OK Computer", "02 Lust.mp3"):    "x02",
+		filepath.Join(root, "Queen (1977)", "A Day At The Races.flac"):    "x03",
+		filepath.Join(root, "Duran Duran", "some.mp3"):                    "x04",
+		filepath.Join(root, "notes.txt"):                                  "x",
+	}
+	for p, content := range paths {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestL4_ScanMusicLibrary(t *testing.T) {
+	repo := newMemRepo()
+	svc := New(Deps{Repo: repo})
+	ctx := context.Background()
+
+	// Tracked artists with intentionally different casing, to pin the
+	// case-insensitive matching.
+	radioheadID, err := svc.AddArtist(ctx, AddArtistInput{Name: "radiohead"})
+	if err != nil {
+		t.Fatalf("AddArtist: %v", err)
+	}
+	queenID, err := svc.AddArtist(ctx, AddArtistInput{Name: "Queen"})
+	if err != nil {
+		t.Fatalf("AddArtist: %v", err)
+	}
+
+	root := t.TempDir()
+	writeL4Library(t, root)
+
+	report, err := svc.ScanMusicLibrary(ctx, root)
+	if err != nil {
+		t.Fatalf("ScanMusicLibrary: %v", err)
+	}
+	if report.Root != root {
+		t.Errorf("Root = %q, want %q", report.Root, root)
+	}
+	if report.Scanned != 3 || len(report.Candidates) != 3 {
+		t.Fatalf("Scanned = %d candidates = %d, want 3/3 (the root-level file is not a candidate)", report.Scanned, len(report.Candidates))
+	}
+	byTitle := map[string]dom.MusicImportCandidate{}
+	for _, c := range report.Candidates {
+		byTitle[c.Title] = c
+	}
+	duran := byTitle["Duran Duran"]
+	if duran.Matched || duran.ArtistID != 0 || duran.Files != 1 || duran.Size != 3 {
+		t.Errorf("Duran Duran = %+v, want unmatched with 1 file / 3 bytes", duran)
+	}
+	queen := byTitle["Queen"]
+	if !queen.Matched || queen.ArtistID != queenID || queen.Files != 1 {
+		t.Errorf("Queen (1977) = %+v, want matched to artist %d (year in parens stripped), 1 file", queen, queenID)
+	}
+	rh := byTitle["Radiohead"]
+	if !rh.Matched || rh.ArtistID != radioheadID || rh.Files != 2 || rh.Size != 6 {
+		t.Errorf("Radiohead = %+v, want matched to artist %d, 2 files / 6 bytes (album nested)", rh, radioheadID)
+	}
+}
+
+func TestL4_ScanMusicLibrary_EmptyRoot(t *testing.T) {
+	svc := New(Deps{Repo: newMemRepo()})
+	root := t.TempDir()
+	report, err := svc.ScanMusicLibrary(context.Background(), root)
+	if err != nil {
+		t.Fatalf("ScanMusicLibrary: %v", err)
+	}
+	if report.Scanned != 0 || len(report.Candidates) != 0 {
+		t.Errorf("empty root = %+v, want zero candidates", report)
+	}
+}
+
+func TestL4_ScanMusicLibrary_MissingRoot(t *testing.T) {
+	svc := New(Deps{Repo: newMemRepo()})
+	if _, err := svc.ScanMusicLibrary(context.Background(), filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Fatal("missing root must fail")
+	}
+	if _, err := svc.ScanMusicLibrary(context.Background(), "  "); err == nil {
+		t.Fatal("blank root must fail")
 	}
 }
