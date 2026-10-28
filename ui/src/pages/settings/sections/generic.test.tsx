@@ -42,7 +42,20 @@ function freshDoc(section: string): unknown {
         auth_pinning: true,
       }
     case 'ui':
-      return { default_view: 'dashboard', date_format: 'YYYY-MM-DD', time_format: '24h', items_per_page: 50 }
+      return {
+        default_view: 'dashboard',
+        date_format: 'YYYY-MM-DD',
+        time_format: '24h',
+        items_per_page: 50,
+        // Lidarr L3 music bits (server defaults: albums expanded, theme auto).
+        expand_albums: true,
+        expand_eps: false,
+        expand_singles: false,
+        expand_broadcast: false,
+        expand_other: false,
+        theme: 'auto',
+        color_impaired: false,
+      }
     case 'quality':
       return {
         levels: [
@@ -216,7 +229,46 @@ describe('UISection', () => {
         date_format: 'YYYY-MM-DD',
         time_format: '24h',
         items_per_page: 50,
+        // Lidarr L3 music bits round-trip unchanged (the doc's values).
+        expand_albums: true,
+        expand_eps: false,
+        expand_singles: false,
+        expand_broadcast: false,
+        expand_other: false,
+        theme: 'auto',
+        color_impaired: false,
       }),
+    )
+  })
+
+  it('renders the L3 music bits and saves the theme + an expand toggle', async () => {
+    const user = userEvent.setup()
+    renderSection(<UISection />)
+    // The Expand Items by Default block seeds from the doc (albums on, rest off).
+    expect(await screen.findByTestId('ui-expand-albums')).toBeChecked()
+    expect(screen.getByTestId('ui-expand-eps')).not.toBeChecked()
+    expect(screen.getByTestId('ui-expand-broadcast')).not.toBeChecked()
+    const theme = screen.getByTestId('ui-theme') as HTMLSelectElement
+    expect(theme).toHaveValue('auto')
+    expect(screen.getByTestId('ui-color-impaired')).not.toBeChecked()
+
+    await user.click(screen.getByTestId('ui-expand-eps'))
+    await user.selectOptions(theme, 'dark')
+    await user.click(screen.getByTestId('ui-color-impaired'))
+    await user.click(screen.getByTestId('ui-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'ui',
+        expect.objectContaining({
+          expand_albums: true,
+          expand_eps: true,
+          expand_singles: false,
+          expand_broadcast: false,
+          expand_other: false,
+          theme: 'dark',
+          color_impaired: true,
+        }),
+      ),
     )
   })
 })
