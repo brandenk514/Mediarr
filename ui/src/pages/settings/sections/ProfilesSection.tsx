@@ -190,10 +190,13 @@ export function ProfilesSection() {
   }
 
   function handleSave() {
+    if (!doc) return
     void submit(async () => {
       const next: ProfilesSettings = {
         profiles,
         movie_profiles: movieProfiles,
+        music_profiles: doc.music_profiles,
+        metadata_profiles: doc.metadata_profiles,
         delay_profiles: delayProfiles,
         release_profiles: releaseProfiles,
       }

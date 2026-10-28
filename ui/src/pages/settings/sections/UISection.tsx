@@ -31,12 +31,20 @@ export function UISection() {
   }
 
   function handleSave() {
+    if (!doc) return
     void submit(async () => {
       const next: UISettings = {
         default_view: defaultView,
         date_format: dateFormat,
         time_format: timeFormat,
         items_per_page: Number(itemsPerPage) || 0,
+        expand_albums: doc.expand_albums,
+        expand_eps: doc.expand_eps,
+        expand_singles: doc.expand_singles,
+        expand_broadcast: doc.expand_broadcast,
+        expand_other: doc.expand_other,
+        theme: doc.theme,
+        color_impaired: doc.color_impaired,
       }
       await client.putSettingsSection<UISettings>('ui', next)
       setSaved(true)

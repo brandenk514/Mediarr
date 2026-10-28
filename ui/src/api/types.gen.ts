@@ -2314,11 +2314,26 @@ export interface components {
              * @description Free bytes on the volume holding the root folder; null when the backend cannot stat the path.
              */
             FreeSpace: number | null;
+            /**
+             * @description Per-root default music quality profile name (Lidarr L3); "" when
+             *     unset (the app default applies). Must be one of the seeded
+             *     music profile names.
+             */
+            DefaultQualityProfile?: string;
+            /**
+             * @description Per-root default metadata profile name (Lidarr L3); "" when
+             *     unset. Must be one of the seeded metadata profile names.
+             */
+            DefaultMetadataProfile?: string;
         };
-        /** @description Omitted path/name keep their stored values (PUT). */
+        /** @description Omitted path/name keep their stored values (PUT); omitted default profiles keep their stored values. */
         RootFolderRequest: {
             path?: string;
             name?: string;
+            /** @description Per-root default music quality profile name; "" = unset/keep. Non-empty must be a seeded music profile name. */
+            default_quality_profile?: string;
+            /** @description Per-root default metadata profile name; "" = unset/keep. Non-empty must be a seeded metadata profile name. */
+            default_metadata_profile?: string;
         };
         Episode: {
             /** Format: int64 */
@@ -3260,10 +3275,34 @@ export interface components {
             /** @enum {string} */
             time_format: "24h" | "12h";
             items_per_page: number;
+            /** @description Artist/album detail page: show albums expanded (Lidarr L3; defaults to true). */
+            expand_albums: boolean;
+            /** @description Detail page: show EPs expanded (L3; defaults to false). */
+            expand_eps: boolean;
+            /** @description Detail page: show singles expanded (L3; defaults to false). */
+            expand_singles: boolean;
+            /** @description Detail page: show broadcast recordings expanded (L3; defaults to false). */
+            expand_broadcast: boolean;
+            /** @description Detail page: show other recordings expanded (L3; defaults to false). */
+            expand_other: boolean;
+            /**
+             * @description UI theme (L3; defaults to auto).
+             * @enum {string}
+             */
+            theme: "auto" | "dark" | "light";
+            /** @description Boost contrast for color-impaired users (L3; defaults to false). */
+            color_impaired: boolean;
         };
         QualityLevel: {
             id: number;
             name: string;
+            /**
+             * @description The level's quality category (Lidarr L3 "Title" column): the
+             *     lossy/lossless group for music levels ("Lossless", "High Quality
+             *     Lossy", ...); empty for TV and movie rows, where the category
+             *     concept does not apply.
+             */
+            group: string;
             source: string;
             resolution: string;
             /** @description 0 = unlimited. */
@@ -3277,6 +3316,14 @@ export interface components {
              *     profile items can't collide with TV level ids.
              */
             movie_levels: components["schemas"]["QualityLevel"][];
+            /**
+             * @description Lidarr music quality definitions (Lidarr L3). A separate ID
+             *     space from the TV and movie levels, starting at 200 (200 + the
+             *     Lidarr quality id), so music quality profile items can't
+             *     collide with TV or movie level ids. Seeded with the 38-row
+             *     Lidarr ladder, best first.
+             */
+            music_levels: components["schemas"]["QualityLevel"][];
         };
         QualityProfileItem: {
             /** @description QualityLevel id. */
@@ -3320,6 +3367,17 @@ export interface components {
             rawhd: boolean;
             hdtv: boolean;
         };
+        MetadataProfile: {
+            id: number;
+            name: string;
+            description: string;
+            /**
+             * @description The metadata files this profile generates (free-form names the
+             *     UI renders read-mostly), e.g. ["Embedded", "Music XML", "Music
+             *     Image"].
+             */
+            items: string[];
+        };
         ProfilesSettings: {
             profiles: components["schemas"]["QualityProfile"][];
             /**
@@ -3328,6 +3386,19 @@ export interface components {
              *     TV profiles (100+). Items reference movie quality level ids.
              */
             movie_profiles: components["schemas"]["QualityProfile"][];
+            /**
+             * @description Lidarr music quality profiles (Lidarr L3). Seeded with the 4
+             *     Lidarr defaults (Lossless Best Effort first); profile ids live in
+             *     a separate space from the TV and movie profiles (200+). Items
+             *     reference music quality level ids.
+             */
+            music_profiles: components["schemas"]["QualityProfile"][];
+            /**
+             * @description Lidarr metadata profiles (L3): which metadata files to generate
+             *     for music. Seeded with the 3 Lidarr defaults (Standard, Album,
+             *     Studio).
+             */
+            metadata_profiles: components["schemas"]["MetadataProfile"][];
             delay_profiles: components["schemas"]["DelayProfile"][];
             release_profiles: components["schemas"]["ReleaseProfile"][];
         };
@@ -3381,6 +3452,24 @@ export interface components {
             /** @description Standard movie naming template (brace tokens). */
             standard_format: string;
         };
+        /**
+         * @description Lidarr music naming block (L3). standard_format is the standard
+         *     track naming template in the same brace-token style as the rest of
+         *     the naming document — it renders, for example, to "Artist - 07 -
+         *     Track Title"; multi_disc_format applies to multi-disc releases.
+         */
+        MusicNaming: {
+            /** @description Rename track files to the standard format. */
+            rename_tracks: boolean;
+            /** @description Replace characters the filesystem rejects. */
+            replace_illegal_characters: boolean;
+            /** @description Single character (or empty) used for ':' in titles. */
+            colon_replacement: string;
+            /** @description Standard track naming template (brace tokens). */
+            standard_format: string;
+            /** @description Naming template for multi-disc releases (brace tokens). */
+            multi_disc_format: string;
+        };
         RemotePathMapping: {
             source: string;
             destination: string;
@@ -3388,6 +3477,7 @@ export interface components {
         MediaManagementSettings: {
             naming: components["schemas"]["NamingTemplate"];
             movie_naming: components["schemas"]["MovieNaming"];
+            music_naming: components["schemas"]["MusicNaming"];
             file_management: components["schemas"]["FileManagement"];
             remote_path_mappings: components["schemas"]["RemotePathMapping"][];
         };
@@ -3459,6 +3549,15 @@ export interface components {
             ok: boolean;
             message: string;
         };
+        MetadataConsumer: {
+            /**
+             * @description Consumer label (Lidarr L3). Seeded: "Kodi (XBMC)/Emby",
+             *     "Roksbox", "WDTV".
+             */
+            name: string;
+            /** @description Whether this consumer runs; all default to false. */
+            enabled: boolean;
+        };
         MetadataSettings: {
             /** @description Write .nfo sidecars on import / refresh (the metadata file writer). */
             generate_nfo: boolean;
@@ -3470,6 +3569,12 @@ export interface components {
             kinds: {
                 [key: string]: boolean;
             };
+            /** @description Tag imported audio files with the chosen metadata (Lidarr L3; defaults to true). */
+            tag_audio_files: boolean;
+            /** @description Scrub existing tags from the files when tagging (L3; defaults to false). */
+            scrub_existing_tags: boolean;
+            /** @description Metadata consumers to run against the generated files (L3). */
+            consumers: components["schemas"]["MetadataConsumer"][];
         };
         /**
          * @description P5.7 per-kind source lists: the ordered provider chain for each

@@ -108,11 +108,13 @@ export function MediaManagementSection() {
   }
 
   function handleSave() {
+    if (!doc) return
     if (!naming || !fileMgmt || !movieNaming) return
     void submit(async () => {
       const next: MediaManagementSettings = {
         naming,
         movie_naming: movieNaming,
+        music_naming: doc.music_naming,
         file_management: fileMgmt,
         remote_path_mappings: mappings,
       }

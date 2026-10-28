@@ -31,12 +31,16 @@ export function MetadataSection() {
   }
 
   function handleSave() {
+    if (!doc) return
     void submit(async () => {
       const next: MetadataSettings = {
         generate_nfo: generateNfo,
         generate_subtitles: generateSubtitles,
         language,
         kinds: Object.fromEntries(KINDS.map((k) => [k, kinds[k] ?? false])),
+        tag_audio_files: doc.tag_audio_files,
+        scrub_existing_tags: doc.scrub_existing_tags,
+        consumers: doc.consumers,
       }
       await client.putSettingsSection<MetadataSettings>('metadata', next)
       setSaved(true)

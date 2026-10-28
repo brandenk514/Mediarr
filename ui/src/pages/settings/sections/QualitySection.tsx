@@ -36,8 +36,9 @@ export function QualitySection() {
   }
 
   function handleSave() {
+    if (!doc) return
     void submit(async () => {
-      const next: QualitySettings = { levels, movie_levels: movieLevels }
+      const next: QualitySettings = { levels, movie_levels: movieLevels, music_levels: doc.music_levels }
       await client.putSettingsSection<QualitySettings>('quality', next)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
