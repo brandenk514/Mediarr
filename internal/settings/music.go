@@ -122,3 +122,131 @@ func DefaultMusicLevels() []QualityLevel {
 		{ID: MusicLevelUnknown, Name: "Unknown", Group: "", SizeLimitMB: 350},
 	}
 }
+
+// DefaultMusicQualityProfile is the Lidarr factory default music quality
+// profile name; an empty quality profile on an add-artist resolves to it
+// (L3).
+const DefaultMusicQualityProfile = "Lossless Best Effort"
+
+// musicProfileSpec is one seeded music profile: id (the 200+ music space),
+// name, the approved music level ids, and the cutoff level id.
+type musicProfileSpec struct {
+	id      int
+	name    string
+	approve []int
+	cutoff  int
+}
+
+// defaultMusicProfileSpecs are the 4 Lidarr default music quality profiles.
+// Best-effort profiles approve everything up to and including their tier;
+// the others approve only their own tier. Cutoffs sit at the profile's
+// highest approved level of its top tier (the TV/movie convention) — for
+// Lossless Best Effort that is FLAC 24bit, the highest lossless level (the
+// high-quality lossy items are approved, but the cutoff stays lossless);
+// for High Quality Lossy it is OGG Vorbis Q10, the group's highest.
+var defaultMusicProfileSpecs = []musicProfileSpec{
+	{200, "Lossless Best Effort", []int{
+		MusicLevelWAV, MusicLevelAPE, MusicLevelWavPack,
+		MusicLevelFLAC24, MusicLevelALAC24, MusicLevelFLAC, MusicLevelALAC,
+		MusicLevelOGGQ10, MusicLevelAAC320, MusicLevelAACVBR,
+		MusicLevelMP3320, MusicLevelMP3VBRV0, MusicLevelOGGQ9,
+	}, MusicLevelFLAC24},
+	{201, "High Quality Lossy", []int{
+		MusicLevelOGGQ10, MusicLevelAAC320, MusicLevelAACVBR,
+		MusicLevelMP3320, MusicLevelMP3VBRV0, MusicLevelOGGQ9,
+	}, MusicLevelOGGQ10},
+	{202, "Lossless", []int{
+		MusicLevelWAV, MusicLevelAPE, MusicLevelWavPack,
+		MusicLevelFLAC24, MusicLevelALAC24, MusicLevelFLAC, MusicLevelALAC,
+	}, MusicLevelFLAC24},
+	{203, "WAV", []int{MusicLevelWAV}, MusicLevelWAV},
+}
+
+// DefaultMusicProfiles returns the seeded music quality profiles (ids in the
+// 200+ music space, items referencing music level ids). The Lidarr factory
+// default, Lossless Best Effort, is first — the same convention as the
+// seeded movie profiles.
+func DefaultMusicProfiles() []QualityProfile {
+	out := make([]QualityProfile, 0, len(defaultMusicProfileSpecs))
+	for _, s := range defaultMusicProfileSpecs {
+		prof := QualityProfile{ID: s.id, Name: s.name, Cutoff: s.cutoff}
+		prof.Items = make([]QualityProfileItem, 0, len(s.approve))
+		for _, q := range s.approve {
+			prof.Items = append(prof.Items, QualityProfileItem{Quality: q, Approved: true})
+		}
+		out = append(out, prof)
+	}
+	return out
+}
+
+// MusicProfileNames returns the seeded music profile names — the set an
+// add-artist quality_profile parameter (and a root folder's default quality
+// profile) is validated against (L3).
+func MusicProfileNames() map[string]bool {
+	out := map[string]bool{}
+	for _, p := range DefaultMusicProfiles() {
+		out[p.Name] = true
+	}
+	return out
+}
+
+// seedMusicLevelIDs returns the seeded music level ids — the reference set
+// music profile items/cutoffs are validated against.
+func seedMusicLevelIDs() map[int]bool {
+	out := map[int]bool{}
+	for _, l := range DefaultMusicLevels() {
+		out[l.ID] = true
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Lidarr L3: metadata profiles (Standard / Album / Studio)
+// ---------------------------------------------------------------------------
+
+// MetadataProfile is one named set of metadata-file kinds (Lidarr's metadata
+// profiles). It is deliberately lightweight and data-driven: a profile is
+// just id + name + description + the item list the UI renders (read-mostly).
+type MetadataProfile struct {
+	ID          int      `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Items       []string `json:"items"`
+}
+
+// MetadataProfileItemVocabulary is the full set of metadata-file kinds a
+// profile may name (Lidarr's consumer vocabulary, kept as stable strings).
+// The seeded profiles below use a subset of it.
+var MetadataProfileItemVocabulary = []string{
+	"Embedded", "Music XML", "Music Image", "Album TXT", "Artist TXT", "M4A Tags", "CUE Sheet",
+}
+
+// DefaultMetadataProfiles returns the three seeded Lidarr metadata profiles.
+// Seeded item lists (documented per the L3 brief):
+//
+//	Standard -> [Embedded, Music XML, Music Image]  (the Lidarr standard set)
+//	Album    -> [Embedded, Album TXT]              (album-scoped files)
+//	Studio   -> [Embedded, Artist TXT]             (artist/label-scoped files)
+func DefaultMetadataProfiles() []MetadataProfile {
+	return []MetadataProfile{
+		{ID: 1, Name: "Standard",
+			Description: "The standard metadata set: embedded tags, Music XML and cover art.",
+			Items:       []string{"Embedded", "Music XML", "Music Image"}},
+		{ID: 2, Name: "Album",
+			Description: "Album-scoped metadata: embedded tags plus the album notes file.",
+			Items:       []string{"Embedded", "Album TXT"}},
+		{ID: 3, Name: "Studio",
+			Description: "Artist/label-scoped metadata: embedded tags plus the artist notes file.",
+			Items:       []string{"Embedded", "Artist TXT"}},
+	}
+}
+
+// MetadataProfileNames returns the seeded metadata profile names — the set a
+// root folder's default metadata profile is validated against (L3).
+func MetadataProfileNames() map[string]bool {
+	out := map[string]bool{}
+	for _, p := range DefaultMetadataProfiles() {
+		out[p.Name] = true
+	}
+	return out
+}

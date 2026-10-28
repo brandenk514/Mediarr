@@ -89,3 +89,97 @@ func TestL3_MusicLevelIDSpace(t *testing.T) {
 		t.Errorf("expected 38 distinct music level ids, got %d", len(seen))
 	}
 }
+
+// TestL3_MusicProfileDefaults covers the 4 seeded Lidarr music quality
+// profiles: ids in the 200+ space, exact names (default first), exact
+// approved items (music level ids, all approved), and exact cutoffs.
+func TestL3_MusicProfileDefaults(t *testing.T) {
+	profiles := DefaultMusicProfiles()
+	if len(profiles) != 4 {
+		t.Fatalf("want 4 music profiles, got %d", len(profiles))
+	}
+	type wantProfile struct {
+		id      int
+		name    string
+		approve []int
+		cutoff  int
+	}
+	want := []wantProfile{
+		{200, "Lossless Best Effort", []int{
+			213, 235, 236, 221, 237, 206, 207,
+			214, 211, 212, 204, 202, 215,
+		}, 221},
+		{201, "High Quality Lossy", []int{214, 211, 212, 204, 202, 215}, 214},
+		{202, "Lossless", []int{213, 235, 236, 221, 237, 206, 207}, 221},
+		{203, "WAV", []int{213}, 213},
+	}
+	for i, p := range profiles {
+		w := want[i]
+		if p.ID != w.id || p.Name != w.name || p.Cutoff != w.cutoff {
+			t.Errorf("music profile %d = (id=%d name=%q cutoff=%d), want (id=%d name=%q cutoff=%d)",
+				i, p.ID, p.Name, p.Cutoff, w.id, w.name, w.cutoff)
+		}
+		if len(p.Items) != len(w.approve) {
+			t.Fatalf("music profile %q: %d items, want %d", p.Name, len(p.Items), len(w.approve))
+		}
+		for j, item := range p.Items {
+			if !item.Approved || item.Quality != w.approve[j] {
+				t.Errorf("music profile %q item %d = (quality=%d approved=%v), want (quality=%d approved=true)",
+					p.Name, j, item.Quality, item.Approved, w.approve[j])
+			}
+		}
+	}
+}
+
+// TestL3_MusicProfileNames covers the 4 music profile names and the default.
+func TestL3_MusicProfileNames(t *testing.T) {
+	names := MusicProfileNames()
+	for _, n := range []string{"Lossless Best Effort", "High Quality Lossy", "Lossless", "WAV"} {
+		if !names[n] {
+			t.Errorf("missing music profile name %q", n)
+		}
+	}
+	if len(names) != 4 {
+		t.Errorf("expected 4 music profile names, got %d", len(names))
+	}
+	if DefaultMusicQualityProfile != "Lossless Best Effort" {
+		t.Errorf("default music quality profile = %q, want Lossless Best Effort", DefaultMusicQualityProfile)
+	}
+}
+
+// TestL3_MetadataProfileDefaults covers the 3 seeded metadata profiles:
+// exact names, the documented item lists, and the item vocabulary.
+func TestL3_MetadataProfileDefaults(t *testing.T) {
+	profiles := DefaultMetadataProfiles()
+	if len(profiles) != 3 {
+		t.Fatalf("want 3 metadata profiles, got %d", len(profiles))
+	}
+	want := map[string][]string{
+		"Standard": {"Embedded", "Music XML", "Music Image"},
+		"Album":    {"Embedded", "Album TXT"},
+		"Studio":   {"Embedded", "Artist TXT"},
+	}
+	for _, p := range profiles {
+		items, ok := want[p.Name]
+		if !ok {
+			t.Errorf("unexpected metadata profile %q", p.Name)
+			continue
+		}
+		delete(want, p.Name)
+		if p.ID < 1 || p.Description == "" {
+			t.Errorf("metadata profile %q: id/description missing: %+v", p.Name, p)
+		}
+		if len(p.Items) != len(items) {
+			t.Errorf("metadata profile %q items = %v, want %v", p.Name, p.Items, items)
+			continue
+		}
+		for i, it := range p.Items {
+			if it != items[i] {
+				t.Errorf("metadata profile %q item %d = %q, want %q", p.Name, i, it, items[i])
+			}
+		}
+	}
+	if got := MetadataProfileNames(); len(got) != 3 {
+		t.Errorf("expected 3 metadata profile names, got %d", len(got))
+	}
+}
