@@ -27,6 +27,7 @@ vi.mock('../../api/client', () => ({
     }),
     listIndexers: vi.fn().mockResolvedValue([]),
     listRootFolders: vi.fn().mockResolvedValue([]),
+    getProfiles: vi.fn().mockResolvedValue({ profiles: [], default: '' }),
     getSettingsSection: vi.fn(async (section: string) => {
       switch (section) {
         case 'general':

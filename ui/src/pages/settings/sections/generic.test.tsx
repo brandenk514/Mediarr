@@ -27,6 +27,8 @@ vi.mock('../../../api/client', () => ({
     putSettingsSection: vi.fn(),
     getTagUsage: vi.fn(),
     listRootFolders: vi.fn(),
+    getProfiles: vi.fn(),
+    updateRootFolder: vi.fn(),
   },
 }))
 
@@ -187,6 +189,14 @@ function freshDoc(section: string): unknown {
           colon_replacement: '',
           standard_format: '{movie-title} ({year}) {quality} {edition}',
         },
+        // Lidarr L3: the track-naming block (the server's seeded defaults).
+        music_naming: {
+          rename_tracks: true,
+          replace_illegal_characters: true,
+          colon_replacement: '',
+          standard_format: '{artist} - {track:0} - {track-title}',
+          multi_disc_format: '{artist} - {album} - CD {disc:0} - {track:0} - {track-title}',
+        },
         file_management: {
           min_file_age_hours: 0,
           remove_empty_dirs: true,
@@ -220,6 +230,25 @@ beforeEach(() => {
     episodes: 42,
   })
   ;(client.listRootFolders as ReturnType<typeof vi.fn>).mockResolvedValue([])
+  // Lidarr L3: the music profile names for the per-root pickers.
+  ;(client.getProfiles as ReturnType<typeof vi.fn>).mockResolvedValue({
+    profiles: ['Lossless Best Effort', 'Lossless', 'VBR Best Effort', 'WAV'],
+    default: 'Lossless Best Effort',
+  })
+  // The registry echo: the updated root returns the requested defaults, like
+  // the real server (so a second pick carries the first pick's value along).
+  ;(client.updateRootFolder as ReturnType<typeof vi.fn>).mockImplementation(
+    async (id: number, req: { default_quality_profile?: string; default_metadata_profile?: string }) =>
+      ({
+        ID: id,
+        Path: '/srv/music',
+        Name: 'Music',
+        CreatedAt: '2026-01-01T00:00:00Z',
+        FreeSpace: null,
+        DefaultQualityProfile: req.default_quality_profile ?? '',
+        DefaultMetadataProfile: req.default_metadata_profile ?? '',
+      }) as never,
+  )
 })
 
 afterEach(() => {
@@ -733,6 +762,78 @@ describe('MediaManagementSection', () => {
           file_management: expect.objectContaining({ unmonitor_deleted_movies: false }),
         }),
       ),
+    )
+  })
+
+  it('renders the track naming block and saves its edits (L3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<MediaManagementSection />)
+    const format = await screen.findByTestId('mm-track-format')
+    // The document loads async; wait for the seeded template to apply.
+    await waitFor(() => expect(format).toHaveValue('{artist} - {track:0} - {track-title}'))
+    expect(screen.getByTestId('mm-track-rename')).toBeChecked()
+    expect(screen.getByTestId('mm-track-illegal')).toBeChecked()
+    expect(screen.getByTestId('mm-track-colon')).toHaveValue('')
+    expect(screen.getByTestId('mm-track-multidisc')).toHaveValue(
+      '{artist} - {album} - CD {disc:0} - {track:0} - {track-title}',
+    )
+
+    // Uncheck Rename Tracks and swap the standard format (braces break
+    // userEvent key-sequence parsing; set the template directly).
+    await user.click(screen.getByTestId('mm-track-rename'))
+    fireEvent.change(format, { target: { value: '{artist} - {track:0} - {track-title} (Lossless)' } })
+    await user.click(screen.getByTestId('media-management-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'media-management',
+        expect.objectContaining({
+          music_naming: {
+            rename_tracks: false,
+            replace_illegal_characters: true,
+            colon_replacement: '',
+            standard_format: '{artist} - {track:0} - {track-title} (Lossless)',
+            multi_disc_format: '{artist} - {album} - CD {disc:0} - {track:0} - {track-title}',
+          },
+        }),
+      ),
+    )
+  })
+
+  it('picks per-root default music quality + metadata profiles (L3)', async () => {
+    const user = userEvent.setup()
+    // One root folder with no defaults set.
+    ;(client.listRootFolders as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        ID: 1,
+        Path: '/srv/music',
+        Name: 'Music',
+        CreatedAt: '2026-01-01T00:00:00Z',
+        FreeSpace: null,
+      },
+    ])
+    renderSection(<MediaManagementSection />)
+    const quality = (await screen.findByTestId('mm-root-quality-1')) as HTMLSelectElement
+    // The picker options load async (profiles endpoint + profiles doc); wait
+    // for the music names to arrive: "(none)" + the 4 seeded profiles.
+    await waitFor(() => expect(quality.options).toHaveLength(5))
+    expect(screen.getByTestId('mm-root-metadata-1')).toHaveValue('')
+
+    // Pick WAV for the root's default music quality profile.
+    await user.selectOptions(quality, 'WAV')
+    await waitFor(() =>
+      expect(client.updateRootFolder).toHaveBeenCalledWith(1, {
+        default_quality_profile: 'WAV',
+        default_metadata_profile: '',
+      }),
+    )
+
+    // Pick a metadata profile; the quality pick rides along (no clear).
+    await user.selectOptions(screen.getByTestId('mm-root-metadata-1'), 'Standard')
+    await waitFor(() =>
+      expect(client.updateRootFolder).toHaveBeenCalledWith(1, {
+        default_quality_profile: 'WAV',
+        default_metadata_profile: 'Standard',
+      }),
     )
   })
 })

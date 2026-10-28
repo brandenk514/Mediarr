@@ -4,7 +4,9 @@ import type {
   FileManagement,
   MediaManagementSettings,
   MovieNaming,
+  MusicNaming,
   NamingTemplate,
+  ProfilesSettings,
   RemotePathMapping,
   RootFolder,
 } from '../../../api/types'
@@ -14,10 +16,13 @@ import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 // per media kind (TV parity first), the Radarr movie-naming block (R5b:
 // Rename Movies / Replace Illegal Characters / Colon Replacement / Standard
 // Movie Format — separate from the per-kind 'Movie' template row, which is
-// the TV-era NamingTemplate.movie), the file-management options (including
+// the TV-era NamingTemplate.movie), the Lidarr track-naming block (L3:
+// Rename Tracks / Replace Illegal Characters / Colon Replacement / Standard
+// Format / Multi-Disc Format), the file-management options (including
 // Unmonitor Deleted Movies), remote path mappings (indexer/download paths ->
-// local), and the root-folder list (read here — root folders are owned by
-// the P2 root-folders domain and the add flow).
+// local), and the root-folder list (paths owned by the P2 root-folders
+// domain and the add flow; the per-root default music quality + metadata
+// profile pickers write straight to that registry).
 const TEMPLATE_FIELDS: { field: keyof NamingTemplate; label: string }[] = [
   { field: 'series', label: 'Series' },
   { field: 'episode', label: 'Episode' },
@@ -33,11 +38,20 @@ export function MediaManagementSection() {
 
   const [naming, setNaming] = useState<NamingTemplate | null>(null)
   const [movieNaming, setMovieNaming] = useState<MovieNaming | null>(null)
+  // Lidarr L3: the track-naming block. A missing music_naming (pre-L3
+  // documents) seeds null — the block renders its fallbacks and saves
+  // pass the stored value through non-destructively.
+  const [musicNaming, setMusicNaming] = useState<MusicNaming | null>(null)
   const [fileMgmt, setFileMgmt] = useState<FileManagement | null>(null)
   const [mappings, setMappings] = useState<RemotePathMapping[]>([])
   const [mapSource, setMapSource] = useState('')
   const [mapDest, setMapDest] = useState('')
   const [roots, setRoots] = useState<RootFolder[]>([])
+  // Lidarr L3: the per-root profile picker options — music profile names
+  // from the profiles endpoint (kind=music) and metadata profile names from
+  // the profiles section document.
+  const [musicProfileNames, setMusicProfileNames] = useState<string[]>([])
+  const [metadataProfileNames, setMetadataProfileNames] = useState<string[]>([])
   const [saved, setSaved] = useState(false)
   const { busy, submit } = useSubmit()
 
@@ -45,6 +59,7 @@ export function MediaManagementSection() {
     if (!doc) return
     setNaming(doc.naming)
     setMovieNaming(doc.movie_naming)
+    setMusicNaming(doc.music_naming ?? null)
     // The server defaults unmonitor_deleted_movies to true (R5a); normalise a
     // missing stored value so the toggle round-trips the default explicitly.
     setFileMgmt({
@@ -54,7 +69,8 @@ export function MediaManagementSection() {
     setMappings(doc.remote_path_mappings)
   }, [doc])
 
-  // Root folders are the P2 domain (the add flow); they are read-only here.
+  // Root folders are the P2 domain (the add flow); paths are read-only here,
+  // but the per-root default profile pickers (L3) write to the registry.
   useEffect(() => {
     let cancelled = false
     client
@@ -64,6 +80,30 @@ export function MediaManagementSection() {
       })
       .catch(() => {
         if (!cancelled) setRoots([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Picker options for the per-root profile selects (Lidarr L3).
+  useEffect(() => {
+    let cancelled = false
+    client
+      .getProfiles('music')
+      .then((r) => {
+        if (!cancelled) setMusicProfileNames(r.profiles)
+      })
+      .catch(() => {
+        if (!cancelled) setMusicProfileNames([])
+      })
+    client
+      .getSettingsSection<ProfilesSettings>('profiles')
+      .then((p) => {
+        if (!cancelled) setMetadataProfileNames((p.metadata_profiles ?? []).map((m) => m.name))
+      })
+      .catch(() => {
+        if (!cancelled) setMetadataProfileNames([])
       })
     return () => {
       cancelled = true
@@ -91,6 +131,11 @@ export function MediaManagementSection() {
     setMovieNaming({ ...movieNaming, ...patch })
   }
 
+  function patchMusicNaming(patch: Partial<MusicNaming>) {
+    if (!musicNaming) return
+    setMusicNaming({ ...musicNaming, ...patch })
+  }
+
   function patchFileMgmt(patch: Partial<FileManagement>) {
     if (!fileMgmt) return
     setFileMgmt({ ...fileMgmt, ...patch })
@@ -107,6 +152,30 @@ export function MediaManagementSection() {
     setMappings((prev) => prev.filter((_, idx) => idx !== i))
   }
 
+  // Lidarr L3: apply a per-root default profile pick immediately — the
+  // root-folders registry is written per change (no local staging), sending
+  // BOTH fields (an omitted-or-"" field is a deliberate clear on the server,
+  // so the untouched field's current value goes along).
+  function applyRootProfile(
+    r: RootFolder,
+    field: 'default_quality_profile' | 'default_metadata_profile',
+    value: string,
+  ) {
+    const req = {
+      default_quality_profile: field === 'default_quality_profile' ? value : (r.DefaultQualityProfile ?? ''),
+      default_metadata_profile:
+        field === 'default_metadata_profile' ? value : (r.DefaultMetadataProfile ?? ''),
+    }
+    void client
+      .updateRootFolder(r.ID, req)
+      .then((updated) => {
+        setRoots((prev) => prev.map((x) => (x.ID === r.ID ? updated : x)))
+      })
+      .catch(() => {
+        /* registry write failed; the row keeps its previous pick */
+      })
+  }
+
   function handleSave() {
     if (!doc) return
     if (!naming || !fileMgmt || !movieNaming) return
@@ -114,7 +183,9 @@ export function MediaManagementSection() {
       const next: MediaManagementSettings = {
         naming,
         movie_naming: movieNaming,
-        music_naming: doc.music_naming,
+        // Lidarr L3: send the local block when present; a pre-L3 doc (no
+        // music_naming) passes its stored value through non-destructively.
+        music_naming: musicNaming ?? doc.music_naming,
         file_management: fileMgmt,
         remote_path_mappings: mappings,
       }
@@ -182,6 +253,53 @@ export function MediaManagementSection() {
           value={movieNaming?.standard_format ?? ''}
           onChange={(e) => patchMovieNaming({ standard_format: e.target.value })}
           data-testid="mm-movie-format"
+        />
+      </div>
+
+      <h4>Track naming</h4>
+      <div data-testid="mm-music-naming">
+        <label className="check" htmlFor="mm-track-rename">
+          <input
+            id="mm-track-rename"
+            type="checkbox"
+            checked={musicNaming?.rename_tracks ?? true}
+            onChange={(e) => patchMusicNaming({ rename_tracks: e.target.checked })}
+            data-testid="mm-track-rename"
+          />
+          Rename Tracks
+        </label>
+        <label className="check" htmlFor="mm-track-illegal">
+          <input
+            id="mm-track-illegal"
+            type="checkbox"
+            checked={musicNaming?.replace_illegal_characters ?? true}
+            onChange={(e) => patchMusicNaming({ replace_illegal_characters: e.target.checked })}
+            data-testid="mm-track-illegal"
+          />
+          Replace Illegal Characters
+        </label>
+        <label htmlFor="mm-track-colon">Colon Replacement</label>
+        <input
+          id="mm-track-colon"
+          value={musicNaming?.colon_replacement ?? ''}
+          maxLength={1}
+          placeholder="e.g. '"
+          onChange={(e) => patchMusicNaming({ colon_replacement: e.target.value.slice(-1) })}
+          data-testid="mm-track-colon"
+        />
+        <label htmlFor="mm-track-format">Standard Format</label>
+        <input
+          id="mm-track-format"
+          value={musicNaming?.standard_format ?? ''}
+          onChange={(e) => patchMusicNaming({ standard_format: e.target.value })}
+          data-testid="mm-track-format"
+        />
+        <label htmlFor="mm-track-multidisc">Multi-Disc Format</label>
+        <input
+          id="mm-track-multidisc"
+          value={musicNaming?.multi_disc_format ?? ''}
+          onChange={(e) => patchMusicNaming({ multi_disc_format: e.target.value })}
+          data-testid="mm-track-multidisc"
         />
       </div>
 
@@ -278,13 +396,16 @@ export function MediaManagementSection() {
 
       <h4>Root folders</h4>
       <p className="dim small">
-        Root folders are managed by the add flow (the P2 root-folders domain); they are read-only here.
+        Paths are managed by the add flow (the P2 root-folders domain); the per-root default music
+        quality + metadata profile picks write straight to the root-folders registry.
       </p>
       <table className="table" data-testid="mm-roots">
         <thead>
           <tr>
             <th>Path</th>
             <th>Name</th>
+            <th>Default Quality Profile (music)</th>
+            <th>Default Metadata Profile</th>
           </tr>
         </thead>
         <tbody>
@@ -292,6 +413,34 @@ export function MediaManagementSection() {
             <tr key={r.ID}>
               <td>{r.Path}</td>
               <td>{r.Name}</td>
+              <td>
+                <select
+                  value={r.DefaultQualityProfile ?? ''}
+                  onChange={(e) => applyRootProfile(r, 'default_quality_profile', e.target.value)}
+                  data-testid={`mm-root-quality-${r.ID}`}
+                >
+                  <option value="">(none)</option>
+                  {musicProfileNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </td>
+              <td>
+                <select
+                  value={r.DefaultMetadataProfile ?? ''}
+                  onChange={(e) => applyRootProfile(r, 'default_metadata_profile', e.target.value)}
+                  data-testid={`mm-root-metadata-${r.ID}`}
+                >
+                  <option value="">(none)</option>
+                  {metadataProfileNames.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </td>
             </tr>
           ))}
         </tbody>
