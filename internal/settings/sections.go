@@ -158,8 +158,13 @@ func (u UISettings) Validate() string {
 // QualityLevel is one row of the quality matrix (id is a stable reference the
 // quality profiles use).
 type QualityLevel struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	// Group is the level's quality category (Lidarr L3 "Title" column): the
+	// lossy/lossless group for music levels ("Lossless", "High Quality
+	// Lossy", ...); "" for TV and movie rows, where the category concept does
+	// not apply.
+	Group       string `json:"group"`
 	Source      string `json:"source"`
 	Resolution  string `json:"resolution"`
 	SizeLimitMB int    `json:"size_limit_mb"`
