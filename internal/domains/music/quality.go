@@ -2,6 +2,7 @@ package music
 
 import (
 	"sort"
+	"strings"
 )
 
 // quality.go carries the music quality-profile machinery. It mirrors the
@@ -213,4 +214,30 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// DisplayQuality is the queue row's quality string for a matched release:
+// the upper-cased audio format (e.g. "FLAC"), or "" when the format is
+// unknown (FormatAny / empty) — the queue shows no quality rather than
+// guessing.
+func DisplayQuality(m ProfileMatch) string {
+	if m.Format == "" || m.Format == FormatAny {
+		return ""
+	}
+	return strings.ToUpper(m.Format)
+}
+
+// DisplayFormats joins a release's codec list into the queue row's formats
+// string: comma-separated, upper-cased, unknown codes dropped. A whole-album
+// release carries its single format ("FLAC"); a track release carries each
+// track's codec ("FLAC,MP3"). An all-unknown list yields "".
+func DisplayFormats(codes ...string) string {
+	var out []string
+	for _, c := range codes {
+		if c == "" || c == FormatAny {
+			continue
+		}
+		out = append(out, strings.ToUpper(c))
+	}
+	return strings.Join(out, ",")
 }

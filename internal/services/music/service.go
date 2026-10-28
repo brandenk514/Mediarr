@@ -846,6 +846,12 @@ func (s *Service) sendToClient(ctx context.Context, artist *dom.Artist, album do
 		DownloadClient: s.deps.Client.Name(),
 		State:          dom.QueueQueued,
 		Progress:       0,
+		// L4 Activity display columns (Lidarr queue row). Whole-album row:
+		// quality/formats carry the matched format; TrackTitle is "".
+		AlbumTitle: album.Name,
+		Quality:    dom.DisplayQuality(rel.Quality),
+		Formats:    dom.DisplayFormats(rel.Quality.Format),
+		TrackTitle: "",
 	}
 	id, err := s.deps.Repo.CreateQueue(ctx, qe)
 	if err != nil {

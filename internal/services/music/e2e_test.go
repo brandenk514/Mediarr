@@ -447,6 +447,21 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	if qs[0].State != dom.QueueComplete {
 		t.Errorf("queue state = %q, want complete", qs[0].State)
 	}
+	// L4 Activity display columns: the pipeline populates them from the
+	// album + matched release (Lidarr queue row: Album Title / Quality /
+	// Formats / Track Title).
+	if qs[0].AlbumTitle != "Legend" {
+		t.Errorf("queue album_title = %q, want Legend", qs[0].AlbumTitle)
+	}
+	if qs[0].Quality != "FLAC" {
+		t.Errorf("queue quality = %q, want FLAC", qs[0].Quality)
+	}
+	if qs[0].Formats != "FLAC" {
+		t.Errorf("queue formats = %q, want FLAC", qs[0].Formats)
+	}
+	if qs[0].TrackTitle != "" {
+		t.Errorf("queue track_title = %q, want \"\" (whole-album row)", qs[0].TrackTitle)
+	}
 
 	// 6. Idempotency: no pending wanted remains, so a re-run is a no-op.
 	if _, err := svc.RunPipeline(ctx, artistID); !errors.Is(err, ErrNoWanted) {

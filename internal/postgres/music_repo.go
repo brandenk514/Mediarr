@@ -507,11 +507,12 @@ func (r *MusicRepo) CreateQueue(ctx context.Context, e music.QueueEntry) (int64,
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO music_queue
-			(artist_id, album_id, release_title, indexer, download_client, state, progress)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+			(artist_id, album_id, release_title, indexer, download_client,
+			 album_title, quality, formats, track_title, state, progress)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id`,
-		e.ArtistID, e.AlbumID, e.ReleaseTitle, e.Indexer,
-		e.DownloadClient, e.State, e.Progress,
+		e.ArtistID, e.AlbumID, e.ReleaseTitle, e.Indexer, e.DownloadClient,
+		e.AlbumTitle, e.Quality, e.Formats, e.TrackTitle, e.State, e.Progress,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("music: create queue: %w", err)
@@ -535,11 +536,13 @@ func (r *MusicRepo) UpdateQueue(ctx context.Context, e music.QueueEntry) error {
 func (r *MusicRepo) GetQueue(ctx context.Context, id int64) (*music.QueueEntry, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, artist_id, album_id, release_title, indexer, download_client,
+		       album_title, quality, formats, track_title,
 		       state, progress, created_at, updated_at
 		FROM music_queue WHERE id = $1`, id)
 	e := &music.QueueEntry{}
 	err := row.Scan(&e.ID, &e.ArtistID, &e.AlbumID, &e.ReleaseTitle,
-		&e.Indexer, &e.DownloadClient, &e.State, &e.Progress, &e.CreatedAt, &e.UpdatedAt)
+		&e.Indexer, &e.DownloadClient, &e.AlbumTitle, &e.Quality, &e.Formats, &e.TrackTitle,
+		&e.State, &e.Progress, &e.CreatedAt, &e.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
 	}
@@ -553,6 +556,7 @@ func (r *MusicRepo) GetQueue(ctx context.Context, id int64) (*music.QueueEntry, 
 func (r *MusicRepo) ListQueue(ctx context.Context, artistID int64) ([]music.QueueEntry, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, artist_id, album_id, release_title, indexer, download_client,
+		       album_title, quality, formats, track_title,
 		       state, progress, created_at, updated_at
 		FROM music_queue WHERE artist_id = $1 ORDER BY id`, artistID)
 	if err != nil {
@@ -563,7 +567,8 @@ func (r *MusicRepo) ListQueue(ctx context.Context, artistID int64) ([]music.Queu
 	for rows.Next() {
 		var e music.QueueEntry
 		if err := rows.Scan(&e.ID, &e.ArtistID, &e.AlbumID, &e.ReleaseTitle,
-			&e.Indexer, &e.DownloadClient, &e.State, &e.Progress, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			&e.Indexer, &e.DownloadClient, &e.AlbumTitle, &e.Quality, &e.Formats, &e.TrackTitle,
+			&e.State, &e.Progress, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("music: scan queue: %w", err)
 		}
 		out = append(out, e)

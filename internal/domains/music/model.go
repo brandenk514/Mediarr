@@ -167,10 +167,18 @@ type QueueEntry struct {
 	ReleaseTitle   string
 	Indexer        string
 	DownloadClient string
-	State          QueueState
-	Progress       int
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// L4 Activity display columns (Lidarr queue row: Album Title / Quality /
+	// Formats / Track Title; Artist is the queue parent, Date is UpdatedAt).
+	// The pipeline populates them; Formats is a comma-joined codec list
+	// ("" = unknown). TrackTitle is "" for whole-album rows.
+	AlbumTitle string
+	Quality    string
+	Formats    string
+	TrackTitle string
+	State      QueueState
+	Progress   int
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // HistoryEntry is an auditable event in an artist's lifecycle.

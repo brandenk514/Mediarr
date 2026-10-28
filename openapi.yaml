@@ -4835,7 +4835,7 @@ components:
           format: date-time
     QueueViewItem:
       type: object
-      required: [kind, parent_id, parent_name, release_title, indexer, state, progress, download_client, updated_at]
+      required: [kind, parent_id, parent_name, release_title, indexer, state, progress, download_client, album_title, quality, formats, track_title, updated_at]
       properties:
         kind:
           $ref: "#/components/schemas/MediaKind"
@@ -4855,6 +4855,18 @@ components:
         download_client:
           type: string
           description: The download client the job is in (or "" if none).
+        album_title:
+          type: string
+          description: L4 music display column (Lidarr queue row "Album Title"); "" for non-music rows.
+        quality:
+          type: string
+          description: L4 music display column (Lidarr queue row "Quality", e.g. "FLAC"); "" when unknown or non-music.
+        formats:
+          type: string
+          description: L4 music display column (Lidarr queue row "Formats", comma-joined codecs); "" when unknown or non-music.
+        track_title:
+          type: string
+          description: L4 music display column (Lidarr queue row "Track Title"); "" for whole-album rows and non-music.
         updated_at:
           type: string
           format: date-time
@@ -4893,7 +4905,7 @@ components:
           format: date-time
     BlocklistEntry:
       type: object
-      required: [id, kind, parent_id, parent_name, release_title, indexer, reason, created_at]
+      required: [id, kind, parent_id, parent_name, release_title, indexer, reason, album_title, quality, formats, created_at]
       description: A blocked (rejected) release in Activity > Blocklist.
       properties:
         id:
@@ -4914,6 +4926,15 @@ components:
           type: string
         reason:
           type: string
+        album_title:
+          type: string
+          description: L4 music display column (Lidarr blocklist row "Album Title"); "" for non-music rows.
+        quality:
+          type: string
+          description: L4 music display column (Lidarr blocklist row "Quality", e.g. "FLAC"); "" when unknown or non-music.
+        formats:
+          type: string
+          description: L4 music display column (Lidarr blocklist row "Formats", comma-joined codecs); "" when unknown or non-music.
         created_at:
           type: string
           format: date-time
@@ -4932,6 +4953,15 @@ components:
           type: string
         reason:
           type: string
+        album_title:
+          type: string
+          description: L4 music display column; carried through for music rows, ignored otherwise.
+        quality:
+          type: string
+          description: L4 music display column; carried through for music rows, ignored otherwise.
+        formats:
+          type: string
+          description: L4 music display column; carried through for music rows, ignored otherwise.
     WantedTab:
       type: string
       enum: [missing, cutoff]
