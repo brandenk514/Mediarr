@@ -64,6 +64,9 @@ type Artist struct {
 	MonitorPolicy    string   // PolicyAll/... ; "" = all
 	MonitorNewAlbums string   // "all_albums"; "" = all_albums
 	Tags             []string // free-form tags; empty = none
+	// L4 (Lidarr metadata): the artist's Cover Art Archive front cover;
+	// "" = none/unknown.
+	Cover string
 	// Per-artist aggregates for the Lidarr grid ribbon (L1 spec gap): computed
 	// by the repository from the tracks and the download queue — never stored.
 	TrackCount  int   // known tracks across the artist's albums
@@ -90,6 +93,11 @@ type Album struct {
 	Rating      float64 // 0 = unknown
 	Duration    int     // seconds; 0 = unknown
 	Size        int64   // bytes; 0 = unknown
+	// L4 (Lidarr metadata): enrichment from MusicBrainz + Cover Art Archive;
+	// the backend always populates them (""/empty = unknown/none).
+	Cover  string   // CAA front cover URL; "" = none/unknown
+	Labels []string // record labels; empty = none
+	Genres []string // music genres; empty = none
 	// TrackCount (known tracks) and FileCount (tracks with an imported file,
 	// powering Lidarr's "3/9" badge) are COMPUTED by the repository from the
 	// tracks — never stored as denormalized counters.
@@ -216,7 +224,8 @@ type Repo interface {
 	ListArtists(ctx context.Context) ([]Artist, error)
 	SetArtistMonitored(ctx context.Context, id int64, monitored bool) error
 	// UpdateArtist updates the L1/L2 editable fields (monitored, policy,
-	// quality profile, path, tags) in one row.
+	// quality profile, path, tags) and the L4 enrichment fields (rating,
+	// genre, links, cover) in one row.
 	UpdateArtist(ctx context.Context, a Artist) error
 
 	// Albums
@@ -224,12 +233,19 @@ type Repo interface {
 	GetAlbum(ctx context.Context, id int64) (*Album, error)
 	ListAlbums(ctx context.Context, artistID int64) ([]Album, error)
 	SetAlbumMonitored(ctx context.Context, id int64, monitored bool) error
+	// UpdateAlbum updates the L4 metadata enrichment fields (mbid, year,
+	// album_type, release_date, duration, cover, labels, genres) in one row
+	// (the add/refresh flows' "replace the album's metadata" primitive).
+	UpdateAlbum(ctx context.Context, a Album) error
 
 	// Tracks
 	CreateTrack(ctx context.Context, t Track) (int64, error)
 	GetTrack(ctx context.Context, albumID int64, disc, number int) (*Track, error)
 	ListTracks(ctx context.Context, albumID int64) ([]Track, error)
 	SetTrackMonitored(ctx context.Context, albumID int64, disc, number int, monitored bool) error
+	// DeleteTracks removes all tracks of an album (the L4 refresh flow
+	// replaces tracks wholesale).
+	DeleteTracks(ctx context.Context, albumID int64) error
 
 	// Wanted (album or track granularity)
 	EnsureWantedAlbum(ctx context.Context, albumID int64) error

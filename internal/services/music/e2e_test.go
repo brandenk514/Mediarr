@@ -152,6 +152,24 @@ func (r *memRepo) SetAlbumMonitored(ctx context.Context, id int64, monitored boo
 	return nil
 }
 
+// UpdateAlbum mirrors MusicRepo.UpdateAlbum (L4 enrichment fields only).
+func (r *memRepo) UpdateAlbum(ctx context.Context, a dom.Album) error {
+	cur, ok := r.albums[a.ID]
+	if !ok {
+		return dom.ErrAlbumNotFound
+	}
+	cur.MBID = a.MBID
+	cur.Year = a.Year
+	cur.AlbumType = a.AlbumType
+	cur.ReleaseDate = a.ReleaseDate
+	cur.Duration = a.Duration
+	cur.Cover = a.Cover
+	cur.Labels = a.Labels
+	cur.Genres = a.Genres
+	r.albums[a.ID] = cur
+	return nil
+}
+
 func (r *memRepo) CreateTrack(ctx context.Context, t dom.Track) (int64, error) {
 	for _, v := range r.tracks[t.AlbumID] {
 		if v.Disc == t.Disc && v.Number == t.Number {
@@ -187,6 +205,12 @@ func (r *memRepo) SetTrackMonitored(ctx context.Context, albumID int64, disc, nu
 		}
 	}
 	return dom.ErrTrackNotFound
+}
+
+// DeleteTracks mirrors MusicRepo.DeleteTracks (L4 track replacement).
+func (r *memRepo) DeleteTracks(ctx context.Context, albumID int64) error {
+	delete(r.tracks, albumID)
+	return nil
 }
 
 func (r *memRepo) EnsureWantedAlbum(ctx context.Context, albumID int64) error {

@@ -170,6 +170,29 @@ func (r *kindsMusicRepo) SetAlbumMonitored(_ context.Context, id int64, monitore
 	return nil
 }
 
+// L4 (refresh flow): metadata enrichment and track replacement through the
+// real handlers.
+func (r *kindsMusicRepo) UpdateAlbum(_ context.Context, a musicdom.Album) error {
+	cur, ok := r.albums[a.ID]
+	if !ok {
+		return musicdom.ErrAlbumNotFound
+	}
+	cur.MBID = a.MBID
+	cur.Year = a.Year
+	cur.AlbumType = a.AlbumType
+	cur.ReleaseDate = a.ReleaseDate
+	cur.Duration = a.Duration
+	cur.Cover = a.Cover
+	cur.Labels = a.Labels
+	cur.Genres = a.Genres
+	r.albums[a.ID] = cur
+	return nil
+}
+func (r *kindsMusicRepo) DeleteTracks(_ context.Context, albumID int64) error {
+	delete(r.tracks, albumID)
+	return nil
+}
+
 // No-op lifecycle methods the services call on the add paths.
 func (r *kindsMusicRepo) AddHistory(_ context.Context, _ musicdom.HistoryEntry) error { return nil }
 func (r *kindsMusicRepo) EnsureWantedAlbum(_ context.Context, _ int64) error {

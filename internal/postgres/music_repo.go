@@ -61,12 +61,12 @@ func (r *MusicRepo) CreateArtist(ctx context.Context, a music.Artist) (int64, er
 	}
 	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO music_artists (mbid, name, monitored, status, quality_profile, path, rating, genre, links,
-		 monitor_policy, monitor_new_albums, tags)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		 monitor_policy, monitor_new_albums, tags, cover)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id`,
 		a.MBID, a.Name, a.Monitored, a.Status, a.QualityProfile, a.Path,
 		a.Rating, a.Genre, marshalLinks(a.Links),
-		a.MonitorPolicy, a.MonitorNewAlbums, nullSafeTags(a.Tags),
+		a.MonitorPolicy, a.MonitorNewAlbums, nullSafeTags(a.Tags), a.Cover,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("music: create artist: %w", err)
@@ -82,7 +82,7 @@ func (r *MusicRepo) CreateArtist(ctx context.Context, a music.Artist) (int64, er
 // All derived, never stored.
 const artistSelectCols = `
 id, mbid, name, monitored, status, quality_profile, path,
-rating, genre, links, monitor_policy, monitor_new_albums, tags, added_at,
+rating, genre, links, monitor_policy, monitor_new_albums, tags, cover, added_at,
 (SELECT COUNT(*) FROM music_tracks t
   JOIN music_albums al ON al.id = t.album_id
   WHERE al.artist_id = a.id) AS track_count,
@@ -104,7 +104,7 @@ func scanArtist(row interface {
 	var tags []string
 	err := row.Scan(&a.ID, &a.MBID, &a.Name, &a.Monitored, &a.Status,
 		&a.QualityProfile, &a.Path, &a.Rating, &a.Genre, &links,
-		&a.MonitorPolicy, &a.MonitorNewAlbums, &tags, &a.AddedAt,
+		&a.MonitorPolicy, &a.MonitorNewAlbums, &tags, &a.Cover, &a.AddedAt,
 		&a.TrackCount, &a.FileCount, &a.QueuedCount, &a.TotalSize)
 	if err != nil {
 		return err
@@ -164,17 +164,20 @@ func (r *MusicRepo) SetArtistMonitored(ctx context.Context, id int64, monitored 
 	return nil
 }
 
-// UpdateArtist updates the L1/L2 editable artist fields in one row (L2
-// Edit Artist modal). The caller passes the full merged artist (current
-// values plus the edits); only the editable columns are written.
+// UpdateArtist updates the L1/L2 editable artist fields plus the L4
+// enrichment fields (rating, genre, links, cover) in one row (L2 Edit Artist
+// modal; L4 Refresh Artist). The caller passes the full merged artist
+// (current values plus the edits); only the writable columns are written.
 func (r *MusicRepo) UpdateArtist(ctx context.Context, a music.Artist) error {
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE music_artists
 		SET monitored = $2, status = $3, quality_profile = $4, path = $5,
-		    monitor_policy = $6, monitor_new_albums = $7, tags = $8
+		    monitor_policy = $6, monitor_new_albums = $7, tags = $8,
+		    rating = $9, genre = $10, links = $11, cover = $12
 		WHERE id = $1`,
 		a.ID, a.Monitored, a.Status, a.QualityProfile, a.Path,
 		a.MonitorPolicy, a.MonitorNewAlbums, nullSafeTags(a.Tags),
+		a.Rating, a.Genre, marshalLinks(a.Links), a.Cover,
 	)
 	if err != nil {
 		return fmt.Errorf("music: update artist: %w", err)
@@ -193,12 +196,12 @@ func (r *MusicRepo) CreateAlbum(ctx context.Context, a music.Album) (int64, erro
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO music_albums
 			(artist_id, mbid, name, year, quality_profile, monitored, verify_checksums, checksum,
-			 album_type, release_date, rating, duration, size)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			 album_type, release_date, rating, duration, size, cover, labels, genres)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING id`,
 		a.ArtistID, a.MBID, a.Name, a.Year, a.QualityProfile, a.Monitored,
 		a.VerifyChecksums, a.Checksum, a.AlbumType, a.ReleaseDate, a.Rating,
-		a.Duration, a.Size,
+		a.Duration, a.Size, a.Cover, nullSafeTags(a.Labels), nullSafeTags(a.Genres),
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("music: create album: %w", err)
@@ -213,7 +216,7 @@ func (r *MusicRepo) CreateAlbum(ctx context.Context, a music.Album) (int64, erro
 const albumSelectCols = `
 	id, artist_id, mbid, name, year, quality_profile, monitored,
 	verify_checksums, checksum, album_type, release_date, rating, duration,
-	size, added_at,
+	size, cover, labels, genres, added_at,
 	(SELECT COUNT(*) FROM music_tracks t WHERE t.album_id = a.id) AS track_count,
 	(SELECT COUNT(*) FROM music_tracks t WHERE t.album_id = a.id AND t.status <> '') AS file_count`
 
@@ -221,10 +224,24 @@ const albumSelectCols = `
 func scanAlbum(row interface {
 	Scan(dest ...any) error
 }, a *music.Album) error {
-	return row.Scan(&a.ID, &a.ArtistID, &a.MBID, &a.Name, &a.Year,
+	var labels, genres []string
+	err := row.Scan(&a.ID, &a.ArtistID, &a.MBID, &a.Name, &a.Year,
 		&a.QualityProfile, &a.Monitored, &a.VerifyChecksums, &a.Checksum,
 		&a.AlbumType, &a.ReleaseDate, &a.Rating, &a.Duration, &a.Size,
+		&a.Cover, &labels, &genres,
 		&a.AddedAt, &a.TrackCount, &a.FileCount)
+	if err != nil {
+		return err
+	}
+	if labels == nil {
+		labels = []string{}
+	}
+	a.Labels = labels
+	if genres == nil {
+		genres = []string{}
+	}
+	a.Genres = genres
+	return nil
 }
 
 // GetAlbum loads an album by id.
@@ -268,6 +285,27 @@ func (r *MusicRepo) SetAlbumMonitored(ctx context.Context, id int64, monitored b
 		UPDATE music_albums SET monitored = $2 WHERE id = $1`, id, monitored)
 	if err != nil {
 		return fmt.Errorf("music: set album monitored: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return music.ErrAlbumNotFound
+	}
+	return nil
+}
+
+// UpdateAlbum updates the L4 metadata enrichment fields in one row (the
+// add/refresh flows' "replace the album's metadata" primitive). The caller
+// passes the full merged album; monitored/quality profile are not touched.
+func (r *MusicRepo) UpdateAlbum(ctx context.Context, a music.Album) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE music_albums
+		SET mbid = $2, year = $3, album_type = $4, release_date = $5,
+		    duration = $6, cover = $7, labels = $8, genres = $9
+		WHERE id = $1`,
+		a.ID, a.MBID, a.Year, a.AlbumType, a.ReleaseDate,
+		a.Duration, a.Cover, nullSafeTags(a.Labels), nullSafeTags(a.Genres),
+	)
+	if err != nil {
+		return fmt.Errorf("music: update album: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return music.ErrAlbumNotFound
@@ -361,6 +399,16 @@ func (r *MusicRepo) SetTrackMonitored(ctx context.Context, albumID int64, disc, 
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return music.ErrTrackNotFound
+	}
+	return nil
+}
+
+// DeleteTracks removes all tracks of an album (the L4 refresh flow replaces
+// tracks wholesale). An unknown album is not an error.
+func (r *MusicRepo) DeleteTracks(ctx context.Context, albumID int64) error {
+	if _, err := r.db.ExecContext(ctx, `
+		DELETE FROM music_tracks WHERE album_id = $1`, albumID); err != nil {
+		return fmt.Errorf("music: delete tracks: %w", err)
 	}
 	return nil
 }
