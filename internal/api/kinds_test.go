@@ -206,6 +206,18 @@ func (r *kindsMusicRepo) DeleteTracks(_ context.Context, albumID int64) error {
 	return nil
 }
 
+// SetTrackStatus (L4 manual import): mark a track's file state.
+func (r *kindsMusicRepo) SetTrackStatus(_ context.Context, albumID int64, disc, number int, status string) (bool, error) {
+	for i, t := range r.tracks[albumID] {
+		if t.Disc == disc && t.Number == number {
+			t.Status = status
+			r.tracks[albumID][i] = t
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // No-op lifecycle methods the services call on the add paths.
 func (r *kindsMusicRepo) AddHistory(_ context.Context, _ musicdom.HistoryEntry) error { return nil }
 func (r *kindsMusicRepo) EnsureWantedAlbum(_ context.Context, _ int64) error {

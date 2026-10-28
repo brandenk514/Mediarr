@@ -403,6 +403,24 @@ func (r *MusicRepo) SetTrackMonitored(ctx context.Context, albumID int64, disc, 
 	return nil
 }
 
+// SetTrackStatus sets a track's imported-file status (the quality string of
+// its imported file, e.g. "FLAC"; "" = no file) and reports whether a row
+// was updated.
+func (r *MusicRepo) SetTrackStatus(ctx context.Context, albumID int64, disc, number int, status string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE music_tracks SET status = $4
+		WHERE album_id = $1 AND disc = $2 AND number = $3`,
+		albumID, disc, number, status)
+	if err != nil {
+		return false, fmt.Errorf("music: set track status: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("music: set track status rows affected: %w", err)
+	}
+	return n > 0, nil
+}
+
 // DeleteTracks removes all tracks of an album (the L4 refresh flow replaces
 // tracks wholesale). An unknown album is not an error.
 func (r *MusicRepo) DeleteTracks(ctx context.Context, albumID int64) error {

@@ -212,6 +212,18 @@ func (r *memRepo) SetTrackMonitored(ctx context.Context, albumID int64, disc, nu
 	return dom.ErrTrackNotFound
 }
 
+// SetTrackStatus mirrors MusicRepo.SetTrackStatus (L4 manual import).
+func (r *memRepo) SetTrackStatus(ctx context.Context, albumID int64, disc, number int, status string) (bool, error) {
+	for i, t := range r.tracks[albumID] {
+		if t.Disc == disc && t.Number == number {
+			t.Status = status
+			r.tracks[albumID][i] = t
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // DeleteTracks mirrors MusicRepo.DeleteTracks (L4 track replacement).
 func (r *memRepo) DeleteTracks(ctx context.Context, albumID int64) error {
 	delete(r.tracks, albumID)

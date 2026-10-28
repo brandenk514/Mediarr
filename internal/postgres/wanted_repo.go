@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	movies "github.com/brandenk514/mediarr/internal/domains/movies"
 	wd "github.com/brandenk514/mediarr/internal/domains/wanted"
 )
 
@@ -199,6 +200,135 @@ func (r *WantedRepo) SatisfyWanted(ctx context.Context, seriesID int64, season, 
 		seriesID, season, episode, releaseTitle, quality)
 	if err != nil {
 		return fmt.Errorf("wanted: satisfy: %w", err)
+	}
+	return nil
+}
+
+// --- L4 music (kind=music) ---
+
+// MusicRows implements wanted.Repo: one album-level row per
+// effectively-monitored album (artist AND album monitored) plus one row per
+// monitored track of such an album, ordered by artist name, album (year,
+// name), disc, number. The enriched catalog's release date is a text
+// YYYY-MM-DD column ("" = unknown), parsed to the wire shape's *time.Time.
+func (r *WantedRepo) MusicRows(ctx context.Context) ([]wd.MusicRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT ar.id, ar.name,
+		       al.id, al.name, COALESCE(al.album_type, ''), al.year, COALESCE(al.release_date, ''),
+		       COALESCE(al.quality_profile, ''),
+		       (ar.monitored AND al.monitored),
+		       0, 0, 0, '', false,
+		       (SELECT COUNT(*) FROM music_tracks t WHERE t.album_id = al.id),
+		       (SELECT COUNT(*) FROM music_tracks t WHERE t.album_id = al.id AND t.status <> ''),
+		       COALESCE((SELECT array_agg(t.status) FROM music_tracks t
+		                 WHERE t.album_id = al.id AND t.status <> ''), '{}')
+		FROM music_artists ar
+		JOIN music_albums al ON al.artist_id = ar.id
+		WHERE ar.monitored AND al.monitored
+		UNION ALL
+		SELECT ar.id, ar.name,
+		       al.id, al.name, COALESCE(al.album_type, ''), al.year, COALESCE(al.release_date, ''),
+		       COALESCE(al.quality_profile, ''),
+		       (ar.monitored AND al.monitored),
+		       t.disc, t.number, t.id, t.title, t.monitored,
+		       0, 0, '{}'::text[]
+		FROM music_artists ar
+		JOIN music_albums al ON al.artist_id = ar.id
+		JOIN music_tracks t ON t.album_id = al.id
+		WHERE ar.monitored AND al.monitored AND t.monitored
+		ORDER BY 2, 6, 4, 10, 11`)
+	if err != nil {
+		return nil, fmt.Errorf("wanted: music rows: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop below
+	var out []wd.MusicRow
+	for rows.Next() {
+		var (
+			m    wd.MusicRow
+			rd   string
+			prof string
+		)
+		if err := rows.Scan(&m.ArtistID, &m.ArtistTitle,
+			&m.AlbumID, &m.AlbumTitle, &m.AlbumType, &m.Year, &rd,
+			&prof, &m.Monitored,
+			&m.Disc, &m.Number, &m.TrackID, &m.TrackTitle, &m.TrackMonitored,
+			&m.TrackCount, &m.FileCount, &m.ImportedQualities); err != nil {
+			return nil, fmt.Errorf("wanted: scan music row: %w", err)
+		}
+		m.ReleaseDate = movies.ParseReleaseDate(rd)
+		m.ProfileName = prof
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("wanted: iterate music rows: %w", err)
+	}
+	return out, nil
+}
+
+// EnsureMusicWanted implements wanted.Repo: inserts a pending music_wanted
+// row for the ref (whole album when disc/number are zero, else the track),
+// or resets an existing satisfied row back to pending (re-requesting the
+// search). Pending rows are left untouched. An unknown track falls back to
+// the whole-album row so the search still has something to bite on.
+func (r *WantedRepo) EnsureMusicWanted(ctx context.Context, albumID int64, disc, number int) error {
+	trackID := int64(0)
+	if disc > 0 || number > 0 {
+		err := r.db.QueryRowContext(ctx, `
+			SELECT id FROM music_tracks
+			WHERE album_id = $1 AND disc = $2 AND number = $3`,
+			albumID, disc, number).Scan(&trackID)
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("wanted: music track lookup: %w", err)
+		}
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO music_wanted (album_id, track_id, status)
+		VALUES ($1, $2, 'pending')
+		ON CONFLICT (album_id, track_id)
+		DO UPDATE SET status = 'pending', release_title = '', satisfied_at = NULL`,
+		albumID, trackID)
+	if err != nil {
+		return fmt.Errorf("wanted: ensure music wanted: %w", err)
+	}
+	return nil
+}
+
+// SetMusicMonitoredOff implements wanted.Repo: turns monitoring off for the
+// music ref (whole album when disc/number are zero, else the one track) and
+// reports whether a row was updated.
+func (r *WantedRepo) SetMusicMonitoredOff(ctx context.Context, albumID int64, disc, number int) (bool, error) {
+	var (
+		res sql.Result
+		err error
+	)
+	if disc > 0 || number > 0 {
+		res, err = r.db.ExecContext(ctx, `
+			UPDATE music_tracks SET monitored = false
+			WHERE album_id = $1 AND disc = $2 AND number = $3`,
+			albumID, disc, number)
+	} else {
+		res, err = r.db.ExecContext(ctx, `
+			UPDATE music_albums SET monitored = false WHERE id = $1`, albumID)
+	}
+	if err != nil {
+		return false, fmt.Errorf("wanted: unmonitor music: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("wanted: unmonitor music rows affected: %w", err)
+	}
+	return n > 0, nil
+}
+
+// AddMusicHistory implements wanted.Repo: appends a music_history event —
+// the kind "music" source of the global Activity feed (the music service's
+// own per-artist feed is the same table).
+func (r *WantedRepo) AddMusicHistory(ctx context.Context, artistID int64, event, detail string) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO music_history (artist_id, event, detail)
+		VALUES ($1, $2, $3)`, artistID, event, detail)
+	if err != nil {
+		return fmt.Errorf("wanted: add music history: %w", err)
 	}
 	return nil
 }

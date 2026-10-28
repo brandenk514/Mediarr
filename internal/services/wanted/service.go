@@ -15,6 +15,7 @@ import (
 
 	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	dom "github.com/brandenk514/mediarr/internal/domains/wanted"
+	"github.com/brandenk514/mediarr/internal/fsutil"
 	"github.com/brandenk514/mediarr/internal/metawrite"
 	"github.com/brandenk514/mediarr/internal/paging"
 )
@@ -192,9 +193,7 @@ func (s *Service) ManualImport(ctx context.Context, req dom.ManualImport) (dom.M
 	if ep == nil {
 		return empty, dom.ErrEpisodeNotFound
 	}
-	// Confine the user-supplied file path to the media root before any
-	// filesystem access (defense against path injection / traversal).
-	impPath, err := resolveImportPath(s.mediaRoot, req.FilePath)
+	impPath, err := s.resolveImportPath(req.FilePath)
 	if err != nil {
 		return empty, err
 	}
@@ -239,47 +238,23 @@ func (s *Service) ManualImport(ctx context.Context, req dom.ManualImport) (dom.M
 	return dom.ManualImportReport{Imported: true, Message: detail}, nil
 }
 
-// resolveImportPath validates that p points at a file located strictly inside
-// root and returns its canonical (absolute, cleaned) form. It is the defense
-// against path injection on the manual-import endpoint: p is user-supplied,
-// so before any filesystem access we clean it, resolve it to an absolute
-// path, and require the result to stay inside root (a relative input is
-// rooted there; an absolute input must already be under it). Symlinks whose
-// target escapes root are rejected.
-func resolveImportPath(root, p string) (string, error) {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return "", dom.ErrEmptyPath
-	}
-	base, err := filepath.Abs(root)
+// resolveImportPath validates that p points at a file located strictly
+// inside s.mediaRoot (defense against path injection on the manual-import
+// endpoint), mapping the shared fsutil sentinels onto the domain's.
+func (s *Service) resolveImportPath(p string) (string, error) {
+	impPath, err := fsutil.ResolveConfined(s.mediaRoot, p)
 	if err != nil {
-		return "", fmt.Errorf("wanted: resolve media root: %w", err)
-	}
-	cand := filepath.Clean(p)
-	if !filepath.IsAbs(cand) {
-		cand = filepath.Join(base, cand)
-	}
-	if cand, err = filepath.Abs(cand); err != nil {
-		return "", fmt.Errorf("wanted: resolve import path: %w", err)
-	}
-	if !isUnder(base, cand) {
-		return "", dom.ErrPathOutsideRoot
-	}
-	// A symlink anywhere in the path could point outside the root; reject it
-	// if its resolved target escapes.
-	if resolved, rerr := filepath.EvalSymlinks(cand); rerr == nil {
-		if !isUnder(base, resolved) {
+		switch {
+		case errors.Is(err, fsutil.ErrEmptyPath):
+			return "", dom.ErrEmptyPath
+		case errors.Is(err, fsutil.ErrPathOutsideRoot):
 			return "", dom.ErrPathOutsideRoot
 		}
+		return "", err
 	}
-	return cand, nil
-}
-
-// isUnder reports whether candidate is inside (or equal to) base.
-func isUnder(base, candidate string) bool {
-	rel, err := filepath.Rel(base, candidate)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+	// CodeQL [go/path-injection] impPath is validated by fsutil.ResolveConfined
+	// to be strictly inside s.mediaRoot (cleaned, absolute; ".." traversal
+	// and symlinks that escape the root are rejected), so the raw user value
+	// can never reach the filesystem here.
+	return impPath, nil
 }

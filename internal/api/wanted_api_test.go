@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,6 +31,10 @@ type memWantedRepo struct {
 	wanted    map[sxe]string
 	history   int
 	satisfied int
+	// L4 music
+	musicRows      []wdom.MusicRow
+	musicWanted    []string // "album/disc/number"
+	musicMonitored map[string]bool
 }
 
 func (m *memWantedRepo) EpisodeRows(_ context.Context) ([]wdom.EpisodeRow, error) { return m.rows, nil }
@@ -66,6 +71,28 @@ func (m *memWantedRepo) AddHistory(_ context.Context, _ string, _ int64, _, _ st
 }
 func (m *memWantedRepo) SatisfyWanted(_ context.Context, _ int64, _, _ int, _, _ string) error {
 	m.satisfied++
+	return nil
+}
+
+// --- L4 music ---
+
+func (m *memWantedRepo) MusicRows(_ context.Context) ([]wdom.MusicRow, error) {
+	return m.musicRows, nil
+}
+func (m *memWantedRepo) EnsureMusicWanted(_ context.Context, albumID int64, disc, number int) error {
+	m.musicWanted = append(m.musicWanted, fmt.Sprintf("%d/%d/%d", albumID, disc, number))
+	return nil
+}
+func (m *memWantedRepo) SetMusicMonitoredOff(_ context.Context, albumID int64, disc, number int) (bool, error) {
+	k := fmt.Sprintf("%d/%d/%d", albumID, disc, number)
+	if ok, exists := m.musicMonitored[k]; exists && ok {
+		m.musicMonitored[k] = false
+		return true, nil
+	}
+	return false, nil
+}
+func (m *memWantedRepo) AddMusicHistory(_ context.Context, _ int64, _, _ string) error {
+	m.history++
 	return nil
 }
 

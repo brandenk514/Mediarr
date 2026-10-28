@@ -479,7 +479,8 @@ func run(logSvc *system.LogService) error {
 	wantedRepo := postgres.NewWantedRepo(pg.DB())
 	wantedSvc := wantedsvc.New(wantedRepo, tvMediaRoot)
 	srv.SetWanted(&api.WantedDeps{Svc: wantedSvc})
-	srv.SetImport(&api.ImportDeps{Wanted: wantedSvc})
+	// The manual-import endpoint also serves kind=music (L4), so it is
+	// wired after the music pipeline below (both services in one call).
 
 	// P4: Calendar — upcoming monitored TV air dates (calendar page + iCal feed).
 	calendarRepo := postgres.NewCalendarRepo(pg.DB())
@@ -516,6 +517,10 @@ func run(logSvc *system.LogService) error {
 		Metadata: providers.NewMusicBrainz(),
 	})
 	srv.SetMusic(&api.MusicDeps{Svc: musicSvc, RootFolders: rfSvc})
+	// L4: the manual-import endpoint (kind=tv + kind=music) needs both the
+	// wanted service and the music service — wired now that the music
+	// pipeline exists above.
+	srv.SetImport(&api.ImportDeps{Wanted: wantedSvc, Music: musicSvc})
 	logger.Info("music pipeline ready",
 		"media_root", musicMediaRoot,
 		"indexers", "fake",

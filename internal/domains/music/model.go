@@ -211,6 +211,11 @@ var ErrArtistNotFound = errors.New("music: artist not found")
 // ErrAlbumNotFound is returned when an album does not exist.
 var ErrAlbumNotFound = errors.New("music: album not found")
 
+// ErrUnsupportedFile is a manual import whose file is not a recognized
+// audio type (phase 1 detects the codec from the extension; archives are
+// not supported).
+var ErrUnsupportedFile = errors.New("music: unsupported file type (phase 1 imports single audio files or a directory of track files)")
+
 // ErrTrackNotFound is returned when a track does not exist.
 var ErrTrackNotFound = errors.New("music: track not found")
 
@@ -251,6 +256,12 @@ type Repo interface {
 	GetTrack(ctx context.Context, albumID int64, disc, number int) (*Track, error)
 	ListTracks(ctx context.Context, albumID int64) ([]Track, error)
 	SetTrackMonitored(ctx context.Context, albumID int64, disc, number int, monitored bool) error
+	// SetTrackStatus sets a track's imported-file status — the quality
+	// string of its imported file (e.g. "FLAC") or "" for no file (the L4
+	// manual import marks a track imported; the library scan populates it
+	// on creation). A bool result reports whether a row was updated
+	// (false = unknown track).
+	SetTrackStatus(ctx context.Context, albumID int64, disc, number int, status string) (bool, error)
 	// DeleteTracks removes all tracks of an album (the L4 refresh flow
 	// replaces tracks wholesale).
 	DeleteTracks(ctx context.Context, albumID int64) error

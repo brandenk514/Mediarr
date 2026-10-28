@@ -44,6 +44,9 @@ var (
 	ErrArtistNotFound = dom.ErrArtistNotFound
 	ErrAlbumNotFound  = dom.ErrAlbumNotFound
 	ErrTrackNotFound  = dom.ErrTrackNotFound
+	// ErrUnsupportedFile is re-exported for the manual-import endpoint
+	// (L4): an unsupported file type.
+	ErrUnsupportedFile = dom.ErrUnsupportedFile
 )
 
 // Deps bundles the Service's collaborators. Everything is an interface (or the
