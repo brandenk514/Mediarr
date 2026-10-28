@@ -140,6 +140,32 @@ function freshDoc(section: string): unknown {
             hdtv: true,
           },
         ],
+        // Lidarr L3: the seeded music quality profiles (200+ id space; items
+        // reference the music level ids from the quality doc) + the three
+        // metadata profiles.
+        music_profiles: [
+          {
+            id: 200,
+            name: 'Lossless Best Effort',
+            cutoff: 206,
+            items: [
+              { quality: 213, approved: true },
+              { quality: 206, approved: true },
+              { quality: 204, approved: true },
+            ],
+          },
+          { id: 201, name: 'WAV', cutoff: 213, items: [{ quality: 213, approved: true }] },
+        ],
+        metadata_profiles: [
+          {
+            id: 1,
+            name: 'Standard',
+            description: 'The standard metadata set.',
+            items: ['Embedded', 'Music XML', 'Music Image'],
+          },
+          { id: 2, name: 'Album', description: 'Album-scoped metadata.', items: ['Embedded', 'Album TXT'] },
+          { id: 3, name: 'Studio', description: 'Artist/label-scoped metadata.', items: ['Embedded', 'Artist TXT'] },
+        ],
       }
     case 'tags':
       return { tags: [{ id: 1, label: 'family', description: 'Family TV' }] }
@@ -519,6 +545,65 @@ describe('ProfilesSection', () => {
         expect.objectContaining({
           release_profiles: [
             expect.objectContaining({ id: 1, name: 'Default', bluray: false, webrip: true }),
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('renders and edits the music quality + metadata profiles (L3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<ProfilesSection />)
+    // The seeded music profile renders with its name and cutoff.
+    expect(await screen.findByTestId('musicprofile-name-200')).toHaveValue('Lossless Best Effort')
+    // The level checkboxes come from the quality doc (second fetch) — wait
+    // for one before driving the form.
+    await screen.findByTestId('musicprofile-level-200-213')
+    expect(screen.getByTestId('musicprofile-level-200-213')).toBeChecked()
+    expect(screen.getByTestId('musicprofile-level-200-200')).not.toBeChecked()
+    const cutoff = screen.getByTestId('musicprofile-cutoff-200') as HTMLSelectElement
+    expect(cutoff).toHaveValue('206')
+    // The metadata profiles render as read-only name/description/item lists.
+    expect(await screen.findByTestId('metadataprofile-1')).toHaveTextContent('Standard')
+    expect(screen.getByTestId('metadataprofile-items-1')).toHaveTextContent('Music XML')
+    expect(screen.getByTestId('metadataprofile-items-2')).toHaveTextContent('Album TXT')
+
+    // Edit: rename profile 201, approve Unknown (200) on profile 200, and
+    // move its cutoff to WAV (213).
+    await user.clear(screen.getByTestId('musicprofile-name-201'))
+    await user.type(screen.getByTestId('musicprofile-name-201'), 'WAV Plus')
+    await user.click(screen.getByTestId('musicprofile-level-200-200'))
+    await user.selectOptions(screen.getByTestId('musicprofile-cutoff-200'), '213')
+
+    await user.click(screen.getByTestId('profiles-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'profiles',
+        expect.objectContaining({
+          music_profiles: [
+            expect.objectContaining({
+              id: 200,
+              name: 'Lossless Best Effort',
+              cutoff: 213,
+              items: [
+                expect.objectContaining({ quality: 213, approved: true }),
+                expect.objectContaining({ quality: 206, approved: true }),
+                expect.objectContaining({ quality: 204, approved: true }),
+                expect.objectContaining({ quality: 200, approved: true }),
+              ],
+            }),
+            expect.objectContaining({ id: 201, name: 'WAV Plus' }),
+          ],
+          // The metadata profiles round-trip untouched.
+          metadata_profiles: [
+            {
+              id: 1,
+              name: 'Standard',
+              description: 'The standard metadata set.',
+              items: ['Embedded', 'Music XML', 'Music Image'],
+            },
+            { id: 2, name: 'Album', description: 'Album-scoped metadata.', items: ['Embedded', 'Album TXT'] },
+            { id: 3, name: 'Studio', description: 'Artist/label-scoped metadata.', items: ['Embedded', 'Artist TXT'] },
           ],
         }),
       ),

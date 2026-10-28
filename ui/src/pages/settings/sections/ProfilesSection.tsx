@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
 import type {
   DelayProfile,
+  MetadataProfile,
   ProfilesSettings,
   QualityLevel,
   QualityProfile,
@@ -16,6 +17,11 @@ import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 // level ids), delay profiles (search delay per release source, hours), and
 // release profiles (which release sources may be considered). Everything
 // saves as one profiles document.
+//
+// Lidarr L3 adds the music surfaces: music quality profiles (the 4 seeded
+// Lidarr defaults, ids in the 200+ space, items referencing music quality
+// level ids) and metadata profiles (Standard / Album / Studio — read-mostly
+// lists of the metadata files each generates).
 //
 // The release source keys shared by the delay and release sub-sections.
 const RELEASE_TYPES: { key: 'webrip' | 'bluray' | 'remux' | 'brdisk' | 'rawhd' | 'hdtv'; label: string }[] = [
@@ -36,6 +42,12 @@ export function ProfilesSection() {
   const [releaseProfiles, setReleaseProfiles] = useState<ReleaseProfile[]>([])
   const [levels, setLevels] = useState<QualityLevel[]>([])
   const [movieLevels, setMovieLevels] = useState<QualityLevel[]>([])
+  // Lidarr L3: music quality profiles (the 200+ id space) + the read-mostly
+  // metadata profiles. Missing keys (pre-L3 documents) seed empty — the
+  // blocks render their empty state rather than throwing.
+  const [musicProfiles, setMusicProfiles] = useState<QualityProfile[]>([])
+  const [metadataProfiles, setMetadataProfiles] = useState<MetadataProfile[]>([])
+  const [musicLevels, setMusicLevels] = useState<QualityLevel[]>([])
   const [saved, setSaved] = useState(false)
   const { busy, submit } = useSubmit()
 
@@ -47,19 +59,25 @@ export function ProfilesSection() {
       setMovieProfiles(doc.movie_profiles ?? [])
       setDelayProfiles(doc.delay_profiles ?? [])
       setReleaseProfiles(doc.release_profiles ?? [])
+      // Lidarr L3: same tolerance for the music/metadata arrays.
+      setMusicProfiles(doc.music_profiles ?? [])
+      setMetadataProfiles(doc.metadata_profiles ?? [])
     }
   }, [doc])
 
-  // Read the quality ladder (TV + movie) once for the level-name labels and
-  // the cutoff dropdown options.
+  // Read the quality ladder (TV + movie + music) once for the level-name
+  // labels and the cutoff dropdown options.
   useEffect(() => {
     let cancelled = false
     client
-      .getSettingsSection<{ levels: QualityLevel[]; movie_levels: QualityLevel[] }>('quality')
+      .getSettingsSection<{ levels: QualityLevel[]; movie_levels: QualityLevel[]; music_levels?: QualityLevel[] }>(
+        'quality',
+      )
       .then((q) => {
         if (!cancelled) {
           setLevels(q.levels)
           setMovieLevels(q.movie_levels)
+          setMusicLevels(q.music_levels ?? [])
         }
       })
       .catch(() => {
@@ -133,6 +151,38 @@ export function ProfilesSection() {
     setMovieProfiles((prev) => prev.filter((p) => p.id !== id))
   }
 
+  // ---- Music quality profiles (the 200+ id space; Lidarr L3) ----
+
+  function patchMusicProfile(id: number, patch: Partial<QualityProfile>) {
+    setMusicProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
+  }
+
+  function toggleMusicLevel(profileId: number, levelId: number, approved: boolean) {
+    setMusicProfiles((prev) =>
+      prev.map((p) => {
+        if (p.id !== profileId) return p
+        const has = p.items.some((i) => i.quality === levelId)
+        const items: QualityProfileItem[] = has
+          ? p.items.map((i) => (i.quality === levelId ? { ...i, approved } : i))
+          : [...p.items, { quality: levelId, approved }]
+        return { ...p, items }
+      }),
+    )
+  }
+
+  function addMusicProfile() {
+    const id = Date.now()
+    const items: QualityProfileItem[] = musicLevels.map((l) => ({ quality: l.id, approved: false }))
+    setMusicProfiles((prev) => [
+      ...prev,
+      { id, name: `Profile ${prev.length + 1}`, cutoff: musicLevels[0]?.id ?? 0, items },
+    ])
+  }
+
+  function removeMusicProfile(id: number) {
+    setMusicProfiles((prev) => prev.filter((p) => p.id !== id))
+  }
+
   // ---- Delay profiles (hours per release source; 0 = no delay) ----
 
   function patchDelayProfile(id: number, patch: Partial<DelayProfile>) {
@@ -195,8 +245,8 @@ export function ProfilesSection() {
       const next: ProfilesSettings = {
         profiles,
         movie_profiles: movieProfiles,
-        music_profiles: doc.music_profiles,
-        metadata_profiles: doc.metadata_profiles,
+        music_profiles: musicProfiles,
+        metadata_profiles: metadataProfiles,
         delay_profiles: delayProfiles,
         release_profiles: releaseProfiles,
       }
@@ -310,6 +360,74 @@ export function ProfilesSection() {
       <button onClick={addMovieProfile} data-testid="mvprofile-add">
         Add movie profile
       </button>
+
+      <h4>Music quality profiles</h4>
+      {musicProfiles.length === 0 && <p className="dim small">No music quality profiles.</p>}
+      {musicProfiles.map((p) => (
+        <div key={p.id} className="card-inner" data-testid={`musicprofile-${p.id}`}>
+          <div className="row">
+            <input
+              value={p.name}
+              onChange={(e) => patchMusicProfile(p.id, { name: e.target.value })}
+              data-testid={`musicprofile-name-${p.id}`}
+            />
+            <label htmlFor={`music-cutoff-${p.id}`}>Cutoff</label>
+            <select
+              id={`music-cutoff-${p.id}`}
+              value={p.cutoff}
+              onChange={(e) => patchMusicProfile(p.id, { cutoff: Number(e.target.value) })}
+              data-testid={`musicprofile-cutoff-${p.id}`}
+            >
+              <option value={0}>—</option>
+              {musicLevels.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+            <button onClick={() => removeMusicProfile(p.id)} data-testid={`musicprofile-del-${p.id}`}>
+              Remove
+            </button>
+          </div>
+          <div className="row wrap">
+            {musicLevels.map((l) => {
+              const item = p.items.find((i) => i.quality === l.id)
+              return (
+                <label key={l.id} className="check small">
+                  <input
+                    type="checkbox"
+                    checked={item?.approved ?? false}
+                    onChange={(e) => toggleMusicLevel(p.id, l.id, e.target.checked)}
+                    data-testid={`musicprofile-level-${p.id}-${l.id}`}
+                  />
+                  {l.name}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+      <button onClick={addMusicProfile} data-testid="musicprofile-add">
+        Add music profile
+      </button>
+
+      <h4>Metadata profiles</h4>
+      {metadataProfiles.length === 0 && <p className="dim small">No metadata profiles.</p>}
+      {metadataProfiles.map((m) => (
+        <div key={m.id} className="card-inner" data-testid={`metadataprofile-${m.id}`}>
+          <div className="row">
+            <strong>{m.name}</strong>
+            {m.description && <span className="dim small">{m.description}</span>}
+          </div>
+          <div className="row wrap" data-testid={`metadataprofile-items-${m.id}`}>
+            {m.items.map((item) => (
+              <span key={item} className="pill">
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
 
       <h4>Delay profiles</h4>
       {delayProfiles.length === 0 && <p className="dim small">No delay profiles.</p>}
