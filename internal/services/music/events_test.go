@@ -76,7 +76,7 @@ func TestPipeline_EmitsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
-	if _, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true)); err != nil {
+	if _, _, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true), ""); err != nil {
 		t.Fatalf("add album: %v", err)
 	}
 	if _, err := svc.RunPipeline(ctx, artistID); err != nil {

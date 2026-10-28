@@ -511,6 +511,9 @@ func run(logSvc *system.LogService) error {
 		DefaultProfile: "Lossless",
 		Events:         events,
 		Metrics:        m,
+		// L4 (Lidarr parity): keyless MusicBrainz + Cover Art Archive metadata
+		// adapter for album/track enrichment and the artist refresh endpoint.
+		Metadata: providers.NewMusicBrainz(),
 	})
 	srv.SetMusic(&api.MusicDeps{Svc: musicSvc})
 	logger.Info("music pipeline ready",

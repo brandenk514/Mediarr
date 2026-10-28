@@ -365,12 +365,12 @@ func TestMusicPipeline_EndToEnd_Postgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
-	legendID, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true))
+	legendID, _, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true), "")
 	if err != nil {
 		t.Fatalf("add album: %v", err)
 	}
 	// An unmonitored second album (its release is a distractor, not imported).
-	if _, err := svc.AddAlbum(ctx, artistID, "Uprising", 1980, "Lossless", boolPtr(false)); err != nil {
+	if _, _, err := svc.AddAlbum(ctx, artistID, "Uprising", 1980, "Lossless", boolPtr(false), ""); err != nil {
 		t.Fatalf("add album 2: %v", err)
 	}
 

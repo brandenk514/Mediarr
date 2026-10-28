@@ -100,6 +100,18 @@ func newL4Server(t *testing.T, group404 bool) (*httptest.Server, *[]string) {
 			_, _ = w.Write([]byte(`{"images": [
 				{"url": "https://cover/back.png", "sizes": {"back": 500}, "formats": {"back": ["png"]}}
 			]}`))
+		case "/artist/artist-uuid":
+			_, _ = w.Write([]byte(`{
+  "id": "artist-uuid",
+  "name": "Radiohead",
+  "status": "continuing",
+  "genres": [{"name": "Alternative Rock", "count": 10}, {"name": "Art Rock", "count": 4}],
+  "relations": [
+    {"target-type": "url", "type": "last.fm", "url": {"resource": "https://www.last.fm/music/Radiohead"}},
+    {"target-type": "url", "type": "wikipedia", "url": {"resource": "https://en.wikipedia.org/wiki/Radiohead"}},
+    {"target-type": "work", "type": "cover-art"}
+  ]
+}`))
 		case "/artist/artist-uuid.json": // CAA: 404 for an artist without art
 			w.WriteHeader(http.StatusNotFound)
 		case "/release/rel-404.json":
@@ -213,6 +225,29 @@ func TestL4_ReleaseDetail_TypeMapping(t *testing.T) {
 	}
 	if detail.Status != "Official" {
 		t.Errorf("Status = %q, want Official", detail.Status)
+	}
+}
+
+func TestL4_ArtistDetail(t *testing.T) {
+	srv, _ := newL4Server(t, false)
+	adapter := &providers.MusicBrainz{}
+	adapter.BaseURL = srv.URL
+
+	d, err := adapter.GetArtistDetail(context.Background(), "artist-uuid")
+	if err != nil {
+		t.Fatalf("GetArtistDetail = %v", err)
+	}
+	if d.ID != "artist-uuid" || d.Name != "Radiohead" || d.Status != "continuing" {
+		t.Errorf("artist = %+v", d)
+	}
+	if len(d.Genres) != 2 || d.Genres[0] != "Alternative Rock" || d.Genres[1] != "Art Rock" {
+		t.Errorf("genres = %v", d.Genres)
+	}
+	if len(d.Links) != 2 || d.Links[0] != "https://www.last.fm/music/Radiohead" {
+		t.Errorf("links = %v", d.Links)
+	}
+	if _, err := adapter.GetArtistDetail(context.Background(), ""); err == nil {
+		t.Error("GetArtistDetail(empty) should fail")
 	}
 }
 

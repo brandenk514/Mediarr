@@ -100,6 +100,7 @@ type mbArtistDetail struct {
 	Type           string `json:"type"`
 	Country        string `json:"country"`
 	Disambiguation string `json:"disambiguation"`
+	Status         string `json:"status"` // continuing / ended / inactive; "" = unknown
 	Genres         []struct {
 		Name string `json:"name"`
 	} `json:"genres"`

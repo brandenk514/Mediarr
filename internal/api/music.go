@@ -46,6 +46,7 @@ func (s *Server) SetMusic(deps *MusicDeps) {
 	s.register("PUT /api/v1/music/albums/{id}/tracks/{disc}/{number}", s.requireAuth(s.SetTrackMonitored))
 	s.register("GET /api/v1/music/albums/{id}/wanted", s.requireAuth(s.ListAlbumWanted))
 	s.register("POST /api/v1/music/artists/{id}/pipeline", s.requireAuth(s.RunMusicPipeline))
+	s.register("POST /api/v1/music/artists/{id}/refresh", s.requireAuth(s.RefreshArtist))
 }
 
 // addArtistRequest is the body for POST /api/v1/music. Monitored is a pointer
@@ -180,16 +181,24 @@ func (s *Server) MusicLibrarySummary(w http.ResponseWriter, r *http.Request) {
 // addAlbumRequest is the body for POST /api/v1/music/{id}/albums. Monitored
 // is a pointer: "omitted" derives the value from the artist's L2 monitor
 // policy, an explicit false opts out, an explicit true forces on.
+// ReleaseGroupMBID (L4) is an optional MusicBrainz release-group (or bare
+// release) id: when present, the album and its tracks are enriched from the
+// keyless metadata adapter, and adapter failure is surfaced in the 201
+// warnings array (the add itself still succeeds).
 type addAlbumRequest struct {
-	Name           string `json:"name"`
-	Year           int    `json:"year"`
-	QualityProfile string `json:"quality_profile"`
-	Monitored      *bool  `json:"monitored"`
+	Name             string `json:"name"`
+	Year             int    `json:"year"`
+	QualityProfile   string `json:"quality_profile"`
+	Monitored        *bool  `json:"monitored"`
+	ReleaseGroupMBID string `json:"release_group_mb_id"`
 }
 
 // AddAlbum handles POST /api/v1/music/{id}/albums. A newly added album
 // follows the artist's monitor policy (L2) unless the request sets
-// "monitored" explicitly (PLAN §4; Lidarr L2 policy application).
+// "monitored" explicitly (PLAN §4; Lidarr L2 policy application). L4: an
+// optional release_group_mb_id enriches the album + tracks from
+// MusicBrainz; the 201 body is {id, warnings} with warnings always present
+// (empty when enrichment succeeded or was not requested).
 func (s *Server) AddAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -204,12 +213,30 @@ func (s *Server) AddAlbum(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	albumID, err := s.musicDeps.Svc.AddAlbum(r.Context(), id, req.Name, req.Year, req.QualityProfile, req.Monitored)
+	albumID, warnings, err := s.musicDeps.Svc.AddAlbum(r.Context(), id, req.Name, req.Year, req.QualityProfile, req.Monitored, req.ReleaseGroupMBID)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": albumID})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": albumID, "warnings": warnings})
+}
+
+// RefreshArtist handles POST /api/v1/music/artists/{id}/refresh (L4): the
+// keyless adapter re-fetches the artist's metadata (status, genres, links,
+// cover) and refreshes every album with a release MBID (metadata + track
+// replacement, surviving tracks keep their monitored flag). Response: the
+// refreshed artist plus the {albums_refreshed, albums_failed} report.
+func (s *Server) RefreshArtist(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	artist, report, err := s.musicDeps.Svc.RefreshArtist(r.Context(), id)
+	if err != nil {
+		writeMusicMonitoredError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"artist": artist, "report": report})
 }
 
 // ListAlbums handles GET /api/v1/music/{id}/albums.

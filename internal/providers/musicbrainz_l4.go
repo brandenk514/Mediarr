@@ -184,6 +184,47 @@ func (m *MusicBrainz) fetchReleaseDetail(ctx context.Context, releaseID, groupTy
 	return detail, nil
 }
 
+// TotalDuration is the sum of the known track durations (seconds); 0 when no
+// track carries a duration.
+func (d *ReleaseDetail) TotalDuration() int {
+	total := 0
+	for _, t := range d.Tracks {
+		total += t.Duration
+	}
+	return total
+}
+
+// ArtistDetail is the normalized L4 artist metadata (the Refresh Artist
+// flow): status, genres, and external links from the artist record. All list
+// fields are non-nil (empty = none/unknown).
+type ArtistDetail struct {
+	ID     string
+	Name   string
+	Status string // continuing / ended / inactive; "" = unknown
+	Genres []string
+	Links  []string
+}
+
+// GetArtistDetail fetches one artist by MBID (inc=genres+url-rels) — the
+// keyless re-fetch for the Refresh Artist flow. One request, at most. It
+// reuses the L2 artist-detail payload (mbArtistDetail) and link extraction.
+func (m *MusicBrainz) GetArtistDetail(ctx context.Context, artistID string) (*ArtistDetail, error) {
+	id := strings.TrimSpace(artistID)
+	if id == "" {
+		return nil, fmt.Errorf("providers: artist detail requires an artist id")
+	}
+	m.Base = m.baseURL()
+	var a mbArtistDetail
+	if err := m.getJSON(ctx, "/artist/"+id, url.Values{"fmt": {"json"}, "inc": {"genres+url-rels"}}, &a); err != nil {
+		return nil, fmt.Errorf("providers: fetch artist %s: %w", id, err)
+	}
+	d := &ArtistDetail{ID: a.ID, Name: a.Name, Status: a.Status, Genres: []string{}, Links: linkURLs(a.Relations)}
+	for _, g := range a.Genres {
+		d.Genres = appendUnique(d.Genres, g.Name)
+	}
+	return d, nil
+}
+
 // ReleaseCoverArt returns the URL of the release's Cover Art Archive front
 // cover — the 500px thumbnail when one exists, else the smallest available
 // front image. "" on any error, 404, or when the release has no cover.

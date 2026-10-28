@@ -20,6 +20,7 @@ import (
 	booksdom "github.com/brandenk514/mediarr/internal/domains/books"
 	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/health"
+	"github.com/brandenk514/mediarr/internal/providers"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 )
@@ -31,7 +32,10 @@ type kindsServer struct {
 	token string
 }
 
-func newKindsServer(t *testing.T, music *kindsMusicRepo, books *kindsBooksRepo) *kindsServer {
+// newKindsServer builds the fixture; the optional metadata adapter (L4) is
+// wired into the music service when provided (nil adapter = enrichment is
+// skipped with a warning, which the L4 tests exercise).
+func newKindsServer(t *testing.T, music *kindsMusicRepo, books *kindsBooksRepo, metadata ...*providers.MusicBrainz) *kindsServer {
 	t.Helper()
 	store := newFakeStore()
 	s := NewServer(health.NewChecker(nil, nil))
@@ -53,7 +57,11 @@ func newKindsServer(t *testing.T, music *kindsMusicRepo, books *kindsBooksRepo) 
 	if err := json.NewDecoder(rec.Body).Decode(&lr); err != nil {
 		t.Fatal(err)
 	}
-	musicSvc := musicsvc.New(musicsvc.Deps{Repo: music, DefaultProfile: "FLAC"})
+	musicDeps := musicsvc.Deps{Repo: music, DefaultProfile: "FLAC"}
+	if len(metadata) > 0 {
+		musicDeps.Metadata = metadata[0]
+	}
+	musicSvc := musicsvc.New(musicDeps)
 	s.SetMusic(&MusicDeps{Svc: musicSvc})
 	booksSvc := bookssvc.New(bookssvc.Deps{Repo: books, DefaultProfile: "Best"})
 	s.SetBooks(&BooksDeps{Svc: booksSvc})
@@ -129,6 +137,11 @@ func (r *kindsMusicRepo) UpdateArtist(_ context.Context, a musicdom.Artist) erro
 	cur.MonitorPolicy = a.MonitorPolicy
 	cur.MonitorNewAlbums = a.MonitorNewAlbums
 	cur.Tags = a.Tags
+	// L4 enrichment fields (mirrors MusicRepo.UpdateArtist).
+	cur.Rating = a.Rating
+	cur.Genre = a.Genre
+	cur.Links = a.Links
+	cur.Cover = a.Cover
 	r.artists[a.ID] = cur
 	return nil
 }
