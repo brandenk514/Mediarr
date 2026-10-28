@@ -76,6 +76,46 @@ ORDER BY e.air_date, s.title, e.season, e.episode`)
 // (non-empty) release date, with its monitor flag and the state the status
 // derivation needs (a satisfied wanted row — at most one per movie — plus an
 // active queue entry), ordered by release date then title.
+// MusicRows returns the L4 music-calendar rows: every album with a known
+// (non-empty) release date, joined with its artist name, the combined
+// monitor flag (artist AND album monitored), and the artist's quality
+// profile, ordered by release date then album title.
+func (r *CalendarRepo) MusicRows(ctx context.Context) ([]caldomain.MusicRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT a.id, a.name, COALESCE(a.album_type, ''), a.year, a.release_date,
+		       ar.id, ar.name,
+		       (ar.monitored AND a.monitored) AS monitored,
+		       COALESCE(ar.quality_profile, '')
+		FROM music_albums a
+		JOIN music_artists ar ON ar.id = a.artist_id
+		WHERE a.release_date <> ''
+		ORDER BY a.release_date, a.name`)
+	if err != nil {
+		return nil, fmt.Errorf("calendar: music rows: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []caldomain.MusicRow
+	for rows.Next() {
+		var (
+			row  caldomain.MusicRow
+			rd   string
+			prof string
+		)
+		if err := rows.Scan(&row.AlbumID, &row.AlbumTitle, &row.AlbumType, &row.Year, &rd,
+			&row.ArtistID, &row.ArtistTitle, &row.Monitored, &prof); err != nil {
+			return nil, fmt.Errorf("calendar: scan music row: %w", err)
+		}
+		row.ReleaseDate = movies.ParseReleaseDate(rd)
+		row.QualityProfile = prof
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// MovieRows returns the R4 movie-calendar rows: every movie with a known
+// (non-empty) release date, with its monitor flag and the state the status
+// derivation needs (a satisfied wanted row — at most one per movie — plus an
+// active queue entry), ordered by release date then title.
 func (r *CalendarRepo) MovieRows(ctx context.Context) ([]caldomain.MovieRow, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT m.id, m.title, m.year, m.release_date, m.monitored, m.quality_profile,

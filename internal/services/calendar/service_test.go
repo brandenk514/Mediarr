@@ -14,6 +14,7 @@ import (
 type fakeRepo struct {
 	rows   []dom.EpisodeRow
 	movies []dom.MovieRow
+	music  []dom.MusicRow
 	err    error
 }
 
@@ -23,6 +24,10 @@ func (f *fakeRepo) Episodes(ctx context.Context) ([]dom.EpisodeRow, error) {
 
 func (f *fakeRepo) MovieRows(ctx context.Context) ([]dom.MovieRow, error) {
 	return f.movies, f.err
+}
+
+func (f *fakeRepo) MusicRows(ctx context.Context) ([]dom.MusicRow, error) {
+	return f.music, f.err
 }
 
 // fixedNow is the injected "current" time (2026-05-15 noon).
@@ -279,5 +284,87 @@ func TestService_ICal_Movie(t *testing.T) {
 	}
 	if n := strings.Count(ics, "BEGIN:VEVENT"); n != 1 {
 		t.Errorf("expected 1 VEVENT, got %d\n%s", n, ics)
+	}
+}
+
+// newTestMusicService builds a service over music rows for L4 tests.
+func newTestMusicService(music []dom.MusicRow) *Service {
+	svc := New(&fakeRepo{music: music})
+	svc.now = func() time.Time { return fixedNow }
+	return svc
+}
+
+func musicRows() []dom.MusicRow {
+	future := time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)
+	past := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	unmon := time.Date(2026, 5, 21, 0, 0, 0, 0, time.UTC)
+	return []dom.MusicRow{
+		{ArtistID: 1, ArtistTitle: "Nirvana", AlbumID: 11, AlbumTitle: "AlbumA", AlbumType: "album", Year: 2026, ReleaseDate: &future, Monitored: true, QualityProfile: "Lossless"},
+		{ArtistID: 1, ArtistTitle: "Nirvana", AlbumID: 12, AlbumTitle: "AlbumB", Year: 2026, ReleaseDate: &future, Monitored: true, QualityProfile: "Lossless"},
+		{ArtistID: 2, ArtistTitle: "Rage", AlbumID: 13, AlbumTitle: "Past", Year: 2020, ReleaseDate: &past, Monitored: true},
+		{ArtistID: 2, ArtistTitle: "Rage", AlbumID: 14, AlbumTitle: "Unmon", Year: 2026, ReleaseDate: &unmon, Monitored: false},
+		{ArtistID: 2, ArtistTitle: "Rage", AlbumID: 15, AlbumTitle: "NoDate", Year: 2026, ReleaseDate: nil, Monitored: true},
+	}
+}
+
+// TestService_Calendar_MusicFilters verifies kind=music returns the monitored
+// albums with a future release date in the window (L4 music calendar).
+func TestService_Calendar_MusicFilters(t *testing.T) {
+	svc := newTestMusicService(musicRows())
+	start, end := window()
+	entries, err := svc.Calendar(context.Background(), dom.KindMusic, start, end)
+	if err != nil {
+		t.Fatalf("calendar: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (monitored + in-window + future), got %d: %+v", len(entries), entries)
+	}
+	for _, e := range entries {
+		if e.Kind != "music" || e.Status != "unreleased" {
+			t.Errorf("entry kind/status = %q/%q, want music/unreleased: %+v", e.Kind, e.Status, e)
+		}
+		if e.SeriesID != e.AlbumID || e.SeriesTitle != e.AlbumTitle {
+			t.Errorf("entry must carry the album as its primary identity: %+v", e)
+		}
+	}
+}
+
+// TestService_Calendar_MusicEmptyIsNonNil pins the empty-window contract.
+func TestService_Calendar_MusicEmptyIsNonNil(t *testing.T) {
+	svc := newTestMusicService(nil)
+	start, end := window()
+	entries, err := svc.Calendar(context.Background(), dom.KindMusic, start, end)
+	if err != nil {
+		t.Fatalf("calendar: %v", err)
+	}
+	if entries == nil {
+		t.Fatal("empty music calendar must be a non-nil slice")
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected 0 entries, got %d", len(entries))
+	}
+}
+
+// TestService_ICal_Music verifies the iCal feed for kind=music renders
+// all-day events with the artist-qualified summary.
+func TestService_ICal_Music(t *testing.T) {
+	svc := newTestMusicService(musicRows())
+	start, end := window()
+	ics, err := svc.ICal(context.Background(), dom.KindMusic, start, end)
+	if err != nil {
+		t.Fatalf("ical: %v", err)
+	}
+	for _, want := range []string{
+		"BEGIN:VCALENDAR",
+		"UID:mediarr-music-11@mediarr",
+		"SUMMARY:Nirvana - AlbumA (2026)",
+		"DTSTART;VALUE=DATE:",
+	} {
+		if !strings.Contains(ics, want) {
+			t.Errorf("music feed missing %q:\n%s", want, ics)
+		}
+	}
+	if n := strings.Count(ics, "BEGIN:VEVENT"); n != 2 {
+		t.Errorf("expected 2 VEVENTs, got %d\n%s", n, ics)
 	}
 }

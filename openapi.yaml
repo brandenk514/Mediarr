@@ -5012,14 +5012,14 @@ components:
       properties:
         kind:
           type: string
-          enum: [tv, movie]
+          enum: [tv, movie, music]
         series_id:
           type: integer
           format: int64
-          description: The series id (kind=tv) or the movie id (kind=movie).
+          description: The series id (kind=tv), the movie id (kind=movie), or the album id (kind=music).
         series_title:
           type: string
-          description: The show title (kind=tv) or the movie title (kind=movie).
+          description: The show title (kind=tv), the movie title (kind=movie), or the album title (kind=music).
         season:
           type: integer
         episode:
@@ -5056,6 +5056,25 @@ components:
           type: string
           nullable: true
           description: The movie's quality profile name (kind=movie only; omitted on TV entries).
+          # L4 (music calendar). The music variant's identifying extras;
+          # omitted on TV/movie entries (their wire shape is byte-compatible).
+        artist_id:
+          type: integer
+          format: int64
+          description: The artist id (kind=music only; omitted on TV/movie entries).
+        artist_title:
+          type: string
+          description: The artist name (kind=music only; omitted on TV/movie entries).
+        album_id:
+          type: integer
+          format: int64
+          description: The album id (kind=music only; omitted on TV/movie entries).
+        album_title:
+          type: string
+          description: The album title (kind=music only; omitted on TV/movie entries).
+        album_type:
+          type: string
+          description: The album type, e.g. album/ep/single/compilation (kind=music only; omitted on TV/movie entries).
     WantedSearchRequest:
       type: object
       properties:

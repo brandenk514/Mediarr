@@ -364,3 +364,70 @@ func TestRenderICal_TVUnchanged(t *testing.T) {
 		t.Errorf("TV feed must not use all-day DATE values\n%s", ics)
 	}
 }
+
+func TestBuildMusic_FiltersAndShape(t *testing.T) {
+	future := time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)
+	past := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	unmon := time.Date(2026, 5, 21, 0, 0, 0, 0, time.UTC)
+	start, end, now := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	out := BuildMusic([]MusicRow{
+		{ArtistID: 1, ArtistTitle: "Nirvana", AlbumID: 11, AlbumTitle: "In", AlbumType: "album", Year: 2026, ReleaseDate: &future, Monitored: true, QualityProfile: "Lossless"},
+		{ArtistID: 1, ArtistTitle: "Nirvana", AlbumID: 12, AlbumTitle: "Past", Year: 2020, ReleaseDate: &past, Monitored: true},
+		{ArtistID: 2, ArtistTitle: "Rage", AlbumID: 13, AlbumTitle: "Unmon", Year: 2026, ReleaseDate: &unmon, Monitored: false},
+		{ArtistID: 2, ArtistTitle: "Rage", AlbumID: 14, AlbumTitle: "NoDate", Year: 2026, ReleaseDate: nil, Monitored: true},
+	}, start, end, now)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 entry (monitored + in-window + future release), got %d: %+v", len(out), out)
+	}
+	e := out[0]
+	if e.Kind != "music" || e.SeriesID != 11 || e.SeriesTitle != "In" {
+		t.Errorf("wrong entry: %+v", e)
+	}
+	if !e.AirStart.Equal(time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC)) ||
+		!e.AirEnd.Equal(time.Date(2026, 5, 20, 23, 59, 0, 0, time.UTC)) {
+		t.Errorf("wrong all-day range: %v .. %v", e.AirStart, e.AirEnd)
+	}
+	if e.Year != 2026 || e.Status != "unreleased" || e.QualityProfile != "Lossless" {
+		t.Errorf("wrong extras: %+v", e)
+	}
+	if e.ArtistID != 1 || e.ArtistTitle != "Nirvana" || e.AlbumID != 11 || e.AlbumTitle != "In" || e.AlbumType != "album" {
+		t.Errorf("wrong music extras: %+v", e)
+	}
+	if e.Season != 0 || e.Episode != 0 || e.SXE != "" || e.EpisodeTitle != "" {
+		t.Errorf("music entries must not carry episode fields: %+v", e)
+	}
+}
+
+func TestBuildMusic_TodayReleaseIsNotPast(t *testing.T) {
+	today := time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+	start, end, now := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	out := BuildMusic([]MusicRow{
+		{ArtistID: 1, ArtistTitle: "Nirvana", AlbumID: 11, AlbumTitle: "Today", Year: 2026, ReleaseDate: &today, Monitored: true},
+	}, start, end, now)
+	if len(out) != 1 {
+		t.Fatalf("a release on 'today' is not in the past and must appear, got %+v", out)
+	}
+	if out[0].Status != "unreleased" {
+		t.Errorf("status = %q, want unreleased", out[0].Status)
+	}
+}
+
+func TestRenderICal_MusicAllDay(t *testing.T) {
+	start, end := ReleaseRange(time.Date(2026, 5, 20, 0, 0, 0, 0, time.UTC))
+	ics := RenderICal([]Entry{{
+		Kind: "music", SeriesID: 11, SeriesTitle: "Nevermind", Year: 1991,
+		ArtistID: 1, ArtistTitle: "Nirvana", AlbumID: 11, AlbumTitle: "Nevermind",
+		AirStart: start, AirEnd: end,
+	}}, time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC))
+	for _, want := range []string{
+		"UID:mediarr-music-11@mediarr",
+		"DTSTART;VALUE=DATE:20260520",
+		"DTEND;VALUE=DATE:20260521",
+		"SUMMARY:Nirvana - Nevermind (1991)",
+		"DTSTAMP:20260515T120000Z",
+	} {
+		if !strings.Contains(ics, want) {
+			t.Errorf("ICS missing %q\n%s", want, ics)
+		}
+	}
+}

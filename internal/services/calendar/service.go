@@ -28,7 +28,8 @@ func New(repo dom.Repo) *Service {
 // Calendar returns the calendar entries for kind in [start, end]. kind=tv
 // (the default; an empty kind falls back to it) is the Sonarr P4 episode
 // calendar, unchanged. kind=movie (Radarr R4) is the movie release-date
-// calendar.
+// calendar. kind=music (Lidarr L4) is the music release-date calendar
+// (upcoming releases of monitored albums).
 func (s *Service) Calendar(ctx context.Context, kind dom.Kind, start, end time.Time) ([]dom.Entry, error) {
 	now := s.now()
 	if kind == dom.KindMovie {
@@ -37,6 +38,13 @@ func (s *Service) Calendar(ctx context.Context, kind dom.Kind, start, end time.T
 			return nil, err
 		}
 		return dom.BuildMovies(rows, start, end, now), nil
+	}
+	if kind == dom.KindMusic {
+		rows, err := s.repo.MusicRows(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return dom.BuildMusic(rows, start, end, now), nil
 	}
 	rows, err := s.repo.Episodes(ctx)
 	if err != nil {
@@ -55,6 +63,13 @@ func (s *Service) ICal(ctx context.Context, kind dom.Kind, start, end time.Time)
 			return "", err
 		}
 		return dom.RenderICal(dom.BuildMovies(rows, start, end, now), now), nil
+	}
+	if kind == dom.KindMusic {
+		rows, err := s.repo.MusicRows(ctx)
+		if err != nil {
+			return "", err
+		}
+		return dom.RenderICal(dom.BuildMusic(rows, start, end, now), now), nil
 	}
 	rows, err := s.repo.Episodes(ctx)
 	if err != nil {
