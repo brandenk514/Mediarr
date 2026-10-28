@@ -121,10 +121,25 @@ type UISettings struct {
 	DateFormat   string `json:"date_format"`
 	TimeFormat   string `json:"time_format"`
 	ItemsPerPage int    `json:"items_per_page"`
+	// Lidarr L3: the artist/album detail-page expand toggles. Albums ship
+	// expanded (matching the L1 detail page's album-group behavior); the
+	// rest start collapsed.
+	ExpandAlbums    bool `json:"expand_albums"`
+	ExpandEPs       bool `json:"expand_eps"`
+	ExpandSingles   bool `json:"expand_singles"`
+	ExpandBroadcast bool `json:"expand_broadcast"`
+	ExpandOther     bool `json:"expand_other"`
+	// Theme is the UI theme (auto|dark|light) and ColorImpaired boosts
+	// contrast for color-impaired users (L3).
+	Theme         string `json:"theme"`
+	ColorImpaired bool   `json:"color_impaired"`
 }
 
 // UIDefaultsView enumerates the valid default_view values.
 var UIViews = []string{"dashboard", "calendar", "queue", "wanted", "series", "movies", "artists", "authors"}
+
+// UIThemes enumerates the valid theme values (L3).
+var UIThemes = []string{"auto", "dark", "light"}
 
 func DefaultUI() UISettings {
 	return UISettings{
@@ -132,6 +147,8 @@ func DefaultUI() UISettings {
 		DateFormat:   "YYYY-MM-DD",
 		TimeFormat:   "24h",
 		ItemsPerPage: 50,
+		ExpandAlbums: true,
+		Theme:        "auto",
 	}
 }
 
@@ -147,6 +164,9 @@ func (u UISettings) Validate() string {
 	}
 	if u.ItemsPerPage < 1 || u.ItemsPerPage > 500 {
 		return "items_per_page must be between 1 and 500"
+	}
+	if !containsString(UIThemes, u.Theme) {
+		return "theme must be one of " + strings.Join(UIThemes, ", ")
 	}
 	return ""
 }
@@ -172,15 +192,17 @@ type QualityLevel struct {
 
 // QualitySettings is the quality-levels document. Levels is the TV matrix
 // (P5, ids 1-10); MovieLevels is the additive Radarr movie set (R5a, ids
-// 100+) in its own id space.
+// 100+); MusicLevels is the additive Lidarr music set (L3, ids 200+), each
+// in its own id space.
 type QualitySettings struct {
 	Levels      []QualityLevel `json:"levels"`
 	MovieLevels []QualityLevel `json:"movie_levels"`
+	MusicLevels []QualityLevel `json:"music_levels"`
 }
 
 // DefaultQuality returns the TV-parity default matrix (Sonarr's standard
 // levels, with size limits in MB; 0 = unlimited) plus the seeded Radarr
-// movie levels (R5a).
+// movie levels (R5a) and the seeded Lidarr music levels (L3).
 func DefaultQuality() QualitySettings {
 	return QualitySettings{
 		Levels: []QualityLevel{
@@ -196,6 +218,7 @@ func DefaultQuality() QualitySettings {
 			{ID: 10, Name: "2160p REMUX", Source: "remux", Resolution: "2160p", SizeLimitMB: 20480},
 		},
 		MovieLevels: DefaultMovieLevels(),
+		MusicLevels: DefaultMusicLevels(),
 	}
 }
 
@@ -226,7 +249,11 @@ func (q QualitySettings) Validate() string {
 		return msg
 	}
 	// Movie levels: the same rules, scoped to their own array (R5a).
-	return validateQualityLevels("movie_levels", q.MovieLevels)
+	if msg := validateQualityLevels("movie_levels", q.MovieLevels); msg != "" {
+		return msg
+	}
+	// Music levels: the same rules, scoped to their own array (L3).
+	return validateQualityLevels("music_levels", q.MusicLevels)
 }
 
 // ---------------------------------------------------------------------------
@@ -251,18 +278,22 @@ type QualityProfile struct {
 }
 
 // ProfilesSettings is the quality-profiles document. Profiles is the TV
-// document (P5); the Radarr movie/delay/release arrays are additive (R5a).
+// document (P5); the Radarr movie/delay/release arrays are additive (R5a);
+// the music + metadata arrays are the additive Lidarr set (L3).
 type ProfilesSettings struct {
-	Profiles        []QualityProfile `json:"profiles"`
-	MovieProfiles   []QualityProfile `json:"movie_profiles"`
-	DelayProfiles   []DelayProfile   `json:"delay_profiles"`
-	ReleaseProfiles []ReleaseProfile `json:"release_profiles"`
+	Profiles         []QualityProfile  `json:"profiles"`
+	MovieProfiles    []QualityProfile  `json:"movie_profiles"`
+	MusicProfiles    []QualityProfile  `json:"music_profiles"`
+	MetadataProfiles []MetadataProfile `json:"metadata_profiles"`
+	DelayProfiles    []DelayProfile    `json:"delay_profiles"`
+	ReleaseProfiles  []ReleaseProfile  `json:"release_profiles"`
 }
 
 // DefaultProfiles returns the single default TV profile (every TV level
 // approved, cutoff at the highest TV level) plus the seeded movie documents:
 // the 14 Radarr v6 movie profiles, one empty delay profile, one all-inclusive
-// release profile (R5a).
+// release profile (R5a), and the seeded Lidarr documents: the 4 default
+// music profiles and the 3 metadata profiles (L3).
 func DefaultProfiles() ProfilesSettings {
 	levels := DefaultQuality().Levels
 	prof := QualityProfile{ID: 1, Name: "Default", Cutoff: levels[len(levels)-1].ID}
@@ -271,10 +302,12 @@ func DefaultProfiles() ProfilesSettings {
 		prof.Items = append(prof.Items, QualityProfileItem{Quality: l.ID, Approved: true})
 	}
 	return ProfilesSettings{
-		Profiles:        []QualityProfile{prof},
-		MovieProfiles:   DefaultMovieProfiles(),
-		DelayProfiles:   DefaultDelayProfiles(),
-		ReleaseProfiles: DefaultReleaseProfiles(),
+		Profiles:         []QualityProfile{prof},
+		MovieProfiles:    DefaultMovieProfiles(),
+		MusicProfiles:    DefaultMusicProfiles(),
+		MetadataProfiles: DefaultMetadataProfiles(),
+		DelayProfiles:    DefaultDelayProfiles(),
+		ReleaseProfiles:  DefaultReleaseProfiles(),
 	}
 }
 
@@ -345,6 +378,53 @@ func (p ProfilesSettings) Validate() string {
 			}
 			seen[it.Quality] = true
 		}
+	}
+
+	// Lidarr L3: music profiles — same rules as the movie profiles, but
+	// items/cutoff must reference the seeded MUSIC level ids (music space),
+	// and ids/names are unique within the music array.
+	validMusicLevels := seedMusicLevelIDs()
+	musicIDs := map[int]bool{}
+	musicNames := map[string]bool{}
+	for i, prof := range p.MusicProfiles {
+		if prof.ID < 1 {
+			return fmt.Sprintf("music_profiles[%d]: id must be >= 1", i)
+		}
+		if musicIDs[prof.ID] {
+			return fmt.Sprintf("music_profiles[%d]: duplicate id %d", i, prof.ID)
+		}
+		musicIDs[prof.ID] = true
+		if prof.Name == "" {
+			return fmt.Sprintf("music_profiles[%d]: name is required", i)
+		}
+		if musicNames[prof.Name] {
+			return fmt.Sprintf("music_profiles[%d]: duplicate name %q", i, prof.Name)
+		}
+		musicNames[prof.Name] = true
+		if !validMusicLevels[prof.Cutoff] {
+			return fmt.Sprintf("music_profiles[%d]: cutoff must reference a music quality level id", i)
+		}
+		if len(prof.Items) == 0 {
+			return fmt.Sprintf("music_profiles[%d]: at least one quality item is required", i)
+		}
+		seen := map[int]bool{}
+		for j, it := range prof.Items {
+			if !validMusicLevels[it.Quality] {
+				return fmt.Sprintf("music_profiles[%d].items[%d]: unknown music quality level id %d", i, j, it.Quality)
+			}
+			if seen[it.Quality] {
+				return fmt.Sprintf("music_profiles[%d].items[%d]: duplicate quality %d", i, j, it.Quality)
+			}
+			seen[it.Quality] = true
+		}
+	}
+
+	// Lidarr L3: metadata profiles — id/name rules via the shared helper
+	// (item lists are free-form strings the UI renders read-mostly).
+	if msg := validateNamedIDs("metadata_profiles", len(p.MetadataProfiles), func(i int) (int, string) {
+		return p.MetadataProfiles[i].ID, p.MetadataProfiles[i].Name
+	}); msg != "" {
+		return msg
 	}
 
 	// Delay/release profiles: id/name rules per array (booleans need none).
@@ -446,6 +526,26 @@ type MovieNaming struct {
 // (R5a): movie title, year, quality and edition tokens.
 const DefaultMovieStandardFormat = "{movie-title} ({year}) {quality} {edition}"
 
+// MusicNaming is the Lidarr music naming block (L3): rename +
+// illegal-character/colon options and the track's standard/multi-disc format
+// templates, in the same brace-token style as the rest of the naming document
+// (it renders, for example, to "Artist - 07 - Track Title").
+type MusicNaming struct {
+	RenameTracks             bool   `json:"rename_tracks"`
+	ReplaceIllegalCharacters bool   `json:"replace_illegal_characters"`
+	ColonReplacement         string `json:"colon_replacement"`
+	StandardFormat           string `json:"standard_format"`
+	MultiDiscFormat          string `json:"multi_disc_format"`
+}
+
+// DefaultMusicStandardFormat / DefaultMusicMultiDiscFormat are the Lidarr
+// default track naming templates (L3) — the brace tokens are exactly
+// Lidarr's conventions.
+const (
+	DefaultMusicStandardFormat  = "{artist} - {track:0} - {track-title}"
+	DefaultMusicMultiDiscFormat = "{artist} - {album} - CD {disc:0} - {track:0} - {track-title}"
+)
+
 // RemotePathMapping maps a source path (on the download client) to a
 // destination path (on the Mediarr host) for the import step.
 type RemotePathMapping struct {
@@ -459,6 +559,7 @@ type RemotePathMapping struct {
 type MediaManagementSettings struct {
 	Naming             NamingTemplate      `json:"naming"`
 	MovieNaming        MovieNaming         `json:"movie_naming"`
+	MusicNaming        MusicNaming         `json:"music_naming"`
 	Management         FileManagement      `json:"file_management"`
 	RemotePathMappings []RemotePathMapping `json:"remote_path_mappings"`
 }
@@ -479,6 +580,13 @@ func DefaultMediaManagement() MediaManagementSettings {
 			ReplaceIllegalCharacters: true,
 			ColonReplacement:         "",
 			StandardFormat:           DefaultMovieStandardFormat,
+		},
+		MusicNaming: MusicNaming{
+			RenameTracks:             true,
+			ReplaceIllegalCharacters: true,
+			ColonReplacement:         "",
+			StandardFormat:           DefaultMusicStandardFormat,
+			MultiDiscFormat:          DefaultMusicMultiDiscFormat,
 		},
 		Management: FileManagement{
 			MinFileAgeHours:        0,
@@ -508,6 +616,17 @@ func (m MediaManagementSettings) Validate() string {
 	}
 	if utf8.RuneCountInString(m.MovieNaming.ColonReplacement) > 1 {
 		return "movie_naming.colon_replacement must be a single character or empty"
+	}
+	// Lidarr L3 music naming: both format templates must be set and the
+	// colon replacement is a single character (or empty).
+	if m.MusicNaming.StandardFormat == "" {
+		return "music_naming.standard_format is required"
+	}
+	if m.MusicNaming.MultiDiscFormat == "" {
+		return "music_naming.multi_disc_format is required"
+	}
+	if utf8.RuneCountInString(m.MusicNaming.ColonReplacement) > 1 {
+		return "music_naming.colon_replacement must be a single character or empty"
 	}
 	if m.Management.MinFileAgeHours < 0 {
 		return "file_management.min_file_age_hours must be >= 0"
@@ -668,12 +787,25 @@ func (c ConnectSettings) Validate() string {
 
 // MetadataSettings is the metadata-generation document (the metadata file
 // writer's options): whether .nfo sidecars and subtitles are written on
-// import/refresh, in which language, and for which kinds.
+// import/refresh, in which language, and for which kinds. The music fields
+// (L3) cover tagging audio files and the metadata consumers.
 type MetadataSettings struct {
 	GenerateNFO       bool            `json:"generate_nfo"`
 	GenerateSubtitles bool            `json:"generate_subtitles"`
 	Language          string          `json:"language"`
 	Kinds             map[string]bool `json:"kinds"`
+	// Lidarr L3 music metadata: tag audio files with metadata on import and
+	// scrub existing tags from the files.
+	TagAudioFiles     bool               `json:"tag_audio_files"`
+	ScrubExistingTags bool               `json:"scrub_existing_tags"`
+	Consumers         []MetadataConsumer `json:"consumers"`
+}
+
+// MetadataConsumer is one music metadata consumer (L3): an app that reads
+// the generated metadata files, with a name + enabled flag.
+type MetadataConsumer struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
 }
 
 func DefaultMetadata() MetadataSettings {
@@ -682,6 +814,17 @@ func DefaultMetadata() MetadataSettings {
 		GenerateSubtitles: false,
 		Language:          "en",
 		Kinds:             map[string]bool{"movie": true, "tv": true, "music": true, "book": true},
+		// Lidarr L3: tag audio files on import by default; don't scrub
+		// existing tags. Consumers default to DISABLED (no consumers run
+		// unless the user opts in).
+		TagAudioFiles:     true,
+		ScrubExistingTags: false,
+		Consumers: []MetadataConsumer{
+			// Lidarr groups Kodi/Emby under one consumer label.
+			{Name: "Kodi (XBMC)/Emby", Enabled: false},
+			{Name: "Roksbox", Enabled: false},
+			{Name: "WDTV", Enabled: false},
+		},
 	}
 }
 
@@ -693,6 +836,17 @@ func (m MetadataSettings) Validate() string {
 		if !settingsLibraryKinds[k] {
 			return "kinds: unknown kind " + strconv.Quote(k)
 		}
+	}
+	// Lidarr L3: consumers carry a required name (enabled is a plain bool).
+	seenConsumers := map[string]bool{}
+	for i, c := range m.Consumers {
+		if c.Name == "" {
+			return fmt.Sprintf("consumers[%d]: name is required", i)
+		}
+		if seenConsumers[c.Name] {
+			return fmt.Sprintf("consumers[%d]: duplicate name %q", i, c.Name)
+		}
+		seenConsumers[c.Name] = true
 	}
 	return ""
 }

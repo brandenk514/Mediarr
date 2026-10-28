@@ -80,13 +80,15 @@ func TestL1_LibrarySummaryEndpoint(t *testing.T) {
 
 // TestL1_AddArtistFields drives the optional quality_profile/path on the
 // add-artist request through to the stored artist (the L2 add-modal inputs).
+// (L3: the profile must be one of the 4 seeded Lidarr names — "Lossless" —
+// not a codec/level name.)
 func TestL1_AddArtistFields(t *testing.T) {
 	music, books := newKindsMusicRepo(), newKindsBooksRepo()
 	f := newKindsServer(t, music, books)
 	h := f.s.Handler()
 
 	rec := f.post(t, "/api/v1/music/artists", map[string]any{
-		"name": "Radiohead", "quality_profile": "FLAC", "path": "Radiohead (1992)",
+		"name": "Radiohead", "quality_profile": "Lossless", "path": "Radiohead (1992)",
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("add artist status = %d body=%s", rec.Code, rec.Body.String())
@@ -100,8 +102,38 @@ func TestL1_AddArtistFields(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&a); err != nil {
 		t.Fatal(err)
 	}
-	if a.QualityProfile != "FLAC" || a.Path != "Radiohead (1992)" || a.Status != "continuing" {
-		t.Errorf("artist = %+v, want profile FLAC, path Radiohead (1992), status continuing", a)
+	if a.QualityProfile != "Lossless" || a.Path != "Radiohead (1992)" || a.Status != "continuing" {
+		t.Errorf("artist = %+v, want profile Lossless, path Radiohead (1992), status continuing", a)
+	}
+}
+
+// TestL3_AddArtistUnknownQualityProfile (L3): an unknown quality profile name
+// (e.g. a codec/level name like "FLAC") is a 400 with a clear message; a
+// seeded name is accepted.
+func TestL3_AddArtistUnknownQualityProfile(t *testing.T) {
+	music, books := newKindsMusicRepo(), newKindsBooksRepo()
+	f := newKindsServer(t, music, books)
+
+	rec := f.post(t, "/api/v1/music/artists", map[string]any{
+		"name": "Radiohead", "quality_profile": "FLAC",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "unknown quality profile") {
+		t.Errorf("body = %q, want an unknown-quality-profile message", rec.Body.String())
+	}
+
+	// A seeded profile name is accepted (and empty stays as-is).
+	rec = f.post(t, "/api/v1/music/artists", map[string]any{
+		"name": "Nine Inch Nails", "quality_profile": "Lossless Best Effort",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("seeded profile: status = %d, want 201 body=%s", rec.Code, rec.Body.String())
+	}
+	rec = f.post(t, "/api/v1/music/artists", map[string]any{"name": "Daft Punk"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("no profile: status = %d, want 201 body=%s", rec.Code, rec.Body.String())
 	}
 }
 

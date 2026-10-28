@@ -364,8 +364,10 @@ func TestProfiles_AllKinds(t *testing.T) {
 	for kind, wantDefault := range map[string]string{
 		"movies": "HD-1080p",
 		"tv":     "HD-1080p",
-		"music":  "Lossless",
-		"books":  "Best",
+		// L3: music returns the 4 seeded Lidarr profiles; default is the
+		// Lidarr factory default.
+		"music": "Lossless Best Effort",
+		"books": "Best",
 	} {
 		rec := getJSON(t, s.Handler(), "/api/v1/profiles?kind="+kind, token)
 		if rec.Code != http.StatusOK {
@@ -380,6 +382,22 @@ func TestProfiles_AllKinds(t *testing.T) {
 		}
 		if len(got.Profiles) == 0 {
 			t.Fatalf("%s: no profiles", kind)
+		}
+	}
+
+	// L3: the music kind pins the 4 seeded profile names in seed order.
+	rec := getJSON(t, s.Handler(), "/api/v1/profiles?kind=music", token)
+	var got profileResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Lossless Best Effort", "High Quality Lossy", "Lossless", "WAV"}
+	if len(got.Profiles) != len(want) {
+		t.Fatalf("music profiles = %v, want %v", got.Profiles, want)
+	}
+	for i, p := range got.Profiles {
+		if p != want[i] {
+			t.Errorf("music profiles[%d] = %q, want %q", i, p, want[i])
 		}
 	}
 }

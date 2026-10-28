@@ -3987,14 +3987,31 @@ components:
           format: int64
           nullable: true
           description: Free bytes on the volume holding the root folder; null when the backend cannot stat the path.
+        DefaultQualityProfile:
+          type: string
+          description: |
+            Per-root default music quality profile name (Lidarr L3); "" when
+            unset (the app default applies). Must be one of the seeded
+            music profile names.
+        DefaultMetadataProfile:
+          type: string
+          description: |
+            Per-root default metadata profile name (Lidarr L3); "" when
+            unset. Must be one of the seeded metadata profile names.
     RootFolderRequest:
       type: object
-      description: Omitted path/name keep their stored values (PUT).
+      description: Omitted path/name keep their stored values (PUT); omitted default profiles keep their stored values.
       properties:
         path:
           type: string
         name:
           type: string
+        default_quality_profile:
+          type: string
+          description: Per-root default music quality profile name; "" = unset/keep. Non-empty must be a seeded music profile name.
+        default_metadata_profile:
+          type: string
+          description: Per-root default metadata profile name; "" = unset/keep. Non-empty must be a seeded metadata profile name.
     Episode:
       type: object
       required: [ID, SeriesID, Season, Episode, Title, Monitored, AddedAt]
@@ -5521,7 +5538,7 @@ components:
           type: boolean
     UISettings:
       type: object
-      required: [default_view, date_format, time_format, items_per_page]
+      required: [default_view, date_format, time_format, items_per_page, expand_albums, expand_eps, expand_singles, expand_broadcast, expand_other, theme, color_impaired]
       properties:
         default_view:
           type: string
@@ -5533,14 +5550,43 @@ components:
           enum: ["24h", "12h"]
         items_per_page:
           type: integer
+        expand_albums:
+          type: boolean
+          description: "Artist/album detail page: show albums expanded (Lidarr L3; defaults to true)."
+        expand_eps:
+          type: boolean
+          description: "Detail page: show EPs expanded (L3; defaults to false)."
+        expand_singles:
+          type: boolean
+          description: "Detail page: show singles expanded (L3; defaults to false)."
+        expand_broadcast:
+          type: boolean
+          description: "Detail page: show broadcast recordings expanded (L3; defaults to false)."
+        expand_other:
+          type: boolean
+          description: "Detail page: show other recordings expanded (L3; defaults to false)."
+        theme:
+          type: string
+          enum: [auto, dark, light]
+          description: UI theme (L3; defaults to auto).
+        color_impaired:
+          type: boolean
+          description: Boost contrast for color-impaired users (L3; defaults to false).
     QualityLevel:
       type: object
-      required: [id, name, source, resolution, size_limit_mb]
+      required: [id, name, group, source, resolution, size_limit_mb]
       properties:
         id:
           type: integer
         name:
           type: string
+        group:
+          type: string
+          description: |
+            The level's quality category (Lidarr L3 "Title" column): the
+            lossy/lossless group for music levels ("Lossless", "High Quality
+            Lossy", ...); empty for TV and movie rows, where the category
+            concept does not apply.
         source:
           type: string
         resolution:
@@ -5550,7 +5596,7 @@ components:
           description: "0 = unlimited."
     QualitySettings:
       type: object
-      required: [levels, movie_levels]
+      required: [levels, movie_levels, music_levels]
       properties:
         levels:
           type: array
@@ -5562,6 +5608,16 @@ components:
             Radarr movie quality definitions (Radarr R5a). A separate ID
             space from the TV levels, starting at 100, so movie quality
             profile items can't collide with TV level ids.
+          items:
+            $ref: "#/components/schemas/QualityLevel"
+        music_levels:
+          type: array
+          description: |
+            Lidarr music quality definitions (Lidarr L3). A separate ID
+            space from the TV and movie levels, starting at 200 (200 + the
+            Lidarr quality id), so music quality profile items can't
+            collide with TV or movie level ids. Seeded with the 38-row
+            Lidarr ladder, best first.
           items:
             $ref: "#/components/schemas/QualityLevel"
     QualityProfileItem:
@@ -5638,9 +5694,27 @@ components:
           type: boolean
         hdtv:
           type: boolean
+    MetadataProfile:
+      type: object
+      required: [id, name, description, items]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        items:
+          type: array
+          items:
+            type: string
+          description: |
+            The metadata files this profile generates (free-form names the
+            UI renders read-mostly), e.g. ["Embedded", "Music XML", "Music
+            Image"].
     ProfilesSettings:
       type: object
-      required: [profiles, movie_profiles, delay_profiles, release_profiles]
+      required: [profiles, movie_profiles, music_profiles, metadata_profiles, delay_profiles, release_profiles]
       properties:
         profiles:
           type: array
@@ -5654,6 +5728,23 @@ components:
             TV profiles (100+). Items reference movie quality level ids.
           items:
             $ref: "#/components/schemas/QualityProfile"
+        music_profiles:
+          type: array
+          description: |
+            Lidarr music quality profiles (Lidarr L3). Seeded with the 4
+            Lidarr defaults (Lossless Best Effort first); profile ids live in
+            a separate space from the TV and movie profiles (200+). Items
+            reference music quality level ids.
+          items:
+            $ref: "#/components/schemas/QualityProfile"
+        metadata_profiles:
+          type: array
+          description: |
+            Lidarr metadata profiles (L3): which metadata files to generate
+            for music. Seeded with the 3 Lidarr defaults (Standard, Album,
+            Studio).
+          items:
+            $ref: "#/components/schemas/MetadataProfile"
         delay_profiles:
           type: array
           items:
@@ -5749,6 +5840,30 @@ components:
         standard_format:
           type: string
           description: Standard movie naming template (brace tokens).
+    MusicNaming:
+      type: object
+      description: |
+        Lidarr music naming block (L3). standard_format is the standard
+        track naming template in the same brace-token style as the rest of
+        the naming document — it renders, for example, to "Artist - 07 -
+        Track Title"; multi_disc_format applies to multi-disc releases.
+      required: [rename_tracks, replace_illegal_characters, colon_replacement, standard_format, multi_disc_format]
+      properties:
+        rename_tracks:
+          type: boolean
+          description: Rename track files to the standard format.
+        replace_illegal_characters:
+          type: boolean
+          description: Replace characters the filesystem rejects.
+        colon_replacement:
+          type: string
+          description: Single character (or empty) used for ':' in titles.
+        standard_format:
+          type: string
+          description: Standard track naming template (brace tokens).
+        multi_disc_format:
+          type: string
+          description: Naming template for multi-disc releases (brace tokens).
     RemotePathMapping:
       type: object
       required: [source, destination]
@@ -5759,12 +5874,14 @@ components:
           type: string
     MediaManagementSettings:
       type: object
-      required: [naming, movie_naming, file_management, remote_path_mappings]
+      required: [naming, movie_naming, music_naming, file_management, remote_path_mappings]
       properties:
         naming:
           $ref: "#/components/schemas/NamingTemplate"
         movie_naming:
           $ref: "#/components/schemas/MovieNaming"
+        music_naming:
+          $ref: "#/components/schemas/MusicNaming"
         file_management:
           $ref: "#/components/schemas/FileManagement"
         remote_path_mappings:
@@ -5906,9 +6023,21 @@ components:
           type: boolean
         message:
           type: string
+    MetadataConsumer:
+      type: object
+      required: [name, enabled]
+      properties:
+        name:
+          type: string
+          description: |
+            Consumer label (Lidarr L3). Seeded: "Kodi (XBMC)/Emby",
+            "Roksbox", "WDTV".
+        enabled:
+          type: boolean
+          description: Whether this consumer runs; all default to false.
     MetadataSettings:
       type: object
-      required: [generate_nfo, generate_subtitles, language, kinds]
+      required: [generate_nfo, generate_subtitles, language, kinds, tag_audio_files, scrub_existing_tags, consumers]
       properties:
         generate_nfo:
           type: boolean
@@ -5924,6 +6053,17 @@ components:
           description: Per-kind enablement (movie / tv / music / book).
           additionalProperties:
             type: boolean
+        tag_audio_files:
+          type: boolean
+          description: Tag imported audio files with the chosen metadata (Lidarr L3; defaults to true).
+        scrub_existing_tags:
+          type: boolean
+          description: Scrub existing tags from the files when tagging (L3; defaults to false).
+        consumers:
+          type: array
+          description: Metadata consumers to run against the generated files (L3).
+          items:
+            $ref: "#/components/schemas/MetadataConsumer"
     MetadataSourceSettings:
       type: object
       description: |

@@ -2,12 +2,14 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/paging"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
+	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // MusicDeps bundles what the music endpoints need.
@@ -77,6 +79,15 @@ func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	// L3: an explicit quality_profile must be one of the seeded Lidarr music
+	// profile names (the /profiles?kind=music set). Empty keeps the pre-L3
+	// behavior (the app default applies on import).
+	if req.QualityProfile != "" && !settings.MusicProfileNames()[req.QualityProfile] {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("unknown quality profile %q; use one of: Lossless Best Effort, High Quality Lossy, Lossless, WAV",
+				req.QualityProfile))
 		return
 	}
 	monitored := true

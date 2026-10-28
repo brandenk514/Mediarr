@@ -232,3 +232,125 @@ func TestSections_EncodeDecode_RoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// TestL3_SectionDefaults covers the Lidarr L3 fields added to the existing
+// section documents: the seeded music levels / profiles / metadata profiles,
+// the music naming block, the music metadata fields, and the UI
+// expand/theme fields — all default-filled on a fresh install.
+func TestL3_SectionDefaults(t *testing.T) {
+	// quality document: the 38-row music ladder, best-first.
+	q := DefaultQuality()
+	if len(q.MusicLevels) != 38 {
+		t.Fatalf("music_levels = %d rows, want 38", len(q.MusicLevels))
+	}
+	if q.MusicLevels[0].Name != "WAV" || q.MusicLevels[37].Name != "Unknown" {
+		t.Errorf("music_levels order: first = %q, last = %q, want WAV / Unknown",
+			q.MusicLevels[0].Name, q.MusicLevels[37].Name)
+	}
+
+	// profiles document: 4 seeded music profiles (default first) + 3
+	// seeded metadata profiles.
+	p := DefaultProfiles()
+	if len(p.MusicProfiles) != 4 || p.MusicProfiles[0].Name != "Lossless Best Effort" {
+		t.Errorf("music_profiles = %+v, want 4 seeded, default first", p.MusicProfiles)
+	}
+	if len(p.MetadataProfiles) != 3 {
+		t.Errorf("metadata_profiles = %+v, want 3", p.MetadataProfiles)
+	}
+
+	// media management: the music naming block.
+	mm := DefaultMediaManagement()
+	if !mm.MusicNaming.RenameTracks || !mm.MusicNaming.ReplaceIllegalCharacters {
+		t.Errorf("music_naming booleans must default true: %+v", mm.MusicNaming)
+	}
+	if mm.MusicNaming.ColonReplacement != "" {
+		t.Errorf("music_naming.colon_replacement must default empty: %q", mm.MusicNaming.ColonReplacement)
+	}
+	if mm.MusicNaming.StandardFormat != DefaultMusicStandardFormat {
+		t.Errorf("music_naming.standard_format = %q, want %q", mm.MusicNaming.StandardFormat, DefaultMusicStandardFormat)
+	}
+	if mm.MusicNaming.MultiDiscFormat != DefaultMusicMultiDiscFormat {
+		t.Errorf("music_naming.multi_disc_format = %q, want %q", mm.MusicNaming.MultiDiscFormat, DefaultMusicMultiDiscFormat)
+	}
+	// The TV naming Album/Track fields are untouched (L3 is additive).
+	if mm.Naming.Album != "{artist} - {album}" || mm.Naming.Track != "{disc:0} - {track:0} - {track-title}" {
+		t.Errorf("naming album/track drifted: %+v", mm.Naming)
+	}
+
+	// metadata: the music fields.
+	md := DefaultMetadata()
+	if !md.TagAudioFiles || md.ScrubExistingTags {
+		t.Errorf("tag_audio_files/scrub_existing_tags = %v/%v, want true/false",
+			md.TagAudioFiles, md.ScrubExistingTags)
+	}
+	if len(md.Consumers) != 3 {
+		t.Fatalf("consumers = %+v, want 3", md.Consumers)
+	}
+	for i, c := range md.Consumers {
+		if c.Enabled {
+			t.Errorf("consumer %d = %+v, consumers default disabled", i, c)
+		}
+	}
+	if md.Consumers[0].Name != "Kodi (XBMC)/Emby" || md.Consumers[1].Name != "Roksbox" || md.Consumers[2].Name != "WDTV" {
+		t.Errorf("consumer names = %q / %q / %q, want Kodi (XBMC)/Emby / Roksbox / WDTV",
+			md.Consumers[0].Name, md.Consumers[1].Name, md.Consumers[2].Name)
+	}
+
+	// ui: the expand toggles + theme.
+	u := DefaultUI()
+	if !u.ExpandAlbums || u.ExpandEPs || u.ExpandSingles || u.ExpandBroadcast || u.ExpandOther {
+		t.Errorf("expand defaults = %+v, want only expand_albums true", u)
+	}
+	if u.Theme != "auto" || u.ColorImpaired {
+		t.Errorf("theme/color_impaired = %q/%v, want auto/false", u.Theme, u.ColorImpaired)
+	}
+}
+
+// TestL3_Decode_MergesMusicDefaults covers the upgrade read: a stored
+// pre-L3 document reads with the seeded music documents default-filled.
+func TestL3_Decode_MergesMusicDefaults(t *testing.T) {
+	storedQ := []byte(`{"levels": [], "movie_levels": []}`)
+	dq, err := SectionQuality.DecodeDocument(storedQ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q := dq.(*QualitySettings); len(q.MusicLevels) != 38 {
+		t.Errorf("stored quality doc must default-fill music_levels (38): %+v", q.MusicLevels)
+	}
+
+	storedP := []byte(`{"profiles": [{"id": 1, "name": "Default", "cutoff": 10, "items": [{"quality": 1, "approved": true}]}]}`)
+	dp, err := SectionProfiles.DecodeDocument(storedP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := dp.(*ProfilesSettings); len(p.MusicProfiles) != 4 || len(p.MetadataProfiles) != 3 {
+		t.Errorf("stored profiles doc must default-fill music documents: %+v", p)
+	}
+
+	storedMM := []byte(`{"naming":{"series":"s","episode":"e","movie":"m","album":"a","track":"t","author":"a2","title":"tt"},"file_management":{"min_file_age_hours":0,"remove_empty_dirs":true,"import_extra_files":true,"rename_series":true},"remote_path_mappings":[]}`)
+	dm, err := SectionMediaManagement.DecodeDocument(storedMM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mm := dm.(*MediaManagementSettings); !mm.MusicNaming.RenameTracks || mm.MusicNaming.StandardFormat != DefaultMusicStandardFormat {
+		t.Errorf("music_naming defaults not merged on read: %+v", mm.MusicNaming)
+	}
+
+	storedMD := []byte(`{"generate_nfo": true, "generate_subtitles": false, "language": "en", "kinds": {"tv": true}}`)
+	dmd, err := SectionMetadata.DecodeDocument(storedMD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := dmd.(*MetadataSettings); !m.TagAudioFiles || len(m.Consumers) != 3 {
+		t.Errorf("metadata music fields not merged on read: %+v", m)
+	}
+
+	storedUI := []byte(`{"default_view": "dashboard"}`)
+	du, err := SectionUI.DecodeDocument(storedUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ui := du.(*UISettings); !ui.ExpandAlbums || ui.Theme != "auto" {
+		t.Errorf("ui L3 fields not merged on read: %+v", ui)
+	}
+}

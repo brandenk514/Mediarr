@@ -183,3 +183,218 @@ func TestL3_MetadataProfileDefaults(t *testing.T) {
 		t.Errorf("expected 3 metadata profile names, got %d", len(got))
 	}
 }
+
+// TestL3_MusicLevelValidation covers the music level rules: the TV rules
+// apply, scoped to the music_levels array.
+func TestL3_MusicLevelValidation(t *testing.T) {
+	// Defaults must validate (levels, movie_levels, music_levels).
+	if msg := DefaultQuality().Validate(); msg != "" {
+		t.Fatalf("defaults must validate: %s", msg)
+	}
+	cases := []struct {
+		name string
+		mut  func(*QualitySettings)
+		want string
+	}{
+		{
+			name: "duplicate music id",
+			mut: func(q *QualitySettings) {
+				q.MusicLevels = append(q.MusicLevels, QualityLevel{ID: MusicLevelWAV, Name: "WAV dup"})
+			},
+			want: "music_levels[38]: duplicate id 213",
+		},
+		{
+			name: "missing music name",
+			mut: func(q *QualitySettings) {
+				q.MusicLevels[0].Name = ""
+			},
+			want: "music_levels[0]: name is required",
+		},
+		{
+			name: "negative music size limit",
+			mut: func(q *QualitySettings) {
+				q.MusicLevels[0].SizeLimitMB = -1
+			},
+			want: "music_levels[0]: size_limit_mb must be >= 0",
+		},
+		{
+			name: "movie level rules still scoped to movie_levels",
+			mut: func(q *QualitySettings) {
+				q.MovieLevels = append(q.MovieLevels, QualityLevel{ID: 100, Name: "480p", Source: "dvd", Resolution: "480p"})
+			},
+			want: "movie_levels[13]: duplicate id 100",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			q := DefaultQuality()
+			c.mut(&q)
+			if got := q.Validate(); got != c.want {
+				t.Errorf("Validate() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestL3_MusicProfileValidation covers the music profile rules: duplicate
+// ids/names per array, and items/cutoffs that reference unknown music level
+// ids (including a movie id, which is unknown in the music space).
+func TestL3_MusicProfileValidation(t *testing.T) {
+	if msg := DefaultProfiles().Validate(); msg != "" {
+		t.Fatalf("defaults must validate: %s", msg)
+	}
+	cases := []struct {
+		name string
+		mut  func(*ProfilesSettings)
+		want string
+	}{
+		{
+			name: "duplicate music profile id",
+			mut: func(p *ProfilesSettings) {
+				p.MusicProfiles = append(p.MusicProfiles, p.MusicProfiles[0])
+			},
+			want: "music_profiles[4]: duplicate id 200",
+		},
+		{
+			name: "duplicate music profile name",
+			mut: func(p *ProfilesSettings) {
+				p.MusicProfiles = append(p.MusicProfiles, QualityProfile{
+					ID: 999, Name: "WAV", Cutoff: MusicLevelWAV,
+					Items: []QualityProfileItem{{Quality: MusicLevelWAV, Approved: true}},
+				})
+			},
+			want: `music_profiles[4]: duplicate name "WAV"`,
+		},
+		{
+			name: "cutoff not a music level (movie id)",
+			mut: func(p *ProfilesSettings) {
+				p.MusicProfiles[0].Cutoff = 100
+			},
+			want: "music_profiles[0]: cutoff must reference a music quality level id",
+		},
+		{
+			name: "item not a music level (TV id)",
+			mut: func(p *ProfilesSettings) {
+				p.MusicProfiles[3].Items[0].Quality = 1
+			},
+			want: "music_profiles[3].items[0]: unknown music quality level id 1",
+		},
+		{
+			name: "empty music profile items",
+			mut: func(p *ProfilesSettings) {
+				p.MusicProfiles[3].Items = nil
+			},
+			want: "music_profiles[3]: at least one quality item is required",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := DefaultProfiles()
+			c.mut(&p)
+			if got := p.Validate(); got != c.want {
+				t.Errorf("Validate() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestL3_MetadataProfileValidation covers the metadata profile id/name
+// rules via the shared helper.
+func TestL3_MetadataProfileValidation(t *testing.T) {
+	p := DefaultProfiles()
+	if msg := p.Validate(); msg != "" {
+		t.Fatalf("defaults must validate: %s", msg)
+	}
+	dup := p
+	dup.MetadataProfiles = append(dup.MetadataProfiles, MetadataProfile{ID: 1, Name: "Standard"})
+	if got := dup.Validate(); got != "metadata_profiles[3]: duplicate id 1" {
+		t.Errorf("Validate() = %q, want the duplicate-id error", got)
+	}
+}
+
+// TestL3_MusicNamingValidation covers the music naming rules: both format
+// templates required, colon replacement at most one rune (multi-byte ok).
+func TestL3_MusicNamingValidation(t *testing.T) {
+	if err := DefaultMediaManagement().Validate(); err != "" {
+		t.Fatalf("defaults must validate: %s", err)
+	}
+	cases := []struct {
+		name string
+		mut  func(*MediaManagementSettings)
+		want string
+	}{
+		{
+			name: "empty standard format",
+			mut: func(m *MediaManagementSettings) {
+				m.MusicNaming.StandardFormat = ""
+			},
+			want: "music_naming.standard_format is required",
+		},
+		{
+			name: "empty multi-disc format",
+			mut: func(m *MediaManagementSettings) {
+				m.MusicNaming.MultiDiscFormat = ""
+			},
+			want: "music_naming.multi_disc_format is required",
+		},
+		{
+			name: "two-char colon replacement",
+			mut: func(m *MediaManagementSettings) {
+				m.MusicNaming.ColonReplacement = "sl"
+			},
+			want: "music_naming.colon_replacement must be a single character or empty",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := DefaultMediaManagement()
+			c.mut(&m)
+			if got := m.Validate(); got != c.want {
+				t.Errorf("Validate() = %q, want %q", got, c.want)
+			}
+		})
+	}
+	// A single multi-byte rune is fine.
+	m := DefaultMediaManagement()
+	m.MusicNaming.ColonReplacement = "/"
+	if err := m.Validate(); err != "" {
+		t.Errorf("single-rune colon replacement must validate: %s", err)
+	}
+}
+
+// TestL3_MetadataConsumerValidation covers the consumer id/name rules.
+func TestL3_MetadataConsumerValidation(t *testing.T) {
+	if err := DefaultMetadata().Validate(); err != "" {
+		t.Fatalf("defaults must validate: %s", err)
+	}
+	noName := DefaultMetadata()
+	noName.Consumers[0].Name = ""
+	if got := noName.Validate(); got != "consumers[0]: name is required" {
+		t.Errorf("Validate() = %q, want the required-name error", got)
+	}
+	dup := DefaultMetadata()
+	dup.Consumers[1].Name = "WDTV"
+	if got := dup.Validate(); got != `consumers[2]: duplicate name "WDTV"` {
+		t.Errorf("Validate() = %q, want the duplicate-name error", got)
+	}
+}
+
+// TestL3_ThemeValidation covers the UI theme rule: auto|dark|light only.
+func TestL3_ThemeValidation(t *testing.T) {
+	base := DefaultUI()
+	if msg := base.Validate(); msg != "" {
+		t.Fatalf("defaults must validate: %s", msg)
+	}
+	bad := base
+	bad.Theme = "blue"
+	if got := bad.Validate(); got != "theme must be one of auto, dark, light" {
+		t.Errorf("Validate() = %q, want the theme error", got)
+	}
+	for _, ok := range []string{"auto", "dark", "light"} {
+		g := base
+		g.Theme = ok
+		if msg := g.Validate(); msg != "" {
+			t.Errorf("theme %q must validate: %s", ok, msg)
+		}
+	}
+}
