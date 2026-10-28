@@ -69,6 +69,15 @@ function freshDoc(section: string): unknown {
           { id: 104, name: '1080p WEB', source: 'webrip', resolution: '1080p', size_limit_mb: 1536 },
           { id: 105, name: '1080p', source: 'blu-ray', resolution: '1080p', size_limit_mb: 4096 },
         ],
+        // Lidarr L3: the doc carries the music ladder (200+ id space). A
+        // 4-row subset of the factory table, so the Reset test can assert
+        // the reset restores the full 38-row ladder.
+        music_levels: [
+          { id: 213, name: 'WAV', group: '', source: '', resolution: '', size_limit_mb: 0 },
+          { id: 206, name: 'FLAC', group: 'Lossless', source: '', resolution: '', size_limit_mb: 0 },
+          { id: 204, name: 'MP3-320', group: 'High Quality Lossy', source: '', resolution: '', size_limit_mb: 350 },
+          { id: 200, name: 'Unknown', group: '', source: '', resolution: '', size_limit_mb: 350 },
+        ],
       }
     case 'profiles':
       return {
@@ -299,6 +308,13 @@ describe('QualitySection', () => {
             { id: 104, name: '1080p WEB', source: 'webrip', resolution: '1080p', size_limit_mb: 1536 },
             { id: 105, name: '1080p', source: 'blu-ray', resolution: '1080p', size_limit_mb: 4096 },
           ],
+          // Lidarr L3: the music ladder round-trips untouched too.
+          music_levels: [
+            { id: 213, name: 'WAV', group: '', source: '', resolution: '', size_limit_mb: 0 },
+            { id: 206, name: 'FLAC', group: 'Lossless', source: '', resolution: '', size_limit_mb: 0 },
+            { id: 204, name: 'MP3-320', group: 'High Quality Lossy', source: '', resolution: '', size_limit_mb: 350 },
+            { id: 200, name: 'Unknown', group: '', source: '', resolution: '', size_limit_mb: 350 },
+          ],
         },
       ),
     )
@@ -328,6 +344,61 @@ describe('QualitySection', () => {
         }),
       ),
     )
+  })
+
+  it('renders the music quality definitions (L3) and saves a renamed music level', async () => {
+    const user = userEvent.setup()
+    renderSection(<QualitySection />)
+    // The music ladder renders with its Title (group) and Size Limit columns;
+    // a 0 limit renders as "Unlimited" (the Lidarr convention).
+    expect(await screen.findByTestId('music-quality-name-213')).toHaveValue('WAV')
+    expect(screen.getByTestId('music-quality-group-206')).toHaveTextContent('Lossless')
+    expect(screen.getByTestId('music-quality-size-206')).toHaveTextContent('Unlimited')
+    expect(screen.getByTestId('music-quality-size-204')).toHaveTextContent('350 MB')
+    expect(screen.getByTestId('music-quality-group-213')).toHaveTextContent('')
+
+    // Rename a level; the size column is display-only (the table is a seed
+    // view — the edit granularity is the name, like the TV/movie tables).
+    fireEvent.change(screen.getByTestId('music-quality-name-204'), { target: { value: 'MP3-320-R' } })
+    await user.click(screen.getByTestId('quality-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'quality',
+        expect.objectContaining({
+          music_levels: [
+            expect.objectContaining({ id: 213, name: 'WAV' }),
+            expect.objectContaining({ id: 206, name: 'FLAC' }),
+            expect.objectContaining({ id: 204, name: 'MP3-320-R' }),
+            expect.objectContaining({ id: 200, name: 'Unknown' }),
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('resets the music definitions to the 38-row factory ladder (L3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<QualitySection />)
+    await screen.findByTestId('music-quality-name-213')
+
+    await user.click(screen.getByTestId('music-quality-reset'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'quality',
+        expect.objectContaining({
+          music_levels: expect.arrayContaining([
+            expect.objectContaining({ id: 213, name: 'WAV', size_limit_mb: 0 }),
+            expect.objectContaining({ id: 235, name: 'APE', group: 'Lossless', size_limit_mb: 0 }),
+            expect.objectContaining({ id: 204, name: 'MP3-320', group: 'High Quality Lossy' }),
+            expect.objectContaining({ id: 200, name: 'Unknown', size_limit_mb: 350 }),
+          ]),
+        }),
+      ),
+    )
+    // The reset PUTs the FULL factory table: 38 rows.
+    const calls = (client.putSettingsSection as ReturnType<typeof vi.fn>).mock.calls
+    const lastCall = calls[calls.length - 1]
+    expect((lastCall[1] as { music_levels: unknown[] }).music_levels).toHaveLength(38)
   })
 })
 
