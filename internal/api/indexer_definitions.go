@@ -72,16 +72,16 @@ func categoryMatches(cats []string, want string) bool {
 // always non-nil (JSON arrays, never null) so the UI can rely on a stable
 // shape.
 type definitionJSON struct {
-	ID         string                       `json:"id"`
-	Name       string                       `json:"name"`
-	Protocol   string                       `json:"protocol"`
-	Privacy    string                       `json:"privacy"`
-	Language   string                       `json:"language"`
-	Categories []string                     `json:"categories"`
-	URLs       []string                     `json:"urls"`
-	LegacyURLs []string                     `json:"legacyUrls"`
-	Fields     []indexerdefinitions.Field   `json:"fields"`
-	Presets    []any                        `json:"presets"`
+	ID         string                     `json:"id"`
+	Name       string                     `json:"name"`
+	Protocol   string                     `json:"protocol"`
+	Privacy    string                     `json:"privacy"`
+	Language   string                     `json:"language"`
+	Categories []string                   `json:"categories"`
+	URLs       []string                   `json:"urls"`
+	LegacyURLs []string                   `json:"legacyUrls"`
+	Fields     []indexerdefinitions.Field `json:"fields"`
+	Presets    []any                      `json:"presets"`
 }
 
 func definitionToJSON(d indexerdefinitions.Definition) definitionJSON {
