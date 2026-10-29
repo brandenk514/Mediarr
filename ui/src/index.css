@@ -1472,6 +1472,12 @@ button.danger:hover {
   border-radius: 10px;
 }
 
+/* Two-stage Add/Edit Indexer modals (Prowlarr PR2) are wider than the
+   default so the contract fields + pills have room. */
+.modal-wide {
+  max-width: 720px;
+}
+
 .modal-head {
   padding: 1rem 1.2rem;
   border-bottom: 1px solid var(--border);
@@ -2724,4 +2730,104 @@ button.danger:hover {
   padding: 0.25rem 0.3rem;
   font-size: 0.8rem;
   cursor: pointer;
+}
+
+/* ---- Prowlarr PR2: definition picker + two-stage form ---- */
+
+/* Picker: search + filters, then a scrollable list of definition rows. */
+.idx-picker-controls {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.idx-picker-filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.idx-picker-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--dim);
+  flex: 1 1 140px;
+  min-width: 130px;
+}
+.idx-picker-list {
+  max-height: 52vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.25rem;
+}
+.idx-def-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.86rem;
+}
+.idx-def-row:last-child {
+  border-bottom: none;
+}
+.idx-def-row:hover {
+  background: var(--panel-2);
+}
+.idx-def-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.idx-def-count {
+  color: var(--dim);
+  font-size: 0.76rem;
+  margin: 0.35rem 0 0;
+}
+
+/* Contract-field inputs inside the form (mirrors the hub subform inputs). */
+.idx-form label {
+  display: block;
+  margin: 0.7rem 0 0.25rem;
+  font-size: 0.82rem;
+  color: var(--dim);
+}
+.idx-form .idx-adv {
+  border-top: 1px dashed var(--border);
+  margin-top: 0.5rem;
+}
+.idx-form label.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.6rem 0;
+}
+/* info contract fields render as static hint paragraphs (no input). */
+.idx-info {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  margin: 0.6rem 0;
+  font-size: 0.78rem;
+  color: var(--dim);
+  line-height: 1.35;
+}
+.idx-info .idx-info-title {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 0.15rem;
 }

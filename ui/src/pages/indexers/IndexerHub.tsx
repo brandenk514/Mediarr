@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { client } from '../../api/client'
-import type { Indexer, IndexerTestResult } from '../../api/types'
+import type { Indexer, IndexerCreate, IndexerDefinition, IndexerDefinitionField, IndexerTestResult, IndexerUpdate } from '../../api/types'
 import { SaveError, useSubmit } from '../settings/sections/shared'
 import { EmptyState, Menu, Modal, Toolbar, TbButton } from '../../components/ui'
 
@@ -58,6 +58,14 @@ const DEFAULT_VISIBLE: ColKey[] = COLUMNS.filter((c) => c.togglable).map((c) => 
 
 function protocolOf(kind: string): 'torrent' | 'usenet' {
   return kind === 'torrent-rss' ? 'torrent' : 'usenet'
+}
+
+// PR2 kind mapping: the API still requires `kind`, but the UI derives it from
+// the chosen definition. generic-torznab is a torrent *site* that speaks the
+// Torznab protocol, so it maps to the torznab adapter — not torrent-rss.
+function kindFromDef(def: IndexerDefinition): string {
+  if (def.id === 'generic-torznab') return 'torznab'
+  return def.protocol === 'usenet' ? 'nzb' : 'torrent-rss'
 }
 
 type RowStatus = 'enabled' | 'enabled-redirected' | 'disabled' | 'error'
@@ -216,6 +224,28 @@ export function IndexerHubPage() {
     void load()
   }, [load])
 
+  // ---- Prowlarr PR2: definition library (fetched once, filtered client-side) ----
+  const [definitions, setDefinitions] = useState<IndexerDefinition[] | null>(null)
+  const [defsLoading, setDefsLoading] = useState(true)
+  const [defsError, setDefsError] = useState<string | null>(null)
+
+  const loadDefinitions = useCallback(async () => {
+    setDefsLoading(true)
+    setDefsError(null)
+    try {
+      const defs = await client.listIndexerDefinitions()
+      setDefinitions(defs)
+    } catch (e) {
+      setDefsError(e instanceof Error ? e.message : 'failed to load indexer definitions')
+    } finally {
+      setDefsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadDefinitions()
+  }, [loadDefinitions])
+
   // ---- list state ---------------------------------------------------------
   const [sort, setSort] = useState<SortKey>('name-asc')
   const [filter, setFilter] = useState<FilterKey>('all')
@@ -233,9 +263,13 @@ export function IndexerHubPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const { busy: bulkBusy, submit: bulkSubmit } = useSubmit()
 
-  // ---- add / edit modal ---------------------------------------------------
+  // ---- add / edit modal (PR2 two-stage: picker -> form) -------------------
+  const [showPicker, setShowPicker] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  // The definition driving the form: a picked def (create) or the resolved
+  // def (edit). null = legacy single-stage form (pre-PR2 indexers).
+  const [selectedDef, setSelectedDef] = useState<IndexerDefinition | null>(null)
   const [syncNote, setSyncNote] = useState<string | null>(null)
 
   const displayed = useMemo(() => {
@@ -325,17 +359,34 @@ export function IndexerHubPage() {
 
   function openAdd() {
     setEditingId(null)
-    setShowForm(true)
+    setSelectedDef(null)
     setSyncNote(null)
+    setShowPicker(true)
   }
   function openEdit(idx: Indexer) {
     setEditingId(idx.id)
-    setShowForm(true)
     setSyncNote(null)
+    // PR2: if the indexer was added from a library definition, resolve it so the
+    // form can re-render the contract. A null/unknown definition_name falls back
+    // to the legacy single-stage form (pre-PR2 indexers must keep working).
+    const defName = idx.definition_name
+    const def = defName
+      ? (definitions ?? []).find((d) => d.id === defName || d.name === defName)
+      : undefined
+    setSelectedDef(def ?? null)
+    setShowForm(true)
+  }
+  function pickDefinition(def: IndexerDefinition) {
+    setShowPicker(false)
+    setEditingId(null)
+    setSelectedDef(def)
+    setSyncNote(null)
+    setShowForm(true)
   }
   function closeForm() {
     setShowForm(false)
     setEditingId(null)
+    setSelectedDef(null)
   }
 
   function toggleSelect(id: number) {
@@ -583,8 +634,18 @@ export function IndexerHubPage() {
         </>
       )}
 
+      {showPicker && (
+        <DefinitionPicker
+          definitions={definitions}
+          loading={defsLoading}
+          error={defsError}
+          onPick={pickDefinition}
+          onCancel={() => setShowPicker(false)}
+        />
+      )}
       {showForm && (
         <IndexerForm
+          def={selectedDef}
           editing={editing}
           onCancel={closeForm}
           onSaved={(idx) => {
@@ -772,11 +833,12 @@ function IndexerRow({
   )
 }
 
-// IndexerForm is the add/edit form, rendered inside a Modal (the add flow and
-// per-row Edit share it; Edit is prefilled). It submits the full Prowlarr PR1
-// hub field set (name, kind, base url, api key, enabled, search toggles, and
-// privacy / priority / sync profile).
-function IndexerForm({
+// LegacyIndexerForm is the ORIGINAL single-stage add/edit form (Prowlarr PR1):
+// name, kind, base url, api key, enabled, search toggles, and privacy /
+// priority / sync profile. It is kept intact for the legacy path — editing a
+// pre-PR2 indexer (definition_name null) or any indexer whose definition can't
+// be resolved still uses this exact form.
+function LegacyIndexerForm({
   editing,
   onSaved,
   onCancel,
@@ -825,6 +887,7 @@ function IndexerForm({
       title={editing ? `Edit Indexer — ${editing.name}` : 'Add Indexer'}
       onClose={onCancel}
       testId="idx-form-modal"
+      className="modal-wide"
       footer={
         <>
           <button onClick={handleSave} disabled={busy} data-testid="idx-save">
@@ -924,6 +987,509 @@ function IndexerForm({
           Interactive search
         </label>
         <SaveError error={error} testId="idx-form-error" />
+      </div>
+    </Modal>
+  )
+}
+
+// ---- Prowlarr PR2: two-stage definition-library form + picker ----
+
+// initBaseUrl seeds the Base Url field: the stored base_url when editing, else
+// the definition's first candidate URL (empty when the definition has none).
+function initBaseUrl(def: IndexerDefinition, editing: Indexer | null): string {
+  if (editing?.base_url) return editing.base_url
+  const urls = def.urls ?? []
+  return urls.length >= 1 ? urls[0] : ''
+}
+
+// initFieldValues seeds every non-info, non-baseurl contract field: a stored
+// value when editing (passwords arrive masked ''), else the field default, else
+// the type's empty value.
+function initFieldValues(
+  def: IndexerDefinition,
+  editing: Indexer | null,
+): Record<string, string | number | boolean> {
+  const stored = editing?.config_fields ?? {}
+  const out: Record<string, string | number | boolean> = {}
+  for (const f of def.fields) {
+    if (f.type === 'info') continue
+    if (f.name === 'baseurl') continue // represented by the Base Url field
+    const s = stored[f.name]
+    if (f.type === 'checkbox') {
+      out[f.name] = typeof s === 'boolean' ? s : typeof f.default === 'boolean' ? f.default : false
+    } else if (f.type === 'number') {
+      if (typeof s === 'number') out[f.name] = s
+      else if (typeof f.default === 'number') out[f.name] = f.default
+      else out[f.name] = 0
+    } else if (f.type === 'select') {
+      const opts = f.options ?? {}
+      if (typeof s === 'string' && opts[s] !== undefined) out[f.name] = s
+      else if (typeof f.default === 'string' && opts[f.default] !== undefined) out[f.name] = f.default
+      else out[f.name] = Object.keys(opts)[0] ?? ''
+    } else {
+      // textbox / password
+      if (typeof s === 'string' || typeof s === 'number') out[f.name] = String(s)
+      else if (typeof f.default === 'string') out[f.name] = f.default
+      else out[f.name] = ''
+    }
+  }
+  return out
+}
+
+// IndexerForm is the PR2 form-modal dispatcher: a chosen definition renders the
+// new contract-driven form; a null definition (legacy indexer) renders the
+// original single-stage LegacyIndexerForm unchanged.
+function IndexerForm({
+  def,
+  editing,
+  onSaved,
+  onCancel,
+}: {
+  def: IndexerDefinition | null
+  editing: Indexer | null
+  onSaved: (idx: Indexer) => void
+  onCancel: () => void
+}) {
+  if (!def) {
+    return <LegacyIndexerForm editing={editing} onSaved={onSaved} onCancel={onCancel} />
+  }
+  return <DefinitionIndexerForm def={def} editing={editing} onSaved={onSaved} onCancel={onCancel} />
+}
+
+// DefinitionIndexerForm renders the generic hub fields + the definition's
+// contract fields (in order, advanced tucked behind a toggle) and submits
+// config_fields + definition_name alongside the hub fields.
+function DefinitionIndexerForm({
+  def,
+  editing,
+  onSaved,
+  onCancel,
+}: {
+  def: IndexerDefinition
+  editing: Indexer | null
+  onSaved: (idx: Indexer) => void
+  onCancel: () => void
+}) {
+  const isEdit = editing != null
+  const [name, setName] = useState(editing?.name ?? '')
+  const [baseUrl, setBaseUrl] = useState<string>(() => initBaseUrl(def, editing))
+  const [enabled, setEnabled] = useState(editing?.enabled ?? true)
+  const [rss, setRss] = useState(editing?.rss ?? true)
+  const [autoSearch, setAutoSearch] = useState(editing?.auto_search ?? true)
+  const [interactiveSearch, setInteractiveSearch] = useState(editing?.interactive_search ?? true)
+  const [privacy, setPrivacy] = useState<string>(editing?.privacy ?? def.privacy ?? 'public')
+  const [priority, setPriority] = useState<string>(String(editing?.priority ?? 25))
+  const [syncProfile, setSyncProfile] = useState(editing?.sync_profile ?? 'standard')
+  const [fieldValues, setFieldValues] = useState<Record<string, string | number | boolean>>(() =>
+    initFieldValues(def, editing),
+  )
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const { busy, error, submit } = useSubmit()
+
+  // Candidate base URLs for the Base Url field. When there are several the
+  // field is a select; the current value stays selectable even if it's a custom
+  // base URL not in the definition's list.
+  const urlOptions = useMemo(() => {
+    const opts = [...new Set(def.urls ?? [])]
+    if (baseUrl && !opts.includes(baseUrl)) opts.unshift(baseUrl)
+    return opts
+  }, [def.urls, baseUrl])
+
+  const baseFields = useMemo(() => def.fields.filter((f) => !f.advanced), [def.fields])
+  const advFields = useMemo(() => def.fields.filter((f) => f.advanced), [def.fields])
+
+  function setField(name: string, value: string | number | boolean) {
+    setFieldValues((prev) => ({ ...prev, [name]: value }))
+  }
+
+  function renderField(field: IndexerDefinitionField) {
+    const { name, type, label, hint, required, options } = field
+    if (type === 'info') {
+      if (!label && !hint) return null
+      return (
+        <div className="idx-info" key={name} data-testid={`idx-field-${name}`}>
+          {label && <span className="idx-info-title">{label}</span>}
+          {hint && <span>{hint}</span>}
+        </div>
+      )
+    }
+    if (type === 'checkbox') {
+      return (
+        <label className="check" key={name} htmlFor={`idx-f-${name}`}>
+          <input
+            id={`idx-f-${name}`}
+            type="checkbox"
+            checked={fieldValues[name] === true}
+            onChange={(e) => setField(name, e.target.checked)}
+            data-testid={`idx-field-${name}`}
+          />
+          {label ?? name}
+        </label>
+      )
+    }
+    if (type === 'select') {
+      const opts = options ?? {}
+      return (
+        <div key={name}>
+          <label htmlFor={`idx-f-${name}`}>
+            {label ?? name}
+            {required && <span> *</span>}
+          </label>
+          <select
+            id={`idx-f-${name}`}
+            value={String(fieldValues[name] ?? '')}
+            onChange={(e) => setField(name, e.target.value)}
+            data-testid={`idx-field-${name}`}
+          >
+            {Object.entries(opts).map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
+          </select>
+          {hint && <p className="dim small">{hint}</p>}
+        </div>
+      )
+    }
+    // textbox / password / number
+    const inputType = type === 'password' ? 'password' : type === 'number' ? 'number' : 'text'
+    const value =
+      type === 'number' ? (fieldValues[name] === undefined ? '' : String(fieldValues[name])) : String(fieldValues[name] ?? '')
+    const placeholder = type === 'password' && isEdit ? '••••••••' : undefined
+    return (
+      <div key={name}>
+        <label htmlFor={`idx-f-${name}`}>
+          {label ?? name}
+          {required && <span> *</span>}
+          {type === 'password' && isEdit ? ' (blank to keep)' : ''}
+        </label>
+        <input
+          id={`idx-f-${name}`}
+          type={inputType}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) =>
+            setField(name, type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)
+          }
+          data-testid={`idx-field-${name}`}
+        />
+        {hint && <p className="dim small">{hint}</p>}
+      </div>
+    )
+  }
+
+  function validate(): string | null {
+    if (!baseUrl.trim()) return 'Base Url is required'
+    for (const f of def.fields) {
+      if (f.type === 'info' || f.type === 'password') continue
+      if (f.name === 'baseurl') continue
+      if (!f.required) continue
+      const v = fieldValues[f.name]
+      if (v === undefined || v === '' || v === null) return `${f.label ?? f.name} is required`
+    }
+    return null
+  }
+
+  function handleSave() {
+    void submit(async () => {
+      const err = validate()
+      if (err) throw new Error(err)
+      const cfg: Record<string, string | number | boolean> = {}
+      for (const f of def.fields) {
+        if (f.type === 'info') continue
+        if (f.name === 'baseurl') {
+          cfg.baseurl = baseUrl
+          continue
+        }
+        if (f.type === 'number') {
+          const v = fieldValues[f.name]
+          cfg[f.name] = typeof v === 'number' ? v : 0
+        } else {
+          const v = fieldValues[f.name]
+          cfg[f.name] = typeof v === 'boolean' ? v : String(v ?? '')
+        }
+      }
+      const base = {
+        name: name.trim(),
+        kind: kindFromDef(def),
+        base_url: baseUrl,
+        config_fields: cfg,
+        definition_name: def.id,
+        priority: Number(priority) || 25,
+        privacy,
+        sync_profile: syncProfile,
+        rss,
+        auto_search: autoSearch,
+        interactive_search: interactiveSearch,
+      }
+      const idx = isEdit
+        ? await client.updateIndexer(editing!.id, base as IndexerUpdate)
+        : await client.createIndexer({ ...base, enabled } as IndexerCreate)
+      onSaved(idx)
+    })
+  }
+
+  return (
+    <Modal
+      title={isEdit ? `Edit Indexer — ${editing!.name}` : 'Add Indexer'}
+      onClose={onCancel}
+      testId="idx-form-modal"
+      className="modal-wide"
+      footer={
+        <>
+          <button onClick={handleSave} disabled={busy} data-testid="idx-save">
+            {busy ? 'Saving…' : isEdit ? 'Save changes' : 'Add indexer'}
+          </button>
+          <button className="ghost" onClick={onCancel} data-testid="idx-cancel">
+            Cancel
+          </button>
+        </>
+      }
+    >
+      <div className="idx-form subform" data-testid="idx-form" style={{ display: 'block' }}>
+        <label htmlFor="idx-name">Name</label>
+        <input id="idx-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. nyaa" data-testid="idx-name" />
+        {!isEdit && (
+          <label className="check" htmlFor="idx-enabled">
+            <input
+              id="idx-enabled"
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              data-testid="idx-enabled"
+            />
+            Enabled
+          </label>
+        )}
+        <label htmlFor="idx-privacy">Privacy</label>
+        <select id="idx-privacy" value={privacy} onChange={(e) => setPrivacy(e.target.value)} data-testid="idx-privacy">
+          <option value="public">public</option>
+          <option value="private">private</option>
+          <option value="semi-private">semi-private</option>
+        </select>
+        <label htmlFor="idx-priority">Priority</label>
+        <input
+          id="idx-priority"
+          type="number"
+          value={priority}
+          onChange={(e) => setPriority(e.target.value)}
+          data-testid="idx-priority"
+        />
+        <label htmlFor="idx-sync">Sync Profile</label>
+        <input
+          id="idx-sync"
+          value={syncProfile}
+          onChange={(e) => setSyncProfile(e.target.value)}
+          data-testid="idx-sync"
+        />
+        {/* Per-indexer search toggles (Radarr R5a). */}
+        <label className="check" htmlFor="idx-rss">
+          <input id="idx-rss" type="checkbox" checked={rss} onChange={(e) => setRss(e.target.checked)} data-testid="idx-rss" />
+          RSS
+        </label>
+        <label className="check" htmlFor="idx-auto-search">
+          <input
+            id="idx-auto-search"
+            type="checkbox"
+            checked={autoSearch}
+            onChange={(e) => setAutoSearch(e.target.checked)}
+            data-testid="idx-auto-search"
+          />
+          Automatic search
+        </label>
+        <label className="check" htmlFor="idx-interactive-search">
+          <input
+            id="idx-interactive-search"
+            type="checkbox"
+            checked={interactiveSearch}
+            onChange={(e) => setInteractiveSearch(e.target.checked)}
+            data-testid="idx-interactive-search"
+          />
+          Interactive search
+        </label>
+
+        {/* Definition contract: Base Url (from the definition's candidate URLs)
+            + the contract fields in order, advanced tucked behind a toggle. */}
+        <label htmlFor="idx-base">Base Url</label>
+        {urlOptions.length > 1 ? (
+          <select
+            id="idx-base"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            data-testid="idx-base"
+          >
+            {urlOptions.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            id="idx-base"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://…/api"
+            data-testid="idx-base"
+          />
+        )}
+
+        {baseFields.map(renderField)}
+
+        {advFields.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="ghost small"
+              onClick={() => setShowAdvanced((s) => !s)}
+              data-testid="idx-show-advanced"
+            >
+              {showAdvanced ? 'Hide Advanced' : 'Show Advanced'}
+            </button>
+            {showAdvanced && (
+              <div className="idx-adv" data-testid="idx-advanced">
+                {advFields.map(renderField)}
+              </div>
+            )}
+          </>
+        )}
+
+        <SaveError error={error} testId="idx-form-error" />
+      </div>
+    </Modal>
+  )
+}
+
+// DefinitionPicker is the first stage of the add flow: a searchable,
+// filterable list of the built-in definitions. Picking a row opens the form
+// prefilled with that definition. Filtering is client-side over the fetched
+// list (584 rows — instant, and matches Prowlarr).
+function DefinitionPicker({
+  definitions,
+  loading,
+  error,
+  onPick,
+  onCancel,
+}: {
+  definitions: IndexerDefinition[] | null
+  loading: boolean
+  error: string | null
+  onPick: (def: IndexerDefinition) => void
+  onCancel: () => void
+}) {
+  const [search, setSearch] = useState('')
+  const [protocol, setProtocol] = useState<string>('all')
+  const [privacy, setPrivacy] = useState<string>('all')
+  const [category, setCategory] = useState<string>('all')
+
+  const categories = useMemo(() => {
+    const s = new Set<string>()
+    for (const d of definitions ?? []) for (const c of d.categories) s.add(c)
+    return [...s].sort()
+  }, [definitions])
+
+  const rows = useMemo(() => {
+    let items = definitions ?? []
+    const q = search.trim().toLowerCase()
+    if (q) items = items.filter((d) => d.name.toLowerCase().includes(q) || d.id.toLowerCase().includes(q))
+    if (protocol !== 'all') items = items.filter((d) => d.protocol === protocol)
+    if (privacy !== 'all') items = items.filter((d) => d.privacy === privacy)
+    if (category !== 'all') items = items.filter((d) => d.categories.includes(category))
+    return items
+  }, [definitions, search, protocol, privacy, category])
+
+  return (
+    <Modal
+      title="Add Indexer — Choose a definition"
+      onClose={onCancel}
+      testId="idx-picker-modal"
+      className="modal-wide"
+      footer={
+        <button className="ghost" onClick={onCancel} data-testid="idx-picker-cancel">
+          Cancel
+        </button>
+      }
+    >
+      <div className="idx-picker" data-testid="idx-picker">
+        <input
+          className="list-search"
+          placeholder="Search definitions…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search definitions"
+          data-testid="idx-picker-search"
+        />
+        <div className="idx-picker-controls">
+          <div className="idx-picker-filters">
+            <label>
+              Protocol
+              <select value={protocol} onChange={(e) => setProtocol(e.target.value)} data-testid="idx-picker-protocol">
+                <option value="all">All</option>
+                <option value="torrent">Torrent</option>
+                <option value="usenet">Usenet</option>
+              </select>
+            </label>
+            <label>
+              Privacy
+              <select value={privacy} onChange={(e) => setPrivacy(e.target.value)} data-testid="idx-picker-privacy">
+                <option value="all">All</option>
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+                <option value="semi-private">Semi-private</option>
+              </select>
+            </label>
+            <label>
+              Category
+              <select value={category} onChange={(e) => setCategory(e.target.value)} data-testid="idx-picker-category">
+                <option value="all">All</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <span className="idx-def-count" data-testid="idx-picker-count">
+            {loading
+              ? 'Loading definitions…'
+              : `${rows.length} of ${definitions?.length ?? 0} definitions`}
+          </span>
+        </div>
+        {error && !definitions ? (
+          <p className="error" data-testid="idx-picker-error">
+            {error}
+          </p>
+        ) : (
+          <div className="idx-picker-list">
+            {rows.map((d) => {
+              const privCls =
+                d.privacy === 'public' ? 'idx-priv-public' : d.privacy === 'private' ? 'idx-priv-private' : 'idx-priv-semi'
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  className="idx-def-row"
+                  onClick={() => onPick(d)}
+                  data-testid={`idx-def-${d.id}`}
+                >
+                  <span className="idx-def-name" title={d.name}>
+                    {d.name}
+                  </span>
+                  <span className="idx-prot">{d.protocol}</span>
+                  <span className={`idx-priv ${privCls}`}>
+                    {d.privacy === 'semi-private' ? 'Semi-Private' : titleCase(d.privacy)}
+                  </span>
+                </button>
+              )
+            })}
+            {rows.length === 0 && (
+              <p className="dim" style={{ padding: '0.75rem' }}>
+                No definitions match.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </Modal>
   )

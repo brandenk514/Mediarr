@@ -1691,6 +1691,58 @@ paths:
           $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/indexer/definitions:
+    get:
+      tags: [indexers]
+      summary: List built-in indexer definitions.
+      operationId: listIndexerDefinitions
+      description: |
+        The built-in definition library (Prowlarr PR2) that the Add/Edit
+        Indexer modal renders: the Prowlarr community Cardigann set plus
+        the built-in usenet/generic definitions. Filters are optional and
+        combinable; results are ordered by display name. `presets` is
+        always an empty array for now (the field exists so the UI shape is
+        stable until presets land).
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive substring match on the display name or id.
+          required: false
+          schema:
+            type: string
+        - name: protocol
+          in: query
+          description: Exact protocol match.
+          required: false
+          schema:
+            type: string
+            enum: [torrent, usenet]
+        - name: privacy
+          in: query
+          description: Exact privacy match.
+          required: false
+          schema:
+            type: string
+            enum: [public, private, semi-private]
+        - name: category
+          in: query
+          description: Case-insensitive membership in the definition's categories.
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching definitions, ordered by display name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IndexerDefinition"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/indexers/test-all:
     post:
       tags: [indexers]
@@ -5354,6 +5406,21 @@ components:
           items:
             type: string
           description: Category badges from the indexer's settings (PR1 hub column; empty when none).
+        config_fields:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: number
+              - type: boolean
+          description: |
+            Per-indexer config-contract values keyed by field name (Prowlarr
+            PR2). Password fields are masked to "" (never echoed); empty
+            object for legacy indexers added without a definition.
+        definition_name:
+          type: string
+          nullable: true
+          description: The definition this indexer was added from (null for the legacy path).
     IndexerCreate:
       type: object
       required: [name, kind]
@@ -5393,6 +5460,24 @@ components:
         sync_profile:
           type: string
           description: Omitted = standard.
+        config_fields:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: number
+              - type: boolean
+          description: |
+            Per-indexer config-contract values keyed by field name (Prowlarr
+            PR2). When present, they must validate against the named
+            definition's contract (400 otherwise); password values are
+            plaintext in the request and never echoed back. Omitted = legacy
+            path (nothing stored).
+        definition_name:
+          type: string
+          description: |
+            Definition id (or display name) the config_fields belong to.
+            Required when config_fields is present.
     IndexerUpdate:
       type: object
       required: [name, kind]
@@ -5429,6 +5514,102 @@ components:
         sync_profile:
           type: string
           description: Omitted = keep the stored value.
+        config_fields:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: string
+              - type: number
+              - type: boolean
+          description: |
+            Per-indexer config-contract values keyed by field name (Prowlarr
+            PR2). An empty/absent password value keeps the stored secret
+            (masked-edit round-trip). Omitted entirely = keep the stored
+            contract. When present it validates against the definition's
+            contract (400 otherwise).
+        definition_name:
+          type: string
+          description: |
+            Definition id (or display name) the config_fields belong to.
+            Omitted = keep the stored definition name.
+    IndexerDefinition:
+      type: object
+      required: [id, name, protocol, privacy, language, categories, urls, legacyUrls, fields, presets]
+      properties:
+        id:
+          type: string
+          description: Stable definition id (Cardigann id, or the built-in id for built-ins).
+        name:
+          type: string
+          description: Display name shown in the Add/Edit Indexer modal (e.g. "1337x (API)").
+        protocol:
+          type: string
+          enum: [torrent, usenet]
+        privacy:
+          type: string
+          enum: [public, private, semi-private]
+        language:
+          type: string
+          description: BCP-47 language tag of the site (e.g. en-US); empty when unknown.
+        categories:
+          type: array
+          items:
+            type: string
+          description: Unique category badges from the definition's category mappings (empty when none).
+        urls:
+          type: array
+          items:
+            type: string
+          description: Candidate base URLs (the UI pre-fills the Base Url field from the first).
+        legacyUrls:
+          type: array
+          items:
+            type: string
+          description: Legacy base URLs from the definition.
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndexerDefinitionField"
+          description: The config contract the Add/Edit modal renders and submits back as config_fields.
+        presets:
+          type: array
+          items:
+            type: object
+          description: Always empty for now; kept so the UI shape is stable until presets land.
+    IndexerDefinitionField:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+          description: Key of the value in config_fields (or the hint id for info entries).
+        type:
+          type: string
+          enum: [textbox, password, number, checkbox, select, info]
+          description: info entries are static description text, never an input.
+        label:
+          type: string
+          description: "Display label; for info entries this is the description text."
+        hint:
+          type: string
+          description: Help text under the field.
+        required:
+          type: boolean
+          description: Value must be present and non-empty (baseurl is required for base-URL definitions).
+        advanced:
+          type: boolean
+          description: True = tucked into the modal's advanced section.
+        default:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+          description: Contract default applied to a missing value (absent when the field has none).
+        options:
+          type: object
+          additionalProperties:
+            type: string
+          description: "select only: value -> display label."
     IndexerEnabled:
       type: object
       required: [enabled]

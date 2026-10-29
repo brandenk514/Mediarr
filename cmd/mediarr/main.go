@@ -35,6 +35,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/health"
 	"github.com/brandenk514/mediarr/internal/indexers"
+	indexerdefinitions "github.com/brandenk514/mediarr/internal/indexers/definitions"
 	"github.com/brandenk514/mediarr/internal/metawrite"
 	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/postgres"
@@ -205,6 +206,21 @@ func run(logSvc *system.LogService) error {
 	}
 	indexerRepo := postgres.NewIndexersRepo(pg.DB(), vault)
 
+	// Prowlarr PR2: the built-in indexer definition library. Seed the table
+	// from the embedded Prowlarr community set on first boot (idempotent);
+	// every row records the seed revision so the definition-update task
+	// (PR6) can detect stale rows and re-upsert them.
+	definitionsCatalog, err := indexerdefinitions.Load()
+	if err != nil {
+		return fmt.Errorf("load indexer definition seed: %w", err)
+	}
+	definitionsRepo := postgres.NewIndexerDefinitionsRepo(pg.DB())
+	if n, err := definitionsRepo.SeedIfEmpty(ctx, definitionsCatalog.Definitions, definitionsCatalog.Revision); err != nil {
+		return fmt.Errorf("seed indexer definitions: %w", err)
+	} else if n > 0 {
+		logger.Info("indexer definition library seeded", "count", n, "revision", definitionsCatalog.Revision)
+	}
+
 	// The shared health tracker is the single source of truth for per-indexer
 	// stats (#34/#35): the live search adapters, the periodic worker, and the
 	// on-demand Test probe all record into it, so the stats endpoint reflects
@@ -314,10 +330,11 @@ func run(logSvc *system.LogService) error {
 	// registry as the live search path (the registry validates a definition's
 	// kind so a saved indexer can always be materialized).
 	srv.SetIndexers(&api.IndexersDeps{
-		Repo:    indexerRepo,
-		Worker:  healthWorker,
-		Tracker: healthTracker,
-		Admin:   registry,
+		Repo:        indexerRepo,
+		Worker:      healthWorker,
+		Tracker:     healthTracker,
+		Admin:       registry,
+		Definitions: definitionsRepo,
 	})
 	// Dashboard (#40): cross-library snapshot + indexer health at a glance,
 	// and the WebSocket push channel for live queue/history updates.

@@ -29,6 +29,7 @@ import type {
   EventFrame,
   Indexer,
   IndexerCreate,
+  IndexerDefinition,
   IndexerStats,
   IndexerTestResult,
   IndexerUpdate,
@@ -306,6 +307,23 @@ export const client = {
 
   // ---- indexers ----
   listIndexers: () => request<Indexer[]>('GET', '/indexers'),
+  // Prowlarr PR2: the built-in definition library (584 Prowlarr community
+  // definitions). Filters are optional + combinable; the UI fetches the whole
+  // list once and filters client-side (like Prowlarr).
+  listIndexerDefinitions: (params?: {
+    q?: string
+    protocol?: 'torrent' | 'usenet'
+    privacy?: 'public' | 'private' | 'semi-private'
+    category?: string
+  }) => {
+    const p = new URLSearchParams()
+    if (params?.q) p.set('q', params.q)
+    if (params?.protocol) p.set('protocol', params.protocol)
+    if (params?.privacy) p.set('privacy', params.privacy)
+    if (params?.category) p.set('category', params.category)
+    const s = p.toString()
+    return request<IndexerDefinition[]>('GET', `/indexer/definitions${s ? `?${s}` : ''}`)
+  },
   indexerStats: (id: number) => request<IndexerStats>('GET', `/indexers/${id}/stats`),
   testIndexer: (id: number) => request<IndexerTestResult>('POST', `/indexers/${id}/test`),
   // Prowlarr PR1 "Test All Indexers": fan-out probe over every enabled indexer.

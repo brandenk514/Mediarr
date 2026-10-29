@@ -63,6 +63,23 @@ type Definition struct {
 	Priority    int
 	SyncProfile string
 	Added       time.Time
+	// Prowlarr PR2 definition-library columns. DefinitionName is the library
+	// definition (Cardigann id) this indexer was added from (""); ConfigFields
+	// holds the per-indexer config-contract values in PLAINTEXT — the
+	// repository decrypts password values on the way out (the repo is the
+	// only ciphertext toucher, like APIKey) — and is nil on the legacy path
+	// (no contract stored). The API masks password values before responding.
+	DefinitionName string
+	ConfigFields   map[string]any
+}
+
+// DefinitionNamePtr exposes the library definition name in the nullable form
+// the API response uses (nil = legacy path).
+func (d Definition) DefinitionNamePtr() *string {
+	if d.DefinitionName == "" {
+		return nil
+	}
+	return &d.DefinitionName
 }
 
 // Registry maps a protocol kind to a constructor that builds a Provider from a

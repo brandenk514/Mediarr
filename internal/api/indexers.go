@@ -4,12 +4,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/brandenk514/mediarr/internal/indexers"
+	indexerdefinitions "github.com/brandenk514/mediarr/internal/indexers/definitions"
 )
 
 // IndexersDeps bundles what the indexer endpoints need. Worker is the health
@@ -25,6 +27,11 @@ type IndexersDeps struct {
 	Worker  *indexers.HealthWorker
 	Tracker indexers.HealthTracker
 	Admin   *indexers.Registry
+	// Definitions is the definition-library store (Prowlarr PR2) behind
+	// GET /api/v1/indexer/definitions. The route is only registered when it
+	// is wired, so existing callers that wire only the read/write deps keep
+	// working unchanged.
+	Definitions indexerdefinitions.Store
 }
 
 // SetIndexers wires the indexer endpoints (#35 read/health, #44 write). Called
@@ -43,6 +50,9 @@ func (s *Server) SetIndexers(deps *IndexersDeps) {
 		s.register("PUT /api/v1/indexers/{id}", s.requireAuth(s.UpdateIndexer))
 		s.register("PATCH /api/v1/indexers/{id}/enabled", s.requireAuth(s.SetIndexerEnabled))
 		s.register("DELETE /api/v1/indexers/{id}", s.requireAuth(s.DeleteIndexer))
+	}
+	if deps.Definitions != nil {
+		s.register("GET /api/v1/indexer/definitions", s.requireAuth(s.ListIndexerDefinitions))
 	}
 }
 
@@ -66,6 +76,12 @@ type indexerJSON struct {
 	SyncProfile string    `json:"sync_profile"`
 	Added       time.Time `json:"added"`
 	Categories  []string  `json:"categories"`
+	// Prowlarr PR2 definition-library fields. ConfigFields carries the
+	// per-indexer contract values with password fields masked to "" (secrets
+	// are never echoed); DefinitionName names the library definition the
+	// indexer was added from (null on the legacy path).
+	ConfigFields   map[string]any `json:"config_fields"`
+	DefinitionName *string        `json:"definition_name"`
 }
 
 func defToJSON(d indexers.Definition) indexerJSON {
@@ -98,7 +114,25 @@ func defToJSON(d indexers.Definition) indexerJSON {
 		SyncProfile:       syncProfile,
 		Added:             d.Added,
 		Categories:        parseCategories(d.SettingsJSON),
+		ConfigFields:      maskConfigFields(&d),
+		DefinitionName:    d.DefinitionNamePtr(),
 	}
+}
+
+// maskConfigFields returns the response form of an indexer's contract values:
+// an empty object on the legacy path, or a copy with every password field
+// masked to "" (matching the has_api_key convention: secrets are never
+// echoed).
+func maskConfigFields(d *indexers.Definition) map[string]any {
+	out := map[string]any{}
+	if len(d.ConfigFields) == 0 {
+		return out
+	}
+	contract := (*indexerdefinitions.Definition)(nil)
+	if d.DefinitionName != "" {
+		contract = indexerdefinitions.Default().ResolveDefinition(d.DefinitionName)
+	}
+	return indexerdefinitions.MaskSecrets(contract, d.ConfigFields)
 }
 
 // parseCategories pulls the indexer's category badges out of its settings_json
@@ -251,6 +285,13 @@ type indexerWriteRequest struct {
 	RSS               *bool `json:"rss,omitempty"`
 	AutoSearch        *bool `json:"auto_search,omitempty"`
 	InteractiveSearch *bool `json:"interactive_search,omitempty"`
+	// Prowlarr PR2 config-contract fields. When ConfigFields is present it
+	// must validate against the named definition's contract (DefinitionName
+	// identifies the library definition by id or display name). The form's
+	// base_url is authoritative for the stored base_url column and is
+	// mirrored into the contract's baseurl value for adapter parity.
+	ConfigFields   *map[string]any `json:"config_fields,omitempty"`
+	DefinitionName string          `json:"definition_name,omitempty"`
 }
 
 // indexerUpdateRequest is the body for PUT /api/v1/indexers/{id}. An empty
@@ -270,6 +311,12 @@ type indexerUpdateRequest struct {
 	RSS               *bool `json:"rss,omitempty"`
 	AutoSearch        *bool `json:"auto_search,omitempty"`
 	InteractiveSearch *bool `json:"interactive_search,omitempty"`
+	// Prowlarr PR2 config-contract fields (same semantics as on create). A
+	// nil ConfigFields keeps the stored contract untouched; an empty/absent
+	// password value keeps the stored value (masked-edit round-trip).
+	// DefinitionName omitted = the stored name.
+	ConfigFields   *map[string]any `json:"config_fields,omitempty"`
+	DefinitionName string          `json:"definition_name,omitempty"`
 }
 
 // indexerEnabledRequest is the body for PATCH /api/v1/indexers/{id}/enabled.
@@ -294,6 +341,79 @@ func validateIndexerDef(name, kind string, reg *indexers.Registry) string {
 		}
 	}
 	return ""
+}
+
+// resolveConfigFields implements the Prowlarr PR2 config-contract write path
+// shared by create and update:
+//   - nil reqFields is the legacy path: stored values (if any) pass through
+//     untouched, else nothing is stored;
+//   - present reqFields must name a known library definition (by id or
+//     display name; on update an omitted name falls back to the stored one),
+//     and validate against its contract (definitions.Resolve);
+//   - the form's base_url is authoritative for the stored base_url column and
+//     is mirrored into the contract's baseurl value so config_fields is
+//     self-contained for future adapters (PR6);
+//   - on update an empty/absent password value keeps the stored value
+//     (masked-edit round-trip, same convention as the legacy api_key).
+//
+// All returned errors are 400-level contract violations (or a missing
+// definition name); the caller maps them straight to a 400.
+func (s *Server) resolveConfigFields(reqFields *map[string]any, reqDefName, reqBaseURL string, existing *indexers.Definition) (map[string]any, string, error) {
+	if reqFields == nil {
+		if existing != nil {
+			return existing.ConfigFields, existing.DefinitionName, nil
+		}
+		return nil, "", nil
+	}
+	name := reqDefName
+	if name == "" && existing != nil {
+		name = existing.DefinitionName
+	}
+	if name == "" {
+		return nil, "", errors.New("definition_name is required when config_fields is provided")
+	}
+	contract := indexerdefinitions.Default().ResolveDefinition(name)
+	if contract == nil {
+		return nil, "", fmt.Errorf("unknown definition %q", name)
+	}
+	values := make(map[string]any, len(*reqFields))
+	for k, v := range *reqFields {
+		values[k] = v
+	}
+	if contract.Field("baseurl") != nil {
+		effective := reqBaseURL
+		if effective == "" && existing != nil {
+			if stored, ok := existing.ConfigFields["baseurl"].(string); ok {
+				effective = stored
+			}
+			if effective == "" {
+				effective = existing.BaseURL
+			}
+		}
+		values["baseurl"] = effective
+	}
+	if existing != nil {
+		for _, secret := range contract.SecretFieldNames() {
+			keep := false
+			if v, ok := values[secret]; !ok {
+				keep = true
+			} else if str, isStr := v.(string); isStr && str == "" {
+				keep = true
+			}
+			if keep {
+				if stored, ok := existing.ConfigFields[secret]; ok {
+					values[secret] = stored
+				}
+			}
+		}
+	}
+	resolved, err := indexerdefinitions.Resolve(contract, values)
+	if err != nil {
+		return nil, "", err
+	}
+	// Store the canonical Cardigann id regardless of whether the client sent
+	// an id or a display name.
+	return resolved, contract.ID, nil
 }
 
 // CreateIndexer handles POST /api/v1/indexers. A duplicate name is a 409
@@ -326,6 +446,14 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 	}
 	settingsJSON := indexers.WithIndexerToggles(req.Settings, toggles)
 	name := strings.TrimSpace(req.Name)
+	// Prowlarr PR2: resolve the config-contract values (nil on the legacy
+	// path) against the named definition's contract before anything is
+	// stored.
+	configFields, defName, err := s.resolveConfigFields(req.ConfigFields, req.DefinitionName, req.BaseURL, nil)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	// Prowlarr PR1 hub fields (zero/empty = wire default).
 	privacy := req.Privacy
 	if privacy == "" {
@@ -340,15 +468,17 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 		priority = 25
 	}
 	id, err := s.indexersDeps.Repo.Create(r.Context(), indexers.Definition{
-		Name:         name,
-		Kind:         req.Kind,
-		BaseURL:      req.BaseURL,
-		APIKey:       req.APIKey,
-		SettingsJSON: settingsJSON,
-		Enabled:      enabled,
-		Privacy:      privacy,
-		Priority:     priority,
-		SyncProfile:  syncProfile,
+		Name:           name,
+		Kind:           req.Kind,
+		BaseURL:        req.BaseURL,
+		APIKey:         req.APIKey,
+		SettingsJSON:   settingsJSON,
+		Enabled:        enabled,
+		Privacy:        privacy,
+		Priority:       priority,
+		SyncProfile:    syncProfile,
+		DefinitionName: defName,
+		ConfigFields:   configFields,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -360,14 +490,19 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 	}
 	// No read-back: we know every field. A fresh create has no last_test.
 	writeJSON(w, http.StatusCreated, defToJSON(indexers.Definition{
-		ID: id, Name: name, Kind: req.Kind, BaseURL: req.BaseURL,
-		APIKey:       req.APIKey,
-		SettingsJSON: settingsJSON,
-		Enabled:      enabled,
-		Privacy:      privacy,
-		Priority:     priority,
-		SyncProfile:  syncProfile,
-		Added:        time.Now().UTC(),
+		ID:             id,
+		Name:           name,
+		Kind:           req.Kind,
+		BaseURL:        req.BaseURL,
+		APIKey:         req.APIKey,
+		SettingsJSON:   settingsJSON,
+		Enabled:        enabled,
+		Privacy:        privacy,
+		Priority:       priority,
+		SyncProfile:    syncProfile,
+		Added:          time.Now().UTC(),
+		DefinitionName: defName,
+		ConfigFields:   configFields,
 	}))
 }
 
@@ -428,19 +563,28 @@ func (s *Server) UpdateIndexer(w http.ResponseWriter, r *http.Request) {
 	if req.Priority != nil {
 		priority = *req.Priority
 	}
+	// Prowlarr PR2: resolve the config-contract values against the named
+	// definition's contract (a nil req.ConfigFields keeps the stored values).
+	configFields, defName, err := s.resolveConfigFields(req.ConfigFields, req.DefinitionName, req.BaseURL, existing)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	def := indexers.Definition{
-		ID:           id,
-		Name:         strings.TrimSpace(req.Name),
-		Kind:         req.Kind,
-		BaseURL:      req.BaseURL,
-		APIKey:       apiKey,
-		SettingsJSON: settingsJSON,
-		Enabled:      existing.Enabled,
-		LastTest:     existing.LastTest,
-		Privacy:      privacy,
-		Priority:     priority,
-		SyncProfile:  syncProfile,
-		Added:        existing.Added,
+		ID:             id,
+		Name:           strings.TrimSpace(req.Name),
+		Kind:           req.Kind,
+		BaseURL:        req.BaseURL,
+		APIKey:         apiKey,
+		SettingsJSON:   settingsJSON,
+		Enabled:        existing.Enabled,
+		LastTest:       existing.LastTest,
+		Privacy:        privacy,
+		Priority:       priority,
+		SyncProfile:    syncProfile,
+		Added:          existing.Added,
+		DefinitionName: defName,
+		ConfigFields:   configFields,
 	}
 	if err := s.indexersDeps.Repo.Update(r.Context(), def); err != nil {
 		if isUniqueViolation(err) {
