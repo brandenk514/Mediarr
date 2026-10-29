@@ -9,10 +9,10 @@ import (
 // written once per attempted indexer by POST /api/v1/search, including failed
 // indexers (a failure still leaves a row so the history reflects the attempt).
 type QueryLog struct {
-	ID        int64
-	IndexerID *int64 // nil when the indexer could not be built (no resolved id)
-	Indexer   string // indexer name ("" for a failed build)
-	Term      string
+	ID         int64
+	IndexerID  *int64 // nil when the indexer could not be built (no resolved id)
+	Indexer    string // indexer name ("" for a failed build)
+	Term       string
 	Categories []string
 	OK         bool
 	ElapsedMS  int64

@@ -351,8 +351,8 @@ type indexerSeriesJSON struct {
 }
 
 type statsSeriesJSON struct {
-	Queries   []dayBucketJSON   `json:"queries"`
-	Grabs     []dayBucketJSON   `json:"grabs"`
+	Queries   []dayBucketJSON     `json:"queries"`
+	Grabs     []dayBucketJSON     `json:"grabs"`
 	ByIndexer []indexerSeriesJSON `json:"by_indexer"`
 }
 

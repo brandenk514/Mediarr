@@ -212,4 +212,3 @@ func (r *SearchActivityRepo) DailyCounts(ctx context.Context, since time.Time) (
 	}
 	return out, nil
 }
-
