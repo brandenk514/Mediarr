@@ -611,6 +611,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/music/unmapped": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List audio files not mapped to a monitored artist (Lidarr "Unmapped Files", L5).
+         * @description Read-only walk of the configured music media root (Lidarr's "Unmapped Files" page): lists the audio files that are NOT mapped to a monitored artist, with the columns Path, Size, Date Added and Quality. A file under a folder named after a monitored artist is considered mapped and excluded; files in any other folder, or loose directly under the root, are unmapped. The walk is bounded to the configured media root and performs no moves or deletions.
+         */
+        get: operations["listMusicUnmappedFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/music/library/summary": {
         parameters: {
             query?: never;
@@ -2678,6 +2698,23 @@ export interface components {
             /** Format: date-time */
             At: string;
         };
+        /** @description An audio file under a music root that is not mapped to a monitored artist (Lidarr "Unmapped Files", L5). */
+        UnmappedFile: {
+            /** @description Absolute filesystem path to the file. */
+            path: string;
+            /**
+             * Format: int64
+             * @description File size in bytes.
+             */
+            size: number;
+            /**
+             * Format: date-time
+             * @description The file's modification time (when it landed on disk).
+             */
+            date_added: string;
+            /** @description Codec inferred from the file extension (e.g. FLAC, MP3); empty when unknown. */
+            quality: string;
+        };
         MusicLibrarySummary: {
             /** Format: int64 */
             artists: number;
@@ -4018,16 +4055,17 @@ export interface components {
             tags?: boolean;
             indexers?: boolean;
             download_client?: boolean;
+            root_folders?: boolean;
         };
         MigrationRequest: {
             /** @description Base URL of the source instance (e.g. http://sonarr.local:8989 or https://radarr.local:7878). */
             source_url: string;
             /**
-             * @description The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance).
+             * @description The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance; Lidarr L5: 'lidarr' pulls artists + albums from a live Lidarr v6 instance).
              * @default sonarr
              * @enum {string}
              */
-            source: "sonarr" | "radarr";
+            source: "sonarr" | "radarr" | "lidarr";
             /** @description Source API key (sent as X-Api-Key). */
             api_key?: string;
             /** @description Report only; add nothing. */
@@ -5333,6 +5371,46 @@ export interface operations {
                 };
             };
             /** @description Bad request (missing root, not a directory, unconfigured root-folder registry, invalid JSON). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The root folder does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
+        };
+    };
+    listMusicUnmappedFiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unmapped files (an empty list when nothing is unmapped). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnmappedFile"][];
+                };
+            };
+            /** @description Bad request (root is not a directory). */
             400: {
                 headers: {
                     [name: string]: unknown;

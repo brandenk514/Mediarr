@@ -1110,6 +1110,44 @@ paths:
                 $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/music/unmapped:
+    get:
+      tags: [music]
+      summary: List audio files not mapped to a monitored artist (Lidarr "Unmapped Files", L5).
+      operationId: listMusicUnmappedFiles
+      description: >-
+        Read-only walk of the configured music media root (Lidarr's
+        "Unmapped Files" page): lists the audio files that are NOT mapped to a
+        monitored artist, with the columns Path, Size, Date Added and Quality.
+        A file under a folder named after a monitored artist is considered
+        mapped and excluded; files in any other folder, or loose directly
+        under the root, are unmapped. The walk is bounded to the configured
+        media root and performs no moves or deletions.
+      responses:
+        "200":
+          description: The unmapped files (an empty list when nothing is unmapped).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UnmappedFile"
+        "400":
+          description: Bad request (root is not a directory).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The root folder does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/music/library/summary:
     get:
       tags: [music]
@@ -4548,6 +4586,25 @@ components:
         At:
           type: string
           format: date-time
+    UnmappedFile:
+      type: object
+      required: [path, size, date_added, quality]
+      description: An audio file under a music root that is not mapped to a monitored artist (Lidarr "Unmapped Files", L5).
+      properties:
+        path:
+          type: string
+          description: Absolute filesystem path to the file.
+        size:
+          type: integer
+          format: int64
+          description: File size in bytes.
+        date_added:
+          type: string
+          format: date-time
+          description: The file's modification time (when it landed on disk).
+        quality:
+          type: string
+          description: Codec inferred from the file extension (e.g. FLAC, MP3); empty when unknown.
     MusicLibrarySummary:
       type: object
       required: [artists, inactive, continuing, monitored, unmonitored, tracks, files, total_file_size]
@@ -6797,6 +6854,8 @@ components:
           type: boolean
         download_client:
           type: boolean
+        root_folders:
+          type: boolean
     MigrationRequest:
       type: object
       required: [source_url, dry_run]
@@ -6806,9 +6865,9 @@ components:
           description: Base URL of the source instance (e.g. http://sonarr.local:8989 or https://radarr.local:7878).
         source:
           type: string
-          enum: [sonarr, radarr]
+          enum: [sonarr, radarr, lidarr]
           default: sonarr
-          description: "The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance)."
+          description: "The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance; Lidarr L5: 'lidarr' pulls artists + albums from a live Lidarr v6 instance)."
         api_key:
           type: string
           description: Source API key (sent as X-Api-Key).

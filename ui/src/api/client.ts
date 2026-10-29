@@ -45,6 +45,7 @@ import type {
   MovieWanted,
   MusicHistoryEntry,
   MusicLibrarySummary,
+  UnmappedFile,
   PageArtist,
   PageAuthor,
   PageMovie,
@@ -277,6 +278,9 @@ export const client = {
   // footer status bar).
   getArtistHistory: (id: number) => request<MusicHistoryEntry[]>('GET', `/music/artists/${id}/history`),
   getMusicLibrarySummary: () => request<MusicLibrarySummary>('GET', '/music/library/summary'),
+  // Lidarr L5: the Unmapped Files page (read-only walk of the configured
+  // music media root).
+  listUnmappedFiles: () => request<UnmappedFile[]>('GET', '/music/unmapped'),
 
   // ---- books ----
   listAuthors: (q?: ListQuery) => request<PageAuthor>('GET', `/books/authors${buildListQuery(q)}`),

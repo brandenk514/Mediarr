@@ -29,6 +29,7 @@ const ALL_INCLUDE = {
   tags: true,
   indexers: true,
   download_client: true,
+  root_folders: true,
 }
 
 const RESULT = {

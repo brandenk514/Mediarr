@@ -444,6 +444,33 @@ func scanArtistDir(dir string) (files int, size int64) {
 	return files, size
 }
 
+// MediaRoot returns the configured music media root (the default scan root
+// for the unmapped-files endpoint when no explicit root is given).
+func (s *Service) MediaRoot() string {
+	return s.deps.MediaRoot
+}
+
+// ListUnmappedFiles (L5, the Lidarr "Unmapped Files" page) lists the audio
+// files under root that are not mapped to a monitored artist. It loads the
+// tracked artists, collects the monitored names, and delegates the filesystem
+// walk to the pure domain scan (dom.ScanUnmappedFiles).
+func (s *Service) ListUnmappedFiles(ctx context.Context, root string) ([]dom.UnmappedFile, error) {
+	if strings.TrimSpace(root) == "" {
+		return nil, fmt.Errorf("music: unmapped files: root folder path is required")
+	}
+	artists, err := s.deps.Repo.ListArtists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	monitored := map[string]bool{}
+	for _, a := range artists {
+		if a.Monitored {
+			monitored[a.Name] = true
+		}
+	}
+	return dom.ScanUnmappedFiles(root, monitored)
+}
+
 // resolveMonitored resolves the album's monitored flag: an explicit
 // request wins; otherwise the artist's monitor policy (L2) decides.
 // first/last compare the release year against the artist's known albums

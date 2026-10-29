@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/paging"
@@ -55,6 +56,7 @@ func (s *Server) SetMusic(deps *MusicDeps) {
 	s.register("POST /api/v1/music/artists/{id}/pipeline", s.requireAuth(s.RunMusicPipeline))
 	s.register("POST /api/v1/music/artists/{id}/refresh", s.requireAuth(s.RefreshArtist))
 	s.register("POST /api/v1/music/import", s.requireAuth(s.ImportMusicLibrary))
+	s.register("GET /api/v1/music/unmapped", s.requireAuth(s.ListMusicUnmappedFiles))
 }
 
 // addArtistRequest is the body for POST /api/v1/music. Monitored is a pointer
@@ -301,6 +303,34 @@ func (s *Server) ImportMusicLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+// ListMusicUnmappedFiles handles GET /api/v1/music/unmapped (L5, the Lidarr
+// "Unmapped Files" page): it lists the audio files under the music media root
+// that are not mapped to a monitored artist/album (Path / Size / Date Added /
+// Quality). The walk is bounded to the configured media root (a trusted
+// config value, not client input) so the endpoint cannot be turned into an
+// arbitrary directory listing.
+func (s *Server) ListMusicUnmappedFiles(w http.ResponseWriter, r *http.Request) {
+	root := strings.TrimSpace(s.musicDeps.Svc.MediaRoot())
+	if root == "" {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	// Map filesystem problems to a clean 404/400 before the scan.
+	if fi, err := os.Stat(root); err != nil {
+		writeError(w, http.StatusNotFound, "root folder not found")
+		return
+	} else if !fi.IsDir() {
+		writeError(w, http.StatusBadRequest, "root folder is not a directory")
+		return
+	}
+	files, err := s.musicDeps.Svc.ListUnmappedFiles(r.Context(), root)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, files)
 }
 
 // ListAlbums handles GET /api/v1/music/{id}/albums.

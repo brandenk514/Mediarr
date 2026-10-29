@@ -517,7 +517,8 @@ func (r *recordingRunner) Status() MigrationStatus { return MigrationStatus{Stat
 func TestMigrationServiceRoutesBySource(t *testing.T) {
 	sonarr := &recordingRunner{name: "sonarr"}
 	radarr := &recordingRunner{name: "radarr"}
-	svc := NewMigrationService(sonarr, radarr)
+	lidarr := &recordingRunner{name: "lidarr"}
+	svc := NewMigrationService(sonarr, radarr, lidarr)
 
 	// Explicit radarr routes to the Radarr runner.
 	if _, err := svc.Run(context.Background(), MigrationRequest{SourceURL: "http://r", Source: "radarr"}); err != nil {
@@ -526,6 +527,13 @@ func TestMigrationServiceRoutesBySource(t *testing.T) {
 	if radarr.result == nil {
 		t.Fatal("radarr runner not invoked")
 	}
+	// Lidarr routes to the Lidarr runner (L5).
+	if _, err := svc.Run(context.Background(), MigrationRequest{SourceURL: "http://l", Source: "lidarr"}); err != nil {
+		t.Fatalf("lidarr run: %v", err)
+	}
+	if lidarr.result == nil {
+		t.Fatal("lidarr runner not invoked")
+	}
 	// Empty source defaults to Sonarr (existing Sonarr requests unchanged).
 	if _, err := svc.Run(context.Background(), MigrationRequest{SourceURL: "http://s"}); err != nil {
 		t.Fatalf("sonarr run: %v", err)
@@ -533,16 +541,17 @@ func TestMigrationServiceRoutesBySource(t *testing.T) {
 	if sonarr.result == nil {
 		t.Fatal("sonarr runner not invoked")
 	}
-	// An unknown source is a validation error (400 at the API).
-	_, err := svc.Run(context.Background(), MigrationRequest{SourceURL: "http://x", Source: "lidarr"})
+	// A truly unknown source is a validation error (400 at the API).
+	_, err := svc.Run(context.Background(), MigrationRequest{SourceURL: "http://x", Source: "banana"})
 	if err == nil {
 		t.Fatal("expected an error for an unknown source")
 	}
 	if !strings.HasPrefix(err.Error(), "migration:") {
 		t.Errorf("unknown-source error %q should be a validation error", err.Error())
 	}
-	// A nil runner answers a validation error, not a panic.
-	onlySonarr := NewMigrationService(sonarr, nil)
+	// A nil runner for a recognized source answers a validation error, not a
+	// panic (a source selected but not wired).
+	onlySonarr := NewMigrationService(sonarr, nil, nil)
 	if _, err := onlySonarr.Run(context.Background(), MigrationRequest{SourceURL: "http://r", Source: "radarr"}); err == nil {
 		t.Fatal("expected an error for an unwired source")
 	}
