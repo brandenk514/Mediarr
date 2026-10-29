@@ -91,14 +91,14 @@ func (w *HealthWorker) Run(ctx context.Context) error {
 	}
 }
 
-// TestAll probes every enabled indexer concurrently and records each outcome.
-// It returns an error only on a hard sweep failure (the definition list could
-// not be loaded); per-indexer failures are captured in the rollup, not
-// propagated — one bad indexer must not take the sweep down.
-func (w *HealthWorker) TestAll(ctx context.Context) error {
+// TestAllResults probes every enabled indexer concurrently and returns the
+// per-indexer outcomes. It is the "Test All Indexers" capability the Prowlarr
+// PR1 hub toolbar drives (#34 on-demand, fan-out over every enabled definition).
+// It records each outcome to the shared tracker exactly like a periodic sweep.
+func (w *HealthWorker) TestAllResults(ctx context.Context) ([]TestResult, error) {
 	defs, err := w.repo.ListEnabled(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	results := make([]TestResult, len(defs))
 	var wg sync.WaitGroup
@@ -113,7 +113,17 @@ func (w *HealthWorker) TestAll(ctx context.Context) error {
 	for _, r := range results {
 		w.log.Debug("indexer health probe", "name", r.Name, "ok", r.OK, "duration", r.Duration)
 	}
-	return nil
+	return results, nil
+}
+
+// TestAll probes every enabled indexer concurrently and records each outcome.
+// It returns an error only on a hard sweep failure (the definition list could
+// not be loaded); per-indexer failures are captured in the rollup, not
+// propagated — one bad indexer must not take the sweep down. It is the
+// periodic-loop wrapper over TestAllResults.
+func (w *HealthWorker) TestAll(ctx context.Context) error {
+	_, err := w.TestAllResults(ctx)
+	return err
 }
 
 // TestOne probes a single indexer by id. It loads the definition regardless of

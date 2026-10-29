@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -34,6 +35,7 @@ type IndexersDeps struct {
 func (s *Server) SetIndexers(deps *IndexersDeps) {
 	s.indexersDeps = deps
 	s.register("GET /api/v1/indexers", s.requireAuth(s.ListIndexers))
+	s.register("POST /api/v1/indexers/test-all", s.requireAuth(s.TestAllIndexers))
 	s.register("POST /api/v1/indexers/{id}/test", s.requireAuth(s.TestIndexer))
 	s.register("GET /api/v1/indexers/{id}/stats", s.requireAuth(s.IndexerStats))
 	if deps.Admin != nil {
@@ -58,10 +60,28 @@ type indexerJSON struct {
 	RSS               bool       `json:"rss"`
 	AutoSearch        bool       `json:"auto_search"`
 	InteractiveSearch bool       `json:"interactive_search"`
+	// Prowlarr PR1 indexer-hub list columns.
+	Privacy     string    `json:"privacy"`
+	Priority    int       `json:"priority"`
+	SyncProfile string    `json:"sync_profile"`
+	Added       time.Time `json:"added"`
+	Categories  []string  `json:"categories"`
 }
 
 func defToJSON(d indexers.Definition) indexerJSON {
 	t := indexers.ParseIndexerSettings(d.SettingsJSON)
+	privacy := d.Privacy
+	if privacy == "" {
+		privacy = "public"
+	}
+	syncProfile := d.SyncProfile
+	if syncProfile == "" {
+		syncProfile = "standard"
+	}
+	priority := d.Priority
+	if priority == 0 {
+		priority = 25
+	}
 	return indexerJSON{
 		ID:                d.ID,
 		Name:              d.Name,
@@ -73,7 +93,49 @@ func defToJSON(d indexers.Definition) indexerJSON {
 		RSS:               t.RSS,
 		AutoSearch:        t.AutoSearch,
 		InteractiveSearch: t.InteractiveSearch,
+		Privacy:           privacy,
+		Priority:          priority,
+		SyncProfile:       syncProfile,
+		Added:             d.Added,
+		Categories:        parseCategories(d.SettingsJSON),
 	}
+}
+
+// parseCategories pulls the indexer's category badges out of its settings_json
+// bag (PR1 list parity: "category badges"). The bag may carry categories as a
+// JSON array of strings or a comma-separated string; a missing/empty value
+// yields an empty slice (the UI renders a dash).
+func parseCategories(raw string) []string {
+	if raw == "" {
+		return []string{}
+	}
+	var bag map[string]any
+	if err := json.Unmarshal([]byte(raw), &bag); err != nil {
+		return []string{}
+	}
+	v, ok := bag["categories"]
+	if !ok {
+		return []string{}
+	}
+	switch c := v.(type) {
+	case string:
+		out := []string{}
+		for _, p := range strings.Split(c, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				out = append(out, p)
+			}
+		}
+		return out
+	case []any:
+		out := []string{}
+		for _, e := range c {
+			if s, ok := e.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return []string{}
 }
 
 // ListIndexers handles GET /api/v1/indexers: every configured indexer.
@@ -109,6 +171,20 @@ func (s *Server) TestIndexer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// TestAllIndexers handles POST /api/v1/indexers/test-all: the "Test All
+// Indexers" toolbar action (Prowlarr PR1). It fans out a health probe over
+// every enabled indexer through the shared worker and returns the per-indexer
+// outcomes. A per-indexer failure is a 200 with ok=false for that indexer; only
+// a hard failure to load the definition list is an HTTP error.
+func (s *Server) TestAllIndexers(w http.ResponseWriter, r *http.Request) {
+	results, err := s.indexersDeps.Worker.TestAllResults(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
 }
 
 // statsJSON is the wire shape of a per-indexer health rollup.
@@ -167,6 +243,10 @@ type indexerWriteRequest struct {
 	APIKey   string `json:"api_key"`
 	Settings string `json:"settings_json,omitempty"`
 	Enabled  *bool  `json:"enabled,omitempty"`
+	// Prowlarr PR1 hub fields (zero/empty = wire default).
+	Privacy     string `json:"privacy"`
+	Priority    int    `json:"priority"`
+	SyncProfile string `json:"sync_profile"`
 	// Radarr R5a per-indexer toggles; nil = default true.
 	RSS               *bool `json:"rss,omitempty"`
 	AutoSearch        *bool `json:"auto_search,omitempty"`
@@ -182,6 +262,10 @@ type indexerUpdateRequest struct {
 	BaseURL  string `json:"base_url"`
 	APIKey   string `json:"api_key"`
 	Settings string `json:"settings_json,omitempty"`
+	// Prowlarr PR1 hub fields; nil = keep the stored value.
+	Privacy     *string `json:"privacy,omitempty"`
+	Priority    *int    `json:"priority,omitempty"`
+	SyncProfile *string `json:"sync_profile,omitempty"`
 	// Radarr R5a per-indexer toggles; nil = keep the stored value.
 	RSS               *bool `json:"rss,omitempty"`
 	AutoSearch        *bool `json:"auto_search,omitempty"`
@@ -242,6 +326,19 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 	}
 	settingsJSON := indexers.WithIndexerToggles(req.Settings, toggles)
 	name := strings.TrimSpace(req.Name)
+	// Prowlarr PR1 hub fields (zero/empty = wire default).
+	privacy := req.Privacy
+	if privacy == "" {
+		privacy = "public"
+	}
+	syncProfile := req.SyncProfile
+	if syncProfile == "" {
+		syncProfile = "standard"
+	}
+	priority := req.Priority
+	if priority == 0 {
+		priority = 25
+	}
 	id, err := s.indexersDeps.Repo.Create(r.Context(), indexers.Definition{
 		Name:         name,
 		Kind:         req.Kind,
@@ -249,6 +346,9 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 		APIKey:       req.APIKey,
 		SettingsJSON: settingsJSON,
 		Enabled:      enabled,
+		Privacy:      privacy,
+		Priority:     priority,
+		SyncProfile:  syncProfile,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -264,6 +364,10 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 		APIKey:       req.APIKey,
 		SettingsJSON: settingsJSON,
 		Enabled:      enabled,
+		Privacy:      privacy,
+		Priority:     priority,
+		SyncProfile:  syncProfile,
+		Added:        time.Now().UTC(),
 	}))
 }
 
@@ -311,6 +415,19 @@ func (s *Server) UpdateIndexer(w http.ResponseWriter, r *http.Request) {
 		toggles.InteractiveSearch = *req.InteractiveSearch
 	}
 	settingsJSON := indexers.WithIndexerToggles(baseSettings, toggles)
+	// Prowlarr PR1 hub fields: omitted (nil) keeps the stored value.
+	privacy := existing.Privacy
+	if req.Privacy != nil {
+		privacy = *req.Privacy
+	}
+	syncProfile := existing.SyncProfile
+	if req.SyncProfile != nil {
+		syncProfile = *req.SyncProfile
+	}
+	priority := existing.Priority
+	if req.Priority != nil {
+		priority = *req.Priority
+	}
 	def := indexers.Definition{
 		ID:           id,
 		Name:         strings.TrimSpace(req.Name),
@@ -320,6 +437,10 @@ func (s *Server) UpdateIndexer(w http.ResponseWriter, r *http.Request) {
 		SettingsJSON: settingsJSON,
 		Enabled:      existing.Enabled,
 		LastTest:     existing.LastTest,
+		Privacy:      privacy,
+		Priority:     priority,
+		SyncProfile:  syncProfile,
+		Added:        existing.Added,
 	}
 	if err := s.indexersDeps.Repo.Update(r.Context(), def); err != nil {
 		if isUniqueViolation(err) {

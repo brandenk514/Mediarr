@@ -2552,3 +2552,176 @@ button.danger:hover {
   color: var(--accent);
   cursor: pointer;
 }
+
+
+/* ---- Prowlarr PR1: Indexer hub (first-class list page) ----
+   Column widths are set inline from the visible-column set (the Options
+   toolbar toggles which columns render); the base classes carry the shared
+   grid layout + row styling. */
+.idx-hub-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: start;
+}
+.idx-hub-table {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  min-width: 0;
+}
+.idx-hub-head,
+.idx-hub-row {
+  display: grid;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.idx-hub-head {
+  color: var(--dim);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--panel-2);
+}
+.idx-hub-row:last-child {
+  border-bottom: none;
+}
+.idx-hub-row:hover,
+.idx-hub-row.sel {
+  background: var(--panel-2);
+}
+.idx-hub-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.idx-hub-actions {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.idx-sel {
+  accent-color: var(--accent);
+}
+.idx-bulkbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--dim);
+}
+
+/* Row status glyph (enabled / enabled+redirected / disabled / error). */
+.idx-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.idx-status .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+.idx-status.st-enabled .dot { background: #4ade80; }
+.idx-status.st-enabled .lbl { color: #4ade80; }
+.idx-status.st-redirect .dot { background: #60a5fa; }
+.idx-status.st-redirect .lbl { color: #60a5fa; }
+.idx-status.st-disabled .dot { background: #6b7280; }
+.idx-status.st-disabled .lbl { color: var(--dim); }
+.idx-status.st-error .dot { background: #f87171; }
+.idx-status.st-error .lbl { color: #f87171; }
+
+/* Protocol pill (green) + privacy pill (red-ish). */
+.idx-prot {
+  display: inline-block;
+  padding: 0.14rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(74, 222, 128, 0.14);
+  color: #4ade80;
+}
+.idx-priv {
+  display: inline-block;
+  padding: 0.14rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.idx-priv-public { background: rgba(248, 113, 113, 0.14); color: #f87171; }
+.idx-priv-private { background: rgba(248, 113, 113, 0.16); color: #fca5a5; }
+.idx-priv-semi { background: rgba(251, 191, 36, 0.14); color: #fbbf24; }
+
+/* Category badges. */
+.idx-cat {
+  display: inline-block;
+  padding: 0.08rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  background: var(--panel-2);
+  color: var(--dim);
+  border: 1px solid var(--border);
+  margin-right: 0.3rem;
+}
+
+/* A-Z jump (PR1: # + A-Z) — reuses the az-jump look, adds an active state. */
+.idx-az { max-width: 74px; }
+.idx-az button.active { background: var(--accent); color: #fff; }
+
+/* Bottom summary panel: color legend + counters. */
+.idx-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.4rem;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem 1rem;
+  margin-top: 0.75rem;
+  font-size: 0.82rem;
+}
+.idx-summary .legend { display: inline-flex; align-items: center; gap: 0.35rem; }
+.idx-summary .legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.idx-summary .sep { color: var(--border); }
+.idx-summary b { color: var(--text); }
+.idx-summary .lg-enabled .dot { background: #4ade80; }
+.idx-summary .lg-redirect .dot { background: #60a5fa; }
+.idx-summary .lg-disabled .dot { background: #6b7280; }
+.idx-summary .lg-error .dot { background: #f87171; }
+
+/* Options (column visibility) popover. */
+.idx-colmenu { position: relative; display: inline-block; }
+.idx-colmenu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+  min-width: 176px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.idx-colmenu-panel label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.3rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}

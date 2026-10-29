@@ -116,6 +116,18 @@ export const DASHBOARD_SECTION: SharedSection = {
   sub: [],
 }
 
+// Prowlarr PR1: Indexers is a first-class hub (the list IS the page), reachable
+// from the rail for every kind. Its home is /indexers; the only PR1 sub-item is
+// a Stats stub (the real stats page lands in PR3).
+export const INDEXERS_SECTION: SharedSection = {
+  id: 'indexers',
+  label: 'Indexers',
+  icon: '🧲',
+  to: '/indexers',
+  base: '/indexers',
+  sub: [{ to: '/indexers/stats', label: 'Stats' }],
+}
+
 export const SHARED_SECTIONS: SharedSection[] = [
   { id: 'calendar', label: 'Calendar', icon: '📅', to: '/calendar', base: '/calendar', sub: [] },
   {

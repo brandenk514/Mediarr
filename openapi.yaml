@@ -1691,6 +1691,28 @@ paths:
           $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/indexers/test-all:
+    post:
+      tags: [indexers]
+      summary: Health probe for every enabled indexer.
+      operationId: testAllIndexers
+      description: |
+        The "Test All Indexers" toolbar action (Prowlarr PR1). Fans out a probe
+        over every enabled indexer and returns the per-indexer outcomes. A
+        per-indexer failure is a 200 with ok false for that indexer.
+      responses:
+        "200":
+          description: One result per enabled indexer.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IndexerTestResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/indexers/{id}:
     put:
       tags: [indexers]
@@ -5283,7 +5305,7 @@ components:
           description: How many queue jobs were removed.
     Indexer:
       type: object
-      required: [id, name, kind, base_url, enabled, has_api_key, last_test, rss, auto_search, interactive_search]
+      required: [id, name, kind, base_url, enabled, has_api_key, last_test, rss, auto_search, interactive_search, privacy, priority, sync_profile, added, categories]
       properties:
         id:
           type: integer
@@ -5313,6 +5335,25 @@ components:
         interactive_search:
           type: boolean
           description: Interactive (manual) search for this indexer (Radarr R5a per-indexer toggle).
+        privacy:
+          type: string
+          enum: [public, private, semi-private]
+          description: Visibility (Prowlarr PR1 hub column).
+        priority:
+          type: integer
+          description: Search-ordering weight (Prowlarr PR1 hub column).
+        sync_profile:
+          type: string
+          description: Synchronization profile name (Prowlarr PR1 hub column).
+        added:
+          type: string
+          format: date-time
+          description: Created time (Prowlarr PR1 hub column).
+        categories:
+          type: array
+          items:
+            type: string
+          description: Category badges from the indexer's settings (PR1 hub column; empty when none).
     IndexerCreate:
       type: object
       required: [name, kind]
@@ -5342,6 +5383,16 @@ components:
         interactive_search:
           type: boolean
           description: Interactive search for this indexer (Radarr R5a). Omitted = true.
+        privacy:
+          type: string
+          enum: [public, private, semi-private]
+          description: Omitted = public.
+        priority:
+          type: integer
+          description: Omitted = 25.
+        sync_profile:
+          type: string
+          description: Omitted = standard.
     IndexerUpdate:
       type: object
       required: [name, kind]
@@ -5368,6 +5419,16 @@ components:
         interactive_search:
           type: boolean
           description: Omitted = keep the stored value (Radarr R5a).
+        privacy:
+          type: string
+          enum: [public, private, semi-private]
+          description: Omitted = keep the stored value.
+        priority:
+          type: integer
+          description: Omitted = keep the stored value.
+        sync_profile:
+          type: string
+          description: Omitted = keep the stored value.
     IndexerEnabled:
       type: object
       required: [enabled]

@@ -29,7 +29,7 @@ func NewIndexersRepo(db *sql.DB, vault *secrets.Vault) *IndexersRepo {
 
 var _ indexers.IndexerRepo = (*IndexersRepo)(nil)
 
-const indexerColumns = `id, name, kind, base_url, api_key_encrypted, settings_json, enabled, last_test`
+const indexerColumns = `id, name, kind, base_url, api_key_encrypted, settings_json, enabled, last_test, privacy, priority, sync_profile, added`
 
 // encryptKey stores the ciphertext for a plaintext key, or NULL for an empty
 // key (keyless indexers). An empty plaintext never round-trips through the
@@ -65,7 +65,8 @@ func (r *IndexersRepo) scanIndexer(row interface {
 	var key *string
 	var lastTest *time.Time
 	err := row.Scan(&def.ID, &def.Name, &def.Kind, &def.BaseURL, &key,
-		&def.SettingsJSON, &def.Enabled, &lastTest)
+		&def.SettingsJSON, &def.Enabled, &lastTest,
+		&def.Privacy, &def.Priority, &def.SyncProfile, &def.Added)
 	if err != nil {
 		return nil, err
 	}
@@ -77,18 +78,39 @@ func (r *IndexersRepo) scanIndexer(row interface {
 	return &def, nil
 }
 
-// Create inserts a new indexer definition and returns its id.
+// Create inserts a new indexer definition and returns its id. The PR1 hub
+// fields (privacy / priority / sync_profile / added) fall back to the wire
+// defaults when the caller leaves them zero, so a create that omits them still
+// lands a row the hub can render.
 func (r *IndexersRepo) Create(ctx context.Context, def indexers.Definition) (int64, error) {
 	enc, err := r.encryptKey(def.APIKey)
 	if err != nil {
 		return 0, err
 	}
+	privacy := def.Privacy
+	if privacy == "" {
+		privacy = "public"
+	}
+	syncProfile := def.SyncProfile
+	if syncProfile == "" {
+		syncProfile = "standard"
+	}
+	priority := def.Priority
+	if priority == 0 {
+		priority = 25
+	}
+	added := def.Added
+	if added.IsZero() {
+		added = time.Now().UTC()
+	}
 	var id int64
 	err = r.db.QueryRowContext(ctx, `
-		INSERT INTO indexers (name, kind, base_url, api_key_encrypted, settings_json, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO indexers (name, kind, base_url, api_key_encrypted, settings_json, enabled,
+		                               privacy, priority, sync_profile, added)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id`,
 		def.Name, def.Kind, def.BaseURL, enc, def.SettingsJSON, def.Enabled,
+		privacy, priority, syncProfile, added,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("indexers: create %q: %w", def.Name, err)
@@ -157,7 +179,9 @@ func (r *IndexersRepo) listByQuery(ctx context.Context, query string) ([]indexer
 }
 
 // Update replaces a definition's mutable fields, re-encrypting the API key.
-// It updates by id and errors if no row matches.
+// It updates by id and errors if no row matches. The PR1 hub fields
+// (privacy / priority / sync_profile) are updated alongside the core fields;
+// `added` is immutable and is left untouched here.
 func (r *IndexersRepo) Update(ctx context.Context, def indexers.Definition) error {
 	enc, err := r.encryptKey(def.APIKey)
 	if err != nil {
@@ -166,9 +190,11 @@ func (r *IndexersRepo) Update(ctx context.Context, def indexers.Definition) erro
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE indexers
 		SET name = $2, kind = $3, base_url = $4, api_key_encrypted = $5,
-		    settings_json = $6, enabled = $7, updated_at = now()
+		    settings_json = $6, enabled = $7,
+		    privacy = $8, priority = $9, sync_profile = $10, updated_at = now()
 		WHERE id = $1`,
-		def.ID, def.Name, def.Kind, def.BaseURL, enc, def.SettingsJSON, def.Enabled)
+		def.ID, def.Name, def.Kind, def.BaseURL, enc, def.SettingsJSON, def.Enabled,
+		def.Privacy, def.Priority, def.SyncProfile)
 	if err != nil {
 		return fmt.Errorf("indexers: update %d: %w", def.ID, err)
 	}

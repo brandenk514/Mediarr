@@ -277,3 +277,60 @@ func TestIndexers_Stats_Shape(t *testing.T) {
 		t.Errorf("expected zero calls for uncalled indexer, got %v", zero["calls"])
 	}
 }
+
+// TestIndexers_List_HubFields is the Prowlarr PR1 contract: the list carries
+// the four hub columns (privacy / priority / sync_profile / added) with the
+// wire defaults for a definition that never set them.
+func TestIndexers_List_HubFields(t *testing.T) {
+	s, _, token, _ := newIndexersTestServer(t)
+	rec := doReq(t, s.Handler(), http.MethodGet, "/api/v1/indexers", token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var out []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("body is not a JSON array: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("expected 2 indexers, got %d", len(out))
+	}
+	byName := map[string]map[string]any{}
+	for _, m := range out {
+		byName[m["name"].(string)] = m
+	}
+	nyaa := byName["nyaa"]
+	if nyaa["privacy"] != "public" {
+		t.Errorf("privacy = %v, want public (wire default)", nyaa["privacy"])
+	}
+	if nyaa["priority"] != float64(25) {
+		t.Errorf("priority = %v, want 25 (wire default)", nyaa["priority"])
+	}
+	if nyaa["sync_profile"] != "standard" {
+		t.Errorf("sync_profile = %v, want standard (wire default)", nyaa["sync_profile"])
+	}
+	if _, present := nyaa["added"]; !present {
+		t.Error("expected an added field on the list entry")
+	}
+}
+
+// TestIndexers_TestAll is the Prowlarr PR1 "Test All Indexers" contract: a 200
+// with one outcome per enabled indexer. The fake registry keeps every probe
+// healthy, so the enabled definition reports ok=true and the disabled one is
+// not probed (ListEnabled excludes it).
+func TestIndexers_TestAll(t *testing.T) {
+	s, _, token, _ := newIndexersTestServer(t)
+	rec := doReq(t, s.Handler(), http.MethodPost, "/api/v1/indexers/test-all", token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var out []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("body is not a JSON array: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected 1 probed (enabled) indexer, got %d", len(out))
+	}
+	if out[0]["name"] != "nyaa" || out[0]["ok"] != true {
+		t.Errorf("unexpected test-all result: %v", out[0])
+	}
+}

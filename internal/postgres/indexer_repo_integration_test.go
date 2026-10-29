@@ -34,10 +34,11 @@ func TestIndexersRepo_CRUD(t *testing.T) {
 	}
 	repo := NewIndexersRepo(db, testVault(t))
 
-	// --- Create + Get (round-trip of name/kind/url/key) -------------------
+	// --- Create + Get (round-trip of name/kind/url/key + PR1 hub fields) ---
 	id, err := repo.Create(ctx, indexers.Definition{
 		Name: "nyaa", Kind: "torznab", BaseURL: "https://nyaa.example/api",
 		APIKey: "sekrit-key-123", SettingsJSON: `{"categories":"1,2"}`, Enabled: true,
+		Privacy: "private", Priority: 10, SyncProfile: "weekly",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -61,6 +62,13 @@ func TestIndexersRepo_CRUD(t *testing.T) {
 	}
 	if !got.Enabled {
 		t.Errorf("Enabled = false, want true")
+	}
+	// PR1 hub fields round-trip.
+	if got.Privacy != "private" || got.Priority != 10 || got.SyncProfile != "weekly" {
+		t.Errorf("hub fields = %q/%d/%q, want private/10/weekly", got.Privacy, got.Priority, got.SyncProfile)
+	}
+	if got.Added.IsZero() {
+		t.Error("Added is zero, want a non-zero created time")
 	}
 
 	// --- Duplicate name is rejected (UNIQUE) -------------------------------
@@ -104,6 +112,10 @@ func TestIndexersRepo_UpdateReencryptsKey(t *testing.T) {
 	def.APIKey = "new"
 	def.Kind = "nzb"
 	def.Enabled = false
+	// PR1 hub fields are mutable and must round-trip through Update.
+	def.Privacy = "semi-private"
+	def.Priority = 7
+	def.SyncProfile = "daily"
 	if err := repo.Update(ctx, *def); err != nil {
 		t.Fatalf("update: %v", err)
 	}
@@ -113,6 +125,10 @@ func TestIndexersRepo_UpdateReencryptsKey(t *testing.T) {
 	}
 	if got.Kind != "nzb" || got.Enabled {
 		t.Errorf("updated kind/enabled = %q/%v, want nzb/false", got.Kind, got.Enabled)
+	}
+	if got.Privacy != "semi-private" || got.Priority != 7 || got.SyncProfile != "daily" {
+		t.Errorf("updated hub fields = %q/%d/%q, want semi-private/7/daily",
+			got.Privacy, got.Priority, got.SyncProfile)
 	}
 }
 
