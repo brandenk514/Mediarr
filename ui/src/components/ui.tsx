@@ -288,12 +288,14 @@ export function Modal({
   children,
   footer,
   testId,
+  className,
 }: {
   title: string
   onClose: () => void
   children: React.ReactNode
   footer?: React.ReactNode
   testId?: string
+  className?: string
 }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -305,7 +307,13 @@ export function Modal({
 
   return (
     <div className="modal-overlay" data-testid={testId ?? 'modal'} onMouseDown={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className={className ? `modal ${className}` : 'modal'}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="modal-head">
           <h3>{title}</h3>
           <button type="button" className="modal-x" onClick={onClose} aria-label="Close" data-testid="modal-close">
