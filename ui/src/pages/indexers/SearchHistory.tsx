@@ -70,7 +70,7 @@ export function SearchHistoryPage() {
         left={
           <>
             <input
-              className="list-search history-filter"
+              className="list-search sh-filter"
               placeholder="Filter: indexer name"
               value={filterIndexer}
               onChange={(e) => {
@@ -81,7 +81,7 @@ export function SearchHistoryPage() {
               aria-label="Filter by indexer"
             />
             <input
-              className="list-search history-filter"
+              className="list-search sh-filter"
               placeholder="Filter: search term"
               value={filterQ}
               onChange={(e) => {
@@ -127,8 +127,8 @@ export function SearchHistoryPage() {
           testId="history-empty"
         />
       ) : (
-        <div className="history-table" data-testid="history-table">
-          <div className="history-head" data-testid="history-head">
+        <div className="sh-table" data-testid="history-table">
+          <div className="sh-head" data-testid="history-head">
             <span>Status</span>
             <span>Indexer</span>
             <span>Query</span>
@@ -137,16 +137,16 @@ export function SearchHistoryPage() {
             <span>Elapsed</span>
           </div>
           {items.map((h, i) => (
-            <div className="history-row" key={h.id} data-testid={`history-row-${i}`}>
+            <div className="sh-row" key={h.id} data-testid={`history-row-${i}`}>
               <span
-                className={h.ok ? 'hist-ok' : 'hist-fail'}
+                className={h.ok ? 'sh-ok' : 'sh-fail'}
                 title={h.ok ? 'Success' : 'Failed'}
                 data-testid={`history-status-${i}`}
               >
                 {h.ok ? '✓' : '✗'}
               </span>
               <span data-testid={`history-indexer-${i}`}>{h.indexer}</span>
-              <span className="hist-term" title={h.term} data-testid={`history-query-${i}`}>
+              <span className="sh-term" title={h.term} data-testid={`history-query-${i}`}>
                 {h.term}
               </span>
               <span data-testid={`history-cats-${i}`}>
@@ -164,7 +164,7 @@ export function SearchHistoryPage() {
               <span data-testid={`history-elapsed-${i}`}>{h.elapsed_ms} ms</span>
             </div>
           ))}
-          <div className="history-foot" data-testid="history-foot">
+          <div className="sh-foot" data-testid="history-foot">
             <span className="dim small">
               Page {page} · Total records: {total}
             </span>

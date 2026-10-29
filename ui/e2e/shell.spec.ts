@@ -60,7 +60,7 @@ const ROUTES: [string, string][] = [
   ['/tv/import', 'library-import'],
   ['/dashboard', 'refresh'],
   // Prowlarr PR3: the Indexers hub + Stats page, and the Search/History pages.
-  ['/indexers', 'indexers-hub'],
+  ['/indexers', 'idx-hub-title'],
   ['/indexers/stats', 'indexers-stats-title'],
   ['/search', 'release-search-title'],
   ['/history', 'search-history-title'],

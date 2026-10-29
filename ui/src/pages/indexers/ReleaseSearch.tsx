@@ -123,7 +123,7 @@ export function ReleaseSearchPage() {
       <Toolbar
         left={
           <>
-            <span className="tb-note dim small" data-testid="release-search-hint">
+            <span className="dim small" data-testid="release-search-hint">
               {searched
                 ? hasQuery
                   ? `${results?.length ?? 0} release${(results?.length ?? 0) === 1 ? '' : 's'}`
