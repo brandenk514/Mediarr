@@ -128,7 +128,32 @@ export const INDEXERS_SECTION: SharedSection = {
   sub: [{ to: '/indexers/stats', label: 'Stats' }],
 }
 
+// Prowlarr PR3: Search (manual multi-indexer search) and History (query
+// history) are top-level Prowlarr rail sections — the Prowlarr IA order is
+// Indexers → Search → History → Settings → System. They lead SHARED_SECTIONS
+// so the Layout rail (which renders INDEXERS_SECTION just before the shared
+// sections) shows them immediately after Indexers.
+export const SEARCH_SECTION: SharedSection = {
+  id: 'search',
+  label: 'Search',
+  icon: '🔎',
+  to: '/search',
+  base: '/search',
+  sub: [],
+}
+
+export const HISTORY_SECTION: SharedSection = {
+  id: 'history',
+  label: 'History',
+  icon: '🕘',
+  to: '/history',
+  base: '/history',
+  sub: [],
+}
+
 export const SHARED_SECTIONS: SharedSection[] = [
+  SEARCH_SECTION,
+  HISTORY_SECTION,
   { id: 'calendar', label: 'Calendar', icon: '📅', to: '/calendar', base: '/calendar', sub: [] },
   {
     id: 'activity',
