@@ -16,12 +16,16 @@ const defaultMusicBrainzUserAgent = "mediarr/1.0 (https://github.com/brandenk514
 
 // MusicBrainz searches artists against the MusicBrainz server
 // (https://musicbrainz.org/meta/). It is keyless. Results carry the artist
-// MBID, which the add flow stores on the artist row.
+// MBID, which the add flow stores on the artist row. L4 adds release-detail
+// lookups and Cover Art Archive cover art.
 type MusicBrainz struct {
 	Client
 	// Base defaults to defaultMusicBrainzBase when empty (tests point it at
 	// a stub).
 	BaseURL string
+	// CAABaseURL overrides the Cover Art Archive base for L4 cover art;
+	// production default https://coverartarchive.org.
+	CAABaseURL string
 }
 
 // NewMusicBrainz builds the adapter.

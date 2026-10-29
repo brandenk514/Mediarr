@@ -32,7 +32,9 @@ SELECT b.id, b.kind, b.parent_id,
            WHEN 'music' THEN a.name
            WHEN 'book'  THEN au.name
          END, '') AS parent_name,
-       b.release_title, b.indexer, b.reason, b.created_at
+       b.release_title, b.indexer, b.reason,
+       b.album_title, b.quality, b.formats,
+       b.created_at
 FROM blocklist b
 LEFT JOIN tv_series s    ON b.kind = 'tv'    AND s.id = b.parent_id
 LEFT JOIN movies m       ON b.kind = 'movie' AND m.id = b.parent_id
@@ -72,16 +74,20 @@ func (r *BlocklistRepo) List(ctx context.Context, f blocklist.Filter) ([]blockli
 	var out []blocklist.Entry
 	for rows.Next() {
 		var (
-			id        int64
-			kind      string
-			parentID  int64
-			parent    string
-			release   string
-			indexer   string
-			reason    string
-			createdAt time.Time
+			id         int64
+			kind       string
+			parentID   int64
+			parent     string
+			release    string
+			indexer    string
+			reason     string
+			albumTitle string
+			quality    string
+			formats    string
+			createdAt  time.Time
 		)
-		if err := rows.Scan(&id, &kind, &parentID, &parent, &release, &indexer, &reason, &createdAt); err != nil {
+		if err := rows.Scan(&id, &kind, &parentID, &parent, &release, &indexer, &reason,
+			&albumTitle, &quality, &formats, &createdAt); err != nil {
 			return nil, fmt.Errorf("blocklist: scan: %w", err)
 		}
 		out = append(out, blocklist.Entry{
@@ -92,6 +98,9 @@ func (r *BlocklistRepo) List(ctx context.Context, f blocklist.Filter) ([]blockli
 			ReleaseTitle: release,
 			Indexer:      indexer,
 			Reason:       reason,
+			AlbumTitle:   albumTitle,
+			Quality:      quality,
+			Formats:      formats,
 			CreatedAt:    createdAt,
 		})
 	}
@@ -109,10 +118,12 @@ func (r *BlocklistRepo) List(ctx context.Context, f blocklist.Filter) ([]blockli
 func (r *BlocklistRepo) Add(ctx context.Context, e blocklist.Entry) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
-		INSERT INTO blocklist (kind, parent_id, release_title, indexer, reason)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO blocklist (kind, parent_id, release_title, indexer, reason,
+		                      album_title, quality, formats)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id`,
 		string(e.Kind), e.ParentID, e.ReleaseTitle, e.Indexer, e.Reason,
+		e.AlbumTitle, e.Quality, e.Formats,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("blocklist: insert: %w", err)

@@ -73,6 +73,11 @@ type blocklistRequest struct {
 	ReleaseTitle string `json:"release_title"`
 	Indexer      string `json:"indexer"`
 	Reason       string `json:"reason"`
+	// L4 music display columns (Lidarr blocklist row: Album Title / Quality /
+	// Formats). Optional; carried through for music rows, ignored otherwise.
+	AlbumTitle string `json:"album_title"`
+	Quality    string `json:"quality"`
+	Formats    string `json:"formats"`
 }
 
 // AddBlocklist handles POST /api/v1/blocklist: records a rejected release.
@@ -90,6 +95,9 @@ func (s *Server) AddBlocklist(w http.ResponseWriter, r *http.Request) {
 		ReleaseTitle: req.ReleaseTitle,
 		Indexer:      req.Indexer,
 		Reason:       req.Reason,
+		AlbumTitle:   req.AlbumTitle,
+		Quality:      req.Quality,
+		Formats:      req.Formats,
 	}
 	id, err := s.blocklistDeps.Svc.Add(r.Context(), e)
 	if err != nil {

@@ -17,8 +17,8 @@ const NOW = '2026-10-11T12:00:00Z'
 
 function entries(): BlocklistEntry[] {
   return [
-    { id: 1, kind: 'tv', parent_id: 10, parent_name: 'Severance', release_title: 'Severance.S01E01.HDTV.x264', indexer: 'nyaa', reason: 'cutoff unmet', created_at: NOW },
-    { id: 2, kind: 'movie', parent_id: 20, parent_name: 'Dune', release_title: 'Dune.Part.Two.1080p.WEB', indexer: 'rarbg', reason: '', created_at: NOW },
+    { id: 1, kind: 'tv', parent_id: 10, parent_name: 'Severance', release_title: 'Severance.S01E01.HDTV.x264', indexer: 'nyaa', reason: 'cutoff unmet', album_title: '', quality: '', formats: '', created_at: NOW },
+    { id: 2, kind: 'movie', parent_id: 20, parent_name: 'Dune', release_title: 'Dune.Part.Two.1080p.WEB', indexer: 'rarbg', reason: '', album_title: '', quality: '', formats: '', created_at: NOW },
   ]
 }
 

@@ -20,6 +20,7 @@ import (
 	booksdom "github.com/brandenk514/mediarr/internal/domains/books"
 	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/health"
+	"github.com/brandenk514/mediarr/internal/providers"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 )
@@ -31,7 +32,10 @@ type kindsServer struct {
 	token string
 }
 
-func newKindsServer(t *testing.T, music *kindsMusicRepo, books *kindsBooksRepo) *kindsServer {
+// newKindsServer builds the fixture; the optional metadata adapter (L4) is
+// wired into the music service when provided (nil adapter = enrichment is
+// skipped with a warning, which the L4 tests exercise).
+func newKindsServer(t *testing.T, music *kindsMusicRepo, books *kindsBooksRepo, metadata ...*providers.MusicBrainz) *kindsServer {
 	t.Helper()
 	store := newFakeStore()
 	s := NewServer(health.NewChecker(nil, nil))
@@ -53,7 +57,11 @@ func newKindsServer(t *testing.T, music *kindsMusicRepo, books *kindsBooksRepo) 
 	if err := json.NewDecoder(rec.Body).Decode(&lr); err != nil {
 		t.Fatal(err)
 	}
-	musicSvc := musicsvc.New(musicsvc.Deps{Repo: music, DefaultProfile: "FLAC"})
+	musicDeps := musicsvc.Deps{Repo: music, DefaultProfile: "FLAC"}
+	if len(metadata) > 0 {
+		musicDeps.Metadata = metadata[0]
+	}
+	musicSvc := musicsvc.New(musicDeps)
 	s.SetMusic(&MusicDeps{Svc: musicSvc})
 	booksSvc := bookssvc.New(bookssvc.Deps{Repo: books, DefaultProfile: "Best"})
 	s.SetBooks(&BooksDeps{Svc: booksSvc})
@@ -129,6 +137,11 @@ func (r *kindsMusicRepo) UpdateArtist(_ context.Context, a musicdom.Artist) erro
 	cur.MonitorPolicy = a.MonitorPolicy
 	cur.MonitorNewAlbums = a.MonitorNewAlbums
 	cur.Tags = a.Tags
+	// L4 enrichment fields (mirrors MusicRepo.UpdateArtist).
+	cur.Rating = a.Rating
+	cur.Genre = a.Genre
+	cur.Links = a.Links
+	cur.Cover = a.Cover
 	r.artists[a.ID] = cur
 	return nil
 }
@@ -168,6 +181,41 @@ func (r *kindsMusicRepo) SetAlbumMonitored(_ context.Context, id int64, monitore
 		r.albums[id] = a
 	}
 	return nil
+}
+
+// L4 (refresh flow): metadata enrichment and track replacement through the
+// real handlers.
+func (r *kindsMusicRepo) UpdateAlbum(_ context.Context, a musicdom.Album) error {
+	cur, ok := r.albums[a.ID]
+	if !ok {
+		return musicdom.ErrAlbumNotFound
+	}
+	cur.MBID = a.MBID
+	cur.Year = a.Year
+	cur.AlbumType = a.AlbumType
+	cur.ReleaseDate = a.ReleaseDate
+	cur.Duration = a.Duration
+	cur.Cover = a.Cover
+	cur.Labels = a.Labels
+	cur.Genres = a.Genres
+	r.albums[a.ID] = cur
+	return nil
+}
+func (r *kindsMusicRepo) DeleteTracks(_ context.Context, albumID int64) error {
+	delete(r.tracks, albumID)
+	return nil
+}
+
+// SetTrackStatus (L4 manual import): mark a track's file state.
+func (r *kindsMusicRepo) SetTrackStatus(_ context.Context, albumID int64, disc, number int, status string) (bool, error) {
+	for i, t := range r.tracks[albumID] {
+		if t.Disc == disc && t.Number == number {
+			t.Status = status
+			r.tracks[albumID][i] = t
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // No-op lifecycle methods the services call on the add paths.

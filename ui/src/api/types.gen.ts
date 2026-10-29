@@ -571,6 +571,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/music/artists/{id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh an artist's metadata and refresh its known albums (L4).
+         * @description Re-fetches the artist's metadata from the keyless MusicBrainz + Cover Art Archive adapter (status, genres, links, cover — best effort; a failed lookup leaves the artist unchanged) and refreshes every known album that carries a release MBID (metadata replaced, tracks rebuilt; surviving tracks matched by MBID then disc/number keep their monitored flag, new monitored tracks get wanted rows).
+         */
+        post: operations["refreshArtist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/music/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan a root folder for artists and match it to the library (L4, phase 1).
+         * @description Library import, phase 1 (scan -> match -> confirm): scans the given root folder, treats each immediate subfolder as a candidate artist (a trailing year in parens is stripped from the title; a folder with only audio files directly in it — a single-artist flat layout — is still a candidate), counts its audio files, and reports which candidates match a tracked artist. Confirmation of an import happens through the regular add-artist flow; this endpoint performs no file moves and creates no artists.
+         */
+        post: operations["importMusicLibrary"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/music/library/summary": {
         parameters: {
             query?: never;
@@ -2427,6 +2467,8 @@ export interface components {
             MonitorNewAlbums?: "all_albums" | "";
             /** @description Free-form tags; empty = none. */
             Tags?: string[];
+            /** @description The artist's Cover Art Archive front cover URL (L4); empty = none/unknown. */
+            Cover?: string;
             /**
              * Format: int64
              * @description Number of known tracks across the artist's albums (computed); 0 = none.
@@ -2523,6 +2565,12 @@ export interface components {
              * @description Bytes; 0 = unknown.
              */
             Size?: number;
+            /** @description The release's Cover Art Archive front cover URL (L4); empty = none/unknown. */
+            Cover?: string;
+            /** @description Record labels (L4); empty = none. */
+            Labels?: string[];
+            /** @description Music genres (L4); empty = none. */
+            Genres?: string[];
             /** @description Number of known tracks (computed over the tracks). */
             TrackCount?: number;
             /** @description Tracks that have an imported file (computed; powers Lidarr's "3/9" badge). */
@@ -2536,6 +2584,8 @@ export interface components {
             quality_profile?: string;
             /** @description Omitted = monitored (default). */
             monitored?: boolean;
+            /** @description Optional MusicBrainz release-group (or bare release) id (L4). When present, the album and its tracks are populated from the keyless metadata adapter; a failed lookup is reported in the 201 warnings array, never as a failed add. */
+            release_group_mb_id?: string;
         };
         Track: {
             /** Format: int64 */
@@ -2578,6 +2628,48 @@ export interface components {
             title?: string;
             /** @description Omitted = monitored (default). */
             monitored?: boolean;
+        };
+        AlbumAdded: {
+            /** Format: int64 */
+            id: number;
+            /** @description Non-fatal enrichment problems (L4); empty when the add was un-enriched cleanly or the metadata lookup succeeded. */
+            warnings: string[];
+        };
+        RefreshArtistReport: {
+            /** @description Albums whose metadata and tracks were refreshed. */
+            albums_refreshed: number;
+            /** @description Albums whose re-fetch (or track rebuild) failed. */
+            albums_failed: number;
+        };
+        RefreshArtistResponse: {
+            artist: components["schemas"]["Artist"];
+            report: components["schemas"]["RefreshArtistReport"];
+        };
+        MusicImportCandidate: {
+            /** @description Absolute path of the scanned artist folder. */
+            Path: string;
+            /** @description The parsed artist title (folder name without a trailing year in parens). */
+            Title: string;
+            /** @description Number of audio files under the folder. */
+            Files: number;
+            /**
+             * Format: int64
+             * @description Total bytes of those audio files.
+             */
+            Size: number;
+            /** @description A tracked artist was found for this folder. */
+            Matched: boolean;
+            /**
+             * Format: int64
+             * @description The matched artist's id (0 when not matched).
+             */
+            ArtistID: number;
+        };
+        MusicImportReport: {
+            Root: string;
+            /** @description Number of candidate folders. */
+            Scanned: number;
+            Candidates: components["schemas"]["MusicImportCandidate"][];
         };
         MusicHistoryEntry: {
             /** @description e.g. added, monitored, searched, download, import */
@@ -2764,6 +2856,14 @@ export interface components {
             progress: number;
             /** @description The download client the job is in (or "" if none). */
             download_client: string;
+            /** @description L4 music display column (Lidarr queue row "Album Title"); "" for non-music rows. */
+            album_title: string;
+            /** @description L4 music display column (Lidarr queue row "Quality", e.g. "FLAC"); "" when unknown or non-music. */
+            quality: string;
+            /** @description L4 music display column (Lidarr queue row "Formats", comma-joined codecs); "" when unknown or non-music. */
+            formats: string;
+            /** @description L4 music display column (Lidarr queue row "Track Title"); "" for whole-album rows and non-music. */
+            track_title: string;
             /** Format: date-time */
             updated_at: string;
         };
@@ -2804,6 +2904,12 @@ export interface components {
             release_title: string;
             indexer: string;
             reason: string;
+            /** @description L4 music display column (Lidarr blocklist row "Album Title"); "" for non-music rows. */
+            album_title: string;
+            /** @description L4 music display column (Lidarr blocklist row "Quality", e.g. "FLAC"); "" when unknown or non-music. */
+            quality: string;
+            /** @description L4 music display column (Lidarr blocklist row "Formats", comma-joined codecs); "" when unknown or non-music. */
+            formats: string;
             /** Format: date-time */
             created_at: string;
         };
@@ -2814,26 +2920,60 @@ export interface components {
             release_title: string;
             indexer?: string;
             reason?: string;
+            /** @description L4 music display column; carried through for music rows, ignored otherwise. */
+            album_title?: string;
+            /** @description L4 music display column; carried through for music rows, ignored otherwise. */
+            quality?: string;
+            /** @description L4 music display column; carried through for music rows, ignored otherwise. */
+            formats?: string;
         };
         /**
          * @description missing = monitored, no file; cutoff = file below the series cutoff.
          * @enum {string}
          */
         WantedTab: "missing" | "cutoff";
-        /** @description One episode in the global Wanted table (a row is always TV). */
+        /** @description One row in the global Wanted table. kind=tv: a wanted episode (missing or cutoff-unmet). kind=music (L4): a wanted album/track — series_id/series_title carry the album id/title, season/episode identify a monitored track within the album (0/0 for album-level rows), air_date the enriched release date, and status the same missing:/cutoff: classification. */
         WantedItem: {
             /** @enum {string} */
-            kind: "tv";
-            /** Format: int64 */
+            kind: "tv" | "music";
+            /**
+             * Format: int64
+             * @description The series id (kind=tv) or the album id (kind=music).
+             */
             series_id: number;
+            /** @description The show title (kind=tv) or the album title (kind=music). */
             series_title: string;
+            /** @description The season number (kind=tv); the disc number (kind=music, 0 for album rows). */
             season: number;
+            /** @description The episode number (kind=tv); the track number (kind=music, 0 for album rows). */
             episode: number;
+            /** @description The episode title (kind=tv); the track title (kind=music, "" for album rows). */
             episode_title: string;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description The air date (kind=tv) or the enriched catalog release date (kind=music, null when unknown).
+             */
             air_date: string | null;
-            /** @description Why the episode is wanted (missing: or cutoff: prefix + detail). */
+            /** @description Why the item is wanted (missing: or cutoff: prefix + detail). */
             status: string;
+            /**
+             * Format: int64
+             * @description The artist id (kind=music only; omitted on TV rows).
+             */
+            artist_id?: number;
+            /** @description The artist name (kind=music only; omitted on TV rows). */
+            artist_title?: string;
+            /**
+             * Format: int64
+             * @description The album id (kind=music only; omitted on TV rows).
+             */
+            album_id?: number;
+            /** @description The album title (kind=music only; omitted on TV rows). */
+            album_title?: string;
+            /** @description The album type, e.g. album/ep/single/compilation (kind=music only; omitted on TV rows). */
+            album_type?: string;
+            /** @description The imported quality string for cutoff-unmet rows (kind=music only; omitted on TV rows). */
+            quality?: string;
         };
         PageWantedItem: {
             items: components["schemas"]["WantedItem"][];
@@ -2843,13 +2983,13 @@ export interface components {
         };
         CalendarEntry: {
             /** @enum {string} */
-            kind: "tv" | "movie";
+            kind: "tv" | "movie" | "music";
             /**
              * Format: int64
-             * @description The series id (kind=tv) or the movie id (kind=movie).
+             * @description The series id (kind=tv), the movie id (kind=movie), or the album id (kind=music).
              */
             series_id: number;
-            /** @description The show title (kind=tv) or the movie title (kind=movie). */
+            /** @description The show title (kind=tv), the movie title (kind=movie), or the album title (kind=music). */
             series_title: string;
             season: number;
             episode: number;
@@ -2877,10 +3017,32 @@ export interface components {
             status?: string | null;
             /** @description The movie's quality profile name (kind=movie only; omitted on TV entries). */
             quality_profile?: string | null;
+            /**
+             * Format: int64
+             * @description The artist id (kind=music only; omitted on TV/movie entries).
+             */
+            artist_id?: number;
+            /** @description The artist name (kind=music only; omitted on TV/movie entries). */
+            artist_title?: string;
+            /**
+             * Format: int64
+             * @description The album id (kind=music only; omitted on TV/movie entries).
+             */
+            album_id?: number;
+            /** @description The album title (kind=music only; omitted on TV/movie entries). */
+            album_title?: string;
+            /** @description The album type, e.g. album/ep/single/compilation (kind=music only; omitted on TV/movie entries). */
+            album_type?: string;
         };
         WantedSearchRequest: {
             /** @default missing */
             tab: components["schemas"]["WantedTab"];
+            /**
+             * @description The kind to fan out a search for (kind=tv episodes by default; kind=music L4 albums).
+             * @default tv
+             * @enum {string}
+             */
+            kind: "tv" | "music";
         };
         WantedEpisodeRef: {
             /** Format: int64 */
@@ -2888,8 +3050,25 @@ export interface components {
             season: number;
             episode: number;
         };
+        /** @description A batch of wanted items to unmonitor. kind=tv (default; omit kind for TV): send episodes; kind=music (L4): send music (albums and/or monitored tracks). */
         WantedUnmonitorRequest: {
-            episodes: components["schemas"]["WantedEpisodeRef"][];
+            /**
+             * @default tv
+             * @enum {string}
+             */
+            kind: "tv" | "music";
+            /** @description The episode refs to unmonitor (kind=tv). */
+            episodes?: components["schemas"]["WantedEpisodeRef"][];
+            /** @description The album/track refs to unmonitor (kind=music, L4). */
+            music?: components["schemas"]["WantedMusicRef"][];
+        };
+        WantedMusicRef: {
+            /** Format: int64 */
+            album_id: number;
+            /** @description The disc a monitored track is on (0 for an album-level ref). */
+            disc?: number;
+            /** @description The track number within the disc (0 for an album-level ref). */
+            number?: number;
         };
         /** @description Result of a Search All (searched) or Unmonitor (unmonitored) action. */
         WantedActionResult: {
@@ -2900,11 +3079,21 @@ export interface components {
         };
         ManualImportRequest: {
             kind: components["schemas"]["MediaKind"];
-            /** Format: int64 */
-            series_id: number;
-            season: number;
-            episode: number;
-            /** @description Server-side path of the episode file to import. */
+            /**
+             * Format: int64
+             * @description The series id (kind=tv); omit for kind=music.
+             */
+            series_id?: number;
+            /** @description The season number (kind=tv); omit for kind=music. */
+            season?: number;
+            /** @description The episode number (kind=tv); omit for kind=music. */
+            episode?: number;
+            /**
+             * Format: int64
+             * @description The album the file belongs to (kind=music, L4; required for kind=music).
+             */
+            album_id?: number;
+            /** @description Server-side path of the file to import. For kind=tv the episode file; for kind=music (L4) a single audio file (whole-album import) or a directory of per-track files. */
             file_path: string;
             /** @description Optional release name recorded in history. */
             release_title?: string;
@@ -5047,7 +5236,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AddedId"];
+                    "application/json": components["schemas"]["AlbumAdded"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -5086,6 +5275,75 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             /** @description No release matched the wanted request. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["Internal"];
+        };
+    };
+    refreshArtist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The refreshed artist plus the refresh report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefreshArtistResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    importMusicLibrary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The scan report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MusicImportReport"];
+                };
+            };
+            /** @description Bad request (missing root, not a directory, unconfigured root-folder registry, invalid JSON). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The root folder does not exist. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

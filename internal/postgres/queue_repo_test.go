@@ -39,8 +39,10 @@ func TestQueueRepo_List(t *testing.T) {
 	// Music: 1 job.
 	apply(`INSERT INTO music_artists (name) VALUES ('Nirvana')`)
 	apply(`INSERT INTO music_albums (artist_id, name, year) VALUES (1, 'Nevermind', 1991)`)
-	apply(`INSERT INTO music_queue (artist_id, album_id, release_title, indexer, state, progress) VALUES
-		(1, 1, 'Nirvana (1991) - Nevermind [FLAC 1411kbps]', 'fake', 'failed', 0)`)
+	apply(`INSERT INTO music_queue (artist_id, album_id, release_title, indexer, state, progress,
+        album_title, quality, formats, track_title) VALUES
+	(1, 1, 'Nirvana (1991) - Nevermind [FLAC 1411kbps]', 'fake', 'failed', 0,
+	 'Nevermind', 'FLAC', 'FLAC', '')`)
 	// Books: 1 job.
 	apply(`INSERT INTO book_authors (name) VALUES ('Ursula K. Le Guin')`)
 	apply(`INSERT INTO book_titles (author_id, name) VALUES (1, 'The Dispossessed')`)
@@ -68,9 +70,17 @@ func TestQueueRepo_List(t *testing.T) {
 	}
 	if it, ok := byParent["Nirvana"]; !ok || it.Kind != queue.KindMusic {
 		t.Errorf("Nirvana row wrong: %+v", it)
+	} else {
+		// L4 Activity: the music row carries its display columns (Lidarr
+		// queue row: Album Title / Quality / Formats / Track Title).
+		if it.AlbumTitle != "Nevermind" || it.Quality != "FLAC" || it.Formats != "FLAC" || it.TrackTitle != "" {
+			t.Errorf("Nirvana music display columns wrong: %+v", it)
+		}
 	}
 	if it, ok := byParent["Ursula K. Le Guin"]; !ok || it.Kind != queue.KindBook {
 		t.Errorf("Le Guin row wrong: %+v", it)
+	} else if it.AlbumTitle != "" || it.Quality != "" || it.Formats != "" || it.TrackTitle != "" {
+		t.Errorf("book row must keep empty music columns: %+v", it)
 	}
 }
 

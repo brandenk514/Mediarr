@@ -104,7 +104,7 @@ func TestLibrarySummary(t *testing.T) {
 	other.Status = dom.StatusInactive
 	repo.artists[a1] = other
 
-	albumID, err := svc.AddAlbum(ctx, a1, "Legend", 1977, "Lossless", boolPtr(false))
+	albumID, _, err := svc.AddAlbum(ctx, a1, "Legend", 1977, "Lossless", boolPtr(false), "")
 	if err != nil {
 		t.Fatalf("add album: %v", err)
 	}

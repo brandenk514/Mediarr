@@ -32,19 +32,23 @@ const defaultHistoryLimit = 50
 // pages it in memory via queue.Apply (mirrors the per-kind list endpoints).
 const queueListSQL = `
 SELECT 'movie'::text AS kind, q.movie_id, m.title,
-       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at
+       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at,
+       '', '', '', ''
 FROM queue q JOIN movies m ON m.id = q.movie_id
 UNION ALL
 SELECT 'tv', q.series_id, s.title,
-       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at
+       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at,
+       '', '', '', ''
 FROM tv_queue q JOIN tv_series s ON s.id = q.series_id
 UNION ALL
 SELECT 'music', q.artist_id, a.name,
-       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at
+       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at,
+       q.album_title, q.quality, q.formats, q.track_title
 FROM music_queue q JOIN music_artists a ON a.id = q.artist_id
 UNION ALL
 SELECT 'book', q.author_id, au.name,
-       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at
+       q.release_title, q.indexer, q.state, q.progress, q.download_client, q.updated_at,
+       '', '', '', ''
 FROM book_queue q JOIN book_authors au ON au.id = q.author_id
 ORDER BY updated_at DESC
 `
@@ -95,8 +99,13 @@ func (r *QueueRepo) List(ctx context.Context) ([]queue.Item, error) {
 			progress     int
 			downloadClnt string
 			updatedAt    time.Time
+			albumTitle   string
+			quality      string
+			formats      string
+			trackTitle   string
 		)
-		if err := rows.Scan(&kind, &parentID, &parent, &release, &indexer, &state, &progress, &downloadClnt, &updatedAt); err != nil {
+		if err := rows.Scan(&kind, &parentID, &parent, &release, &indexer, &state, &progress, &downloadClnt, &updatedAt,
+			&albumTitle, &quality, &formats, &trackTitle); err != nil {
 			return nil, fmt.Errorf("queue: scan item: %w", err)
 		}
 		out = append(out, queue.Item{
@@ -108,6 +117,10 @@ func (r *QueueRepo) List(ctx context.Context) ([]queue.Item, error) {
 			State:          state,
 			Progress:       progress,
 			DownloadClient: downloadClnt,
+			AlbumTitle:     albumTitle,
+			Quality:        quality,
+			Formats:        formats,
+			TrackTitle:     trackTitle,
 			UpdatedAt:      updatedAt,
 		})
 	}

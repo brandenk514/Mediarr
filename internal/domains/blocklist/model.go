@@ -45,14 +45,20 @@ func (k Kind) Valid() bool {
 // Entry is one blocked release. ParentName is resolved by the repository at
 // read time (it is not stored — the media item it names may still change).
 type Entry struct {
-	ID           int64     `json:"id"`
-	Kind         Kind      `json:"kind"`
-	ParentID     int64     `json:"parent_id"`
-	ParentName   string    `json:"parent_name"`
-	ReleaseTitle string    `json:"release_title"`
-	Indexer      string    `json:"indexer"`
-	Reason       string    `json:"reason"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           int64  `json:"id"`
+	Kind         Kind   `json:"kind"`
+	ParentID     int64  `json:"parent_id"`
+	ParentName   string `json:"parent_name"`
+	ReleaseTitle string `json:"release_title"`
+	Indexer      string `json:"indexer"`
+	Reason       string `json:"reason"`
+	// L4 music display columns (the Lidarr blocklist row: Album Title /
+	// Quality / Formats; Artist is ParentName). Stored for music rows; ""
+	// for every other kind, so the row shape is stable on the wire.
+	AlbumTitle string    `json:"album_title"`
+	Quality    string    `json:"quality"`
+	Formats    string    `json:"formats"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // Filter narrows a blocklist listing. Empty fields mean "no constraint".

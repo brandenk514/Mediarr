@@ -1005,7 +1005,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AddedId"
+                $ref: "#/components/schemas/AlbumAdded"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1034,6 +1034,76 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "422":
           description: No release matched the wanted request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/artists/{id}/refresh:
+    post:
+      tags: [music]
+      summary: Refresh an artist's metadata and refresh its known albums (L4).
+      operationId: refreshArtist
+      description: >-
+        Re-fetches the artist's metadata from the keyless MusicBrainz +
+        Cover Art Archive adapter (status, genres, links, cover — best
+        effort; a failed lookup leaves the artist unchanged) and refreshes
+        every known album that carries a release MBID (metadata replaced,
+        tracks rebuilt; surviving tracks matched by MBID then disc/number
+        keep their monitored flag, new monitored tracks get wanted rows).
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The refreshed artist plus the refresh report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshArtistResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/music/import:
+    post:
+      tags: [music]
+      summary: Scan a root folder for artists and match it to the library (L4, phase 1).
+      operationId: importMusicLibrary
+      description: >-
+        Library import, phase 1 (scan -> match -> confirm): scans the given
+        root folder, treats each immediate subfolder as a candidate artist
+        (a trailing year in parens is stripped from the title; a folder with
+        only audio files directly in it — a single-artist flat layout — is
+        still a candidate), counts its audio files, and reports which
+        candidates match a tracked artist. Confirmation of an import happens
+        through the regular add-artist flow; this endpoint performs no file
+        moves and creates no artists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportRequest"
+      responses:
+        "200":
+          description: The scan report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicImportReport"
+        "400":
+          description: Bad request (missing root, not a directory, unconfigured root-folder registry, invalid JSON).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The root folder does not exist.
           content:
             application/json:
               schema:
@@ -4161,6 +4231,9 @@ components:
           items:
             type: string
           description: Free-form tags; empty = none.
+        Cover:
+          type: string
+          description: The artist's Cover Art Archive front cover URL (L4); empty = none/unknown.
         TrackCount:
           type: integer
           format: int64
@@ -4283,6 +4356,19 @@ components:
           type: integer
           format: int64
           description: Bytes; 0 = unknown.
+        Cover:
+          type: string
+          description: The release's Cover Art Archive front cover URL (L4); empty = none/unknown.
+        Labels:
+          type: array
+          items:
+            type: string
+          description: Record labels (L4); empty = none.
+        Genres:
+          type: array
+          items:
+            type: string
+          description: Music genres (L4); empty = none.
         TrackCount:
           type: integer
           description: Number of known tracks (computed over the tracks).
@@ -4305,6 +4391,13 @@ components:
         monitored:
           type: boolean
           description: Omitted = monitored (default).
+        release_group_mb_id:
+          type: string
+          description: >-
+            Optional MusicBrainz release-group (or bare release) id (L4).
+            When present, the album and its tracks are populated from the
+            keyless metadata adapter; a failed lookup is reported in the 201
+            warnings array, never as a failed add.
     Track:
       type: object
       required: [ID, AlbumID, MBID, Disc, Number, Title, Checksum, Monitored, AddedAt]
@@ -4374,6 +4467,75 @@ components:
         monitored:
           type: boolean
           description: Omitted = monitored (default).
+    AlbumAdded:
+      type: object
+      required: [id, warnings]
+      properties:
+        id:
+          type: integer
+          format: int64
+        warnings:
+          type: array
+          items:
+            type: string
+          description: >-
+            Non-fatal enrichment problems (L4); empty when the add was
+            un-enriched cleanly or the metadata lookup succeeded.
+    RefreshArtistReport:
+      type: object
+      required: [albums_refreshed, albums_failed]
+      properties:
+        albums_refreshed:
+          type: integer
+          description: Albums whose metadata and tracks were refreshed.
+        albums_failed:
+          type: integer
+          description: Albums whose re-fetch (or track rebuild) failed.
+    RefreshArtistResponse:
+      type: object
+      required: [artist, report]
+      properties:
+        artist:
+          $ref: "#/components/schemas/Artist"
+        report:
+          $ref: "#/components/schemas/RefreshArtistReport"
+    MusicImportCandidate:
+      type: object
+      required: [Path, Title, Files, Size, Matched, ArtistID]
+      properties:
+        Path:
+          type: string
+          description: Absolute path of the scanned artist folder.
+        Title:
+          type: string
+          description: The parsed artist title (folder name without a trailing year in parens).
+        Files:
+          type: integer
+          description: Number of audio files under the folder.
+        Size:
+          type: integer
+          format: int64
+          description: Total bytes of those audio files.
+        Matched:
+          type: boolean
+          description: A tracked artist was found for this folder.
+        ArtistID:
+          type: integer
+          format: int64
+          description: The matched artist's id (0 when not matched).
+    MusicImportReport:
+      type: object
+      required: [Root, Scanned, Candidates]
+      properties:
+        Root:
+          type: string
+        Scanned:
+          type: integer
+          description: Number of candidate folders.
+        Candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/MusicImportCandidate"
     MusicHistoryEntry:
       type: object
       required: [Event, Detail, At]
@@ -4673,7 +4835,7 @@ components:
           format: date-time
     QueueViewItem:
       type: object
-      required: [kind, parent_id, parent_name, release_title, indexer, state, progress, download_client, updated_at]
+      required: [kind, parent_id, parent_name, release_title, indexer, state, progress, download_client, album_title, quality, formats, track_title, updated_at]
       properties:
         kind:
           $ref: "#/components/schemas/MediaKind"
@@ -4693,6 +4855,18 @@ components:
         download_client:
           type: string
           description: The download client the job is in (or "" if none).
+        album_title:
+          type: string
+          description: L4 music display column (Lidarr queue row "Album Title"); "" for non-music rows.
+        quality:
+          type: string
+          description: L4 music display column (Lidarr queue row "Quality", e.g. "FLAC"); "" when unknown or non-music.
+        formats:
+          type: string
+          description: L4 music display column (Lidarr queue row "Formats", comma-joined codecs); "" when unknown or non-music.
+        track_title:
+          type: string
+          description: L4 music display column (Lidarr queue row "Track Title"); "" for whole-album rows and non-music.
         updated_at:
           type: string
           format: date-time
@@ -4731,7 +4905,7 @@ components:
           format: date-time
     BlocklistEntry:
       type: object
-      required: [id, kind, parent_id, parent_name, release_title, indexer, reason, created_at]
+      required: [id, kind, parent_id, parent_name, release_title, indexer, reason, album_title, quality, formats, created_at]
       description: A blocked (rejected) release in Activity > Blocklist.
       properties:
         id:
@@ -4752,6 +4926,15 @@ components:
           type: string
         reason:
           type: string
+        album_title:
+          type: string
+          description: L4 music display column (Lidarr blocklist row "Album Title"); "" for non-music rows.
+        quality:
+          type: string
+          description: L4 music display column (Lidarr blocklist row "Quality", e.g. "FLAC"); "" when unknown or non-music.
+        formats:
+          type: string
+          description: L4 music display column (Lidarr blocklist row "Formats", comma-joined codecs); "" when unknown or non-music.
         created_at:
           type: string
           format: date-time
@@ -4770,6 +4953,15 @@ components:
           type: string
         reason:
           type: string
+        album_title:
+          type: string
+          description: L4 music display column; carried through for music rows, ignored otherwise.
+        quality:
+          type: string
+          description: L4 music display column; carried through for music rows, ignored otherwise.
+        formats:
+          type: string
+          description: L4 music display column; carried through for music rows, ignored otherwise.
     WantedTab:
       type: string
       enum: [missing, cutoff]
@@ -4777,29 +4969,61 @@ components:
     WantedItem:
       type: object
       required: [kind, series_id, series_title, season, episode, episode_title, air_date, status]
-      description: One episode in the global Wanted table (a row is always TV).
+      description: >-
+        One row in the global Wanted table. kind=tv: a wanted episode
+        (missing or cutoff-unmet). kind=music (L4): a wanted album/track —
+        series_id/series_title carry the album id/title, season/episode
+        identify a monitored track within the album (0/0 for album-level
+        rows), air_date the enriched release date, and status the same
+        missing:/cutoff: classification.
       properties:
         kind:
           type: string
-          enum: [tv]
+          enum: [tv, music]
         series_id:
           type: integer
           format: int64
+          description: The series id (kind=tv) or the album id (kind=music).
         series_title:
           type: string
+          description: The show title (kind=tv) or the album title (kind=music).
         season:
           type: integer
+          description: The season number (kind=tv); the disc number (kind=music, 0 for album rows).
         episode:
           type: integer
+          description: The episode number (kind=tv); the track number (kind=music, 0 for album rows).
         episode_title:
           type: string
+          description: The episode title (kind=tv); the track title (kind=music, "" for album rows).
         air_date:
           type: string
           format: date
           nullable: true
+          description: The air date (kind=tv) or the enriched catalog release date (kind=music, null when unknown).
         status:
           type: string
-          description: 'Why the episode is wanted (missing: or cutoff: prefix + detail).'
+          description: 'Why the item is wanted (missing: or cutoff: prefix + detail).'
+        artist_id:
+          type: integer
+          format: int64
+          description: The artist id (kind=music only; omitted on TV rows).
+        artist_title:
+          type: string
+          description: The artist name (kind=music only; omitted on TV rows).
+        album_id:
+          type: integer
+          format: int64
+          description: The album id (kind=music only; omitted on TV rows).
+        album_title:
+          type: string
+          description: The album title (kind=music only; omitted on TV rows).
+        album_type:
+          type: string
+          description: The album type, e.g. album/ep/single/compilation (kind=music only; omitted on TV rows).
+        quality:
+          type: string
+          description: 'The imported quality string for cutoff-unmet rows (kind=music only; omitted on TV rows).'
     PageWantedItem:
       type: object
       required: [items, total, page, pageSize]
@@ -4820,14 +5044,14 @@ components:
       properties:
         kind:
           type: string
-          enum: [tv, movie]
+          enum: [tv, movie, music]
         series_id:
           type: integer
           format: int64
-          description: The series id (kind=tv) or the movie id (kind=movie).
+          description: The series id (kind=tv), the movie id (kind=movie), or the album id (kind=music).
         series_title:
           type: string
-          description: The show title (kind=tv) or the movie title (kind=movie).
+          description: The show title (kind=tv), the movie title (kind=movie), or the album title (kind=music).
         season:
           type: integer
         episode:
@@ -4864,12 +5088,36 @@ components:
           type: string
           nullable: true
           description: The movie's quality profile name (kind=movie only; omitted on TV entries).
+          # L4 (music calendar). The music variant's identifying extras;
+          # omitted on TV/movie entries (their wire shape is byte-compatible).
+        artist_id:
+          type: integer
+          format: int64
+          description: The artist id (kind=music only; omitted on TV/movie entries).
+        artist_title:
+          type: string
+          description: The artist name (kind=music only; omitted on TV/movie entries).
+        album_id:
+          type: integer
+          format: int64
+          description: The album id (kind=music only; omitted on TV/movie entries).
+        album_title:
+          type: string
+          description: The album title (kind=music only; omitted on TV/movie entries).
+        album_type:
+          type: string
+          description: The album type, e.g. album/ep/single/compilation (kind=music only; omitted on TV/movie entries).
     WantedSearchRequest:
       type: object
       properties:
         tab:
           default: missing
           $ref: "#/components/schemas/WantedTab"
+        kind:
+          type: string
+          default: tv
+          enum: [tv, music]
+          description: The kind to fan out a search for (kind=tv episodes by default; kind=music L4 albums).
     WantedEpisodeRef:
       type: object
       required: [series_id, season, episode]
@@ -4883,12 +5131,38 @@ components:
           type: integer
     WantedUnmonitorRequest:
       type: object
-      required: [episodes]
+      description: >-
+        A batch of wanted items to unmonitor. kind=tv (default; omit kind
+        for TV): send episodes; kind=music (L4): send music (albums and/or
+        monitored tracks).
       properties:
+        kind:
+          type: string
+          default: tv
+          enum: [tv, music]
         episodes:
           type: array
+          description: The episode refs to unmonitor (kind=tv).
           items:
             $ref: "#/components/schemas/WantedEpisodeRef"
+        music:
+          type: array
+          description: The album/track refs to unmonitor (kind=music, L4).
+          items:
+            $ref: "#/components/schemas/WantedMusicRef"
+    WantedMusicRef:
+      type: object
+      required: [album_id]
+      properties:
+        album_id:
+          type: integer
+          format: int64
+        disc:
+          type: integer
+          description: The disc a monitored track is on (0 for an album-level ref).
+        number:
+          type: integer
+          description: The track number within the disc (0 for an album-level ref).
     WantedActionResult:
       type: object
       description: Result of a Search All (searched) or Unmonitor (unmonitored) action.
@@ -4901,20 +5175,30 @@ components:
           description: How many episodes had monitoring turned off (Unmonitor).
     ManualImportRequest:
       type: object
-      required: [kind, series_id, season, episode, file_path]
+      required: [kind, file_path]
       properties:
         kind:
           $ref: "#/components/schemas/MediaKind"
         series_id:
           type: integer
           format: int64
+          description: The series id (kind=tv); omit for kind=music.
         season:
           type: integer
+          description: The season number (kind=tv); omit for kind=music.
         episode:
           type: integer
+          description: The episode number (kind=tv); omit for kind=music.
+        album_id:
+          type: integer
+          format: int64
+          description: The album the file belongs to (kind=music, L4; required for kind=music).
         file_path:
           type: string
-          description: Server-side path of the episode file to import.
+          description: >-
+            Server-side path of the file to import. For kind=tv the episode
+            file; for kind=music (L4) a single audio file (whole-album import)
+            or a directory of per-track files.
         release_title:
           type: string
           description: Optional release name recorded in history.

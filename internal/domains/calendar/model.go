@@ -36,6 +36,9 @@ const (
 	KindTV Kind = "tv"
 	// KindMovie is the R4 movie release-date calendar.
 	KindMovie Kind = "movie"
+	// KindMusic is the L4 music release-date calendar (upcoming releases of
+	// monitored albums).
+	KindMusic Kind = "music"
 )
 
 // Entry is one upcoming air date, in the wire shape returned by
@@ -60,6 +63,15 @@ type Entry struct {
 	Year           int    `json:"year,omitempty"`
 	Status         string `json:"status,omitempty"`
 	QualityProfile string `json:"quality_profile,omitempty"`
+
+	// L4 music-calendar extras. Zero/empty on TV/movie entries; the
+	// omitempty tags keep the TV/movie wire shape byte-compatible.
+	// SeriesID/SeriesTitle carry the album id/title; these carry the artist.
+	ArtistID    int64  `json:"artist_id,omitempty"`
+	ArtistTitle string `json:"artist_title,omitempty"`
+	AlbumID     int64  `json:"album_id,omitempty"`
+	AlbumTitle  string `json:"album_title,omitempty"`
+	AlbumType   string `json:"album_type,omitempty"`
 }
 
 // EpisodeRow is the repository shape: an episode with a known air date, plus
@@ -92,7 +104,27 @@ type MovieRow struct {
 	QualityProfile  string
 }
 
-// Repo provides the episodes and movies the calendar renders over.
+// MusicRow is the L4 repository shape: a monitored album with a known
+// release date, its artist identity, and the effective quality profile,
+// as selected by the store.
+type MusicRow struct {
+	ArtistID    int64
+	ArtistTitle string
+	AlbumID     int64
+	AlbumTitle  string
+	AlbumType   string
+	Year        int
+	// ReleaseDate is nil when unknown or unparseable (such rows are
+	// excluded by BuildMusic).
+	ReleaseDate *time.Time
+	// Monitored is true when BOTH the artist and the album are monitored.
+	Monitored bool
+	// QualityProfile is the album's effective profile name (album-level
+	// profile, falling back to the artist's, falling back to the default).
+	QualityProfile string
+}
+
+// Repo provides the episodes, movies, and music the calendar renders over.
 type Repo interface {
 	// Episodes returns every episode with a known air date, joined with its
 	// series title and monitor flag, ordered by air date then show, season,
@@ -102,6 +134,10 @@ type Repo interface {
 	// with its monitor flag and the status-derivation state, ordered by
 	// release date then title (R4 movie calendar).
 	MovieRows(ctx context.Context) ([]MovieRow, error)
+	// MusicRows returns every monitored album (artist + album monitored)
+	// with a known (non-empty) release date, ordered by release date then
+	// album title (L4 music calendar).
+	MusicRows(ctx context.Context) ([]MusicRow, error)
 }
 
 var (
@@ -216,6 +252,49 @@ func BuildMovies(rows []MovieRow, start, end, now time.Time) []Entry {
 	return out
 }
 
+// BuildMusic filters the store rows into music calendar entries (L4):
+// monitored albums whose release date is within [start, end] (inclusive,
+// date-based) and not in the past (on or after now's date — the same future
+// rule as TV). The entry's identifying fields carry the album: SeriesID is
+// the album id, SeriesTitle the album title; the music extras carry the
+// artist and album type. Every entry the calendar shows is a future release,
+// so the status is "unreleased". The input order is preserved. The returned
+// slice is never nil.
+func BuildMusic(rows []MusicRow, start, end, now time.Time) []Entry {
+	sd, ed, nd := utcDate(start), utcDate(end), utcDate(now)
+	out := make([]Entry, 0, len(rows))
+	for _, r := range rows {
+		if !r.Monitored || r.ReleaseDate == nil {
+			continue
+		}
+		rd := utcDate(*r.ReleaseDate)
+		if rd.Before(sd) || rd.After(ed) {
+			continue
+		}
+		if rd.Before(nd) {
+			continue // already released
+		}
+		as, ae := ReleaseRange(*r.ReleaseDate)
+		out = append(out, Entry{
+			Kind:           string(KindMusic),
+			SeriesID:       r.AlbumID,
+			SeriesTitle:    r.AlbumTitle,
+			AirDate:        r.ReleaseDate,
+			AirStart:       as,
+			AirEnd:         ae,
+			Year:           r.Year,
+			Status:         "unreleased",
+			QualityProfile: r.QualityProfile,
+			ArtistID:       r.ArtistID,
+			ArtistTitle:    r.ArtistTitle,
+			AlbumID:        r.AlbumID,
+			AlbumTitle:     r.AlbumTitle,
+			AlbumType:      r.AlbumType,
+		})
+	}
+	return out
+}
+
 // icsStamp renders a time as an RFC 5545 UTC date-time (20060102T150405Z).
 func icsStamp(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z")
@@ -234,8 +313,11 @@ func icsText(s string) string {
 // icsUID returns a stable, unique identifier for an entry so calendar
 // clients de-duplicate it across feed refreshes.
 func icsUID(e Entry) string {
-	if e.Kind == string(KindMovie) {
+	switch e.Kind {
+	case string(KindMovie):
 		return fmt.Sprintf("mediarr-movie-%d@mediarr", e.SeriesID)
+	case string(KindMusic):
+		return fmt.Sprintf("mediarr-music-%d@mediarr", e.AlbumID)
 	}
 	return fmt.Sprintf("mediarr-tv-%d-s%02d-e%02d@mediarr", e.SeriesID, e.Season, e.Episode)
 }
@@ -243,6 +325,15 @@ func icsUID(e Entry) string {
 // movieSummary is the iCal SUMMARY for a movie entry: "Title (Year)".
 func movieSummary(e Entry) string {
 	return fmt.Sprintf("%s (%d)", e.SeriesTitle, e.Year)
+}
+
+// musicSummary is the iCal SUMMARY for a music entry: "Artist - Album (Year)"
+// (the Lidarr release naming the UI uses elsewhere).
+func musicSummary(e Entry) string {
+	if e.ArtistTitle == "" {
+		return fmt.Sprintf("%s (%d)", e.AlbumTitle, e.Year)
+	}
+	return fmt.Sprintf("%s - %s (%d)", e.ArtistTitle, e.AlbumTitle, e.Year)
 }
 
 // RenderICal renders the entries as an RFC 5545 iCal document: a VCALENDAR
@@ -264,13 +355,17 @@ func RenderICal(entries []Entry, now time.Time) string {
 		b.WriteString("BEGIN:VEVENT\r\n")
 		b.WriteString("UID:" + icsUID(e) + "\r\n")
 		b.WriteString("DTSTAMP:" + icsStamp(now) + "\r\n")
-		if e.Kind == string(KindMovie) {
+		if e.Kind == string(KindMovie) || e.Kind == string(KindMusic) {
 			// All-day event on the release date. RFC 5545: DATE values;
 			// DTEND is the exclusive day after, per the all-day rule.
+			summary := movieSummary(e)
+			if e.Kind == string(KindMusic) {
+				summary = musicSummary(e)
+			}
 			b.WriteString("DTSTART;VALUE=DATE:" + e.AirStart.UTC().Format("20060102") + "\r\n")
 			b.WriteString("DTEND;VALUE=DATE:" + e.AirStart.UTC().AddDate(0, 0, 1).Format("20060102") + "\r\n")
-			b.WriteString("SUMMARY:" + icsText(movieSummary(e)) + "\r\n")
-			b.WriteString("DESCRIPTION:" + icsText(movieSummary(e)) + "\r\n")
+			b.WriteString("SUMMARY:" + icsText(summary) + "\r\n")
+			b.WriteString("DESCRIPTION:" + icsText(summary) + "\r\n")
 		} else {
 			b.WriteString("DTSTART:" + icsStamp(e.AirStart) + "\r\n")
 			b.WriteString("DTEND:" + icsStamp(e.AirEnd) + "\r\n")

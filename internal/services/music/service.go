@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/indexers"
 	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/paging"
+	"github.com/brandenk514/mediarr/internal/providers"
 	"github.com/brandenk514/mediarr/internal/queue"
 	"github.com/brandenk514/mediarr/internal/store"
 )
@@ -42,6 +44,9 @@ var (
 	ErrArtistNotFound = dom.ErrArtistNotFound
 	ErrAlbumNotFound  = dom.ErrAlbumNotFound
 	ErrTrackNotFound  = dom.ErrTrackNotFound
+	// ErrUnsupportedFile is re-exported for the manual-import endpoint
+	// (L4): an unsupported file type.
+	ErrUnsupportedFile = dom.ErrUnsupportedFile
 )
 
 // Deps bundles the Service's collaborators. Everything is an interface (or the
@@ -65,6 +70,11 @@ type Deps struct {
 	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
 	// Nil-safe: the pipeline runs identically without it.
 	Metrics *metrics.Metrics
+	// Metadata, when non-nil, enriches AddAlbum (release detail + tracks)
+	// and RefreshArtist (artist detail, album re-fetch, cover art). It is
+	// the keyless MusicBrainz + Cover Art Archive adapter (L4). Nil-safe:
+	// enrichment is skipped with a warning.
+	Metadata *providers.MusicBrainz
 }
 
 // Service implements the music use-cases.
@@ -138,20 +148,39 @@ func (s *Service) AddArtist(ctx context.Context, in AddArtistInput) (int64, erro
 
 // AddAlbum creates a known album within an artist (if new) and, when the
 // album is monitored, ensures a pending whole-album wanted row for it.
-// Returns the album id.
+// Returns the album id and the enrichment warnings.
 //
 // monitored is nil when the caller did not request a value explicitly
 // (Lidarr L2: the artist's monitor policy then decides — all/missing →
 // true, none/existing → false, future → the release year is after the
 // current year, first/last → it is the chronologically first/last known
 // album of the artist); an explicit value always wins.
-func (s *Service) AddAlbum(ctx context.Context, artistID int64, name string, year int, qualityProfile string, monitored *bool) (int64, error) {
+//
+// releaseGroupMBID (L4) is an optional MusicBrainz release-group (or bare
+// release) id. When present, the album and its tracks are populated from the
+// keyless metadata adapter: year, album type, release date, total duration,
+// labels, genres, the release cover, and one row per track (monitored with
+// the album, with a wanted row each when monitored). A failed lookup never
+// fails the add: the album is created un-enriched and the failure is
+// returned in warnings. When absent, behavior is identical to L1/L2.
+func (s *Service) AddAlbum(ctx context.Context, artistID int64, name string, year int, qualityProfile string, monitored *bool, releaseGroupMBID string) (int64, []string, error) {
 	if strings.TrimSpace(name) == "" {
-		return 0, fmt.Errorf("music: album name is required")
+		return 0, nil, fmt.Errorf("music: album name is required")
 	}
 	artist, err := s.deps.Repo.GetArtist(ctx, artistID)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
+	}
+	warnings := []string{}
+	var detail *providers.ReleaseDetail
+	if strings.TrimSpace(releaseGroupMBID) != "" {
+		if s.deps.Metadata == nil {
+			warnings = append(warnings, "metadata enrichment skipped: metadata provider not configured")
+		} else if d, derr := s.deps.Metadata.ReleaseDetail(ctx, releaseGroupMBID); derr != nil {
+			warnings = append(warnings, "metadata enrichment failed: "+derr.Error())
+		} else {
+			detail = d
+		}
 	}
 	mon := s.resolveMonitored(ctx, artist, year, monitored)
 	profile := qualityProfile
@@ -166,18 +195,253 @@ func (s *Service) AddAlbum(ctx context.Context, artistID int64, name string, yea
 		Monitored:       mon,
 		VerifyChecksums: true,    // default on (PLAN §15.5); callers may override
 		AlbumType:       "album", // L1: empty = album; the OpenAPI enum allows no empty value, so the service normalizes it (TV series_type convention)
+		Labels:          []string{},
+		Genres:          []string{},
+	}
+	if detail != nil {
+		album.MBID = detail.MBID
+		if detail.Year > 0 {
+			album.Year = detail.Year
+		}
+		if detail.AlbumType != "" {
+			album.AlbumType = detail.AlbumType
+		}
+		album.ReleaseDate = detail.ReleaseDate
+		album.Duration = detail.TotalDuration()
+		album.Labels = detail.Labels
+		album.Genres = detail.Genre
+		album.Cover = s.deps.Metadata.ReleaseCoverArt(ctx, detail.MBID)
 	}
 	id, err := s.deps.Repo.CreateAlbum(ctx, album)
 	if err != nil {
-		return 0, err
+		return 0, warnings, err
 	}
 	if mon {
 		if err := s.deps.Repo.EnsureWantedAlbum(ctx, id); err != nil {
-			return 0, err
+			return 0, warnings, err
 		}
 	}
-	s.record(ctx, artistID, "album-added", fmt.Sprintf("%s (%d)", name, year))
-	return id, nil
+	if detail != nil {
+		for _, tr := range detail.Tracks {
+			trackID, terr := s.deps.Repo.CreateTrack(ctx, dom.Track{
+				AlbumID:   id,
+				MBID:      tr.MBID,
+				Disc:      tr.Disc,
+				Number:    tr.Number,
+				Title:     tr.Title,
+				Duration:  tr.Duration,
+				Monitored: mon,
+			})
+			if terr != nil {
+				warnings = append(warnings, fmt.Sprintf("track %d:%d (%s) not created: %v", tr.Disc, tr.Number, tr.Title, terr))
+				continue
+			}
+			if mon {
+				if err := s.deps.Repo.EnsureWantedTrack(ctx, id, trackID); err != nil {
+					warnings = append(warnings, fmt.Sprintf("track %d:%d (%s) not wanted: %v", tr.Disc, tr.Number, tr.Title, err))
+				}
+			}
+		}
+	}
+	s.record(ctx, artistID, "album-added", fmt.Sprintf("%s (%d)", name, album.Year))
+	return id, warnings, nil
+}
+
+// RefreshReport summarizes a RefreshArtist run.
+type RefreshReport struct {
+	AlbumsRefreshed int `json:"albums_refreshed"`
+	AlbumsFailed    int `json:"albums_failed"`
+}
+
+// RefreshArtist re-fetches the artist's metadata from the keyless adapter —
+// status, genres, links, and the artist cover art — and refreshes every
+// known album that carries a release MBID: the album's metadata (year,
+// album type, release date, duration, labels, genres, release cover) is
+// replaced and its tracks are rebuilt from the release. Surviving tracks
+// (matched by MBID, falling back to disc/number) keep their monitored flag;
+// new monitored tracks get a wanted row. Best effort: a failed artist
+// lookup leaves the artist unchanged, a failed album lookup is counted in
+// the report, and a nil Metadata adapter (not configured) or an artist
+// without an MBID returns the artist unchanged with a zero report.
+func (s *Service) RefreshArtist(ctx context.Context, artistID int64) (*dom.Artist, *RefreshReport, error) {
+	artist, err := s.deps.Repo.GetArtist(ctx, artistID)
+	if err != nil {
+		return nil, nil, err
+	}
+	report := &RefreshReport{}
+	if s.deps.Metadata == nil || artist.MBID == "" {
+		return artist, report, nil
+	}
+
+	// Artist metadata: status / genres / links / cover. A failed lookup
+	// leaves the stored artist untouched (best effort, like L2 enrichment).
+	if d, derr := s.deps.Metadata.GetArtistDetail(ctx, artist.MBID); derr == nil {
+		if d.Status != "" {
+			artist.Status = d.Status
+		}
+		if len(d.Genres) > 0 {
+			artist.Genre = strings.Join(d.Genres, ", ")
+		}
+		if len(d.Links) > 0 {
+			links := make([]dom.ArtistLink, 0, len(d.Links))
+			for _, u := range d.Links {
+				links = append(links, dom.ArtistLink{Name: "External", URL: u})
+			}
+			artist.Links = links
+		}
+		artist.Cover = s.deps.Metadata.ArtistCoverArt(ctx, artist.MBID)
+		if err := s.deps.Repo.UpdateArtist(ctx, *artist); err != nil {
+			return nil, report, err
+		}
+	}
+
+	albums, err := s.deps.Repo.ListAlbums(ctx, artistID)
+	if err != nil {
+		return nil, report, err
+	}
+	for _, al := range albums {
+		if al.MBID == "" {
+			continue // no release id → nothing to re-fetch
+		}
+		d, derr := s.deps.Metadata.ReleaseDetail(ctx, al.MBID)
+		if derr != nil {
+			report.AlbumsFailed++
+			continue
+		}
+		al.MBID = d.MBID
+		if d.Year > 0 {
+			al.Year = d.Year
+		}
+		if d.AlbumType != "" {
+			al.AlbumType = d.AlbumType
+		}
+		al.ReleaseDate = d.ReleaseDate
+		al.Duration = d.TotalDuration()
+		al.Labels = d.Labels
+		al.Genres = d.Genre
+		al.Cover = s.deps.Metadata.ReleaseCoverArt(ctx, d.MBID)
+		if err := s.deps.Repo.UpdateAlbum(ctx, al); err != nil {
+			report.AlbumsFailed++
+			continue
+		}
+
+		// Replace the tracks, preserving the monitored flag on survivors.
+		oldTracks, err := s.deps.Repo.ListTracks(ctx, al.ID)
+		if err != nil {
+			report.AlbumsFailed++
+			continue
+		}
+		monitored := map[string]bool{}
+		for _, t := range oldTracks {
+			if t.MBID != "" {
+				monitored["mb:"+t.MBID] = t.Monitored
+			}
+			monitored[fmt.Sprintf("pos:%d:%d", t.Disc, t.Number)] = t.Monitored
+		}
+		if err := s.deps.Repo.DeleteTracks(ctx, al.ID); err != nil {
+			report.AlbumsFailed++
+			continue
+		}
+		rebuilt := true
+		for _, tr := range d.Tracks {
+			monT := al.Monitored
+			if m, ok := monitored["mb:"+tr.MBID]; ok {
+				monT = m
+			} else if m, ok := monitored[fmt.Sprintf("pos:%d:%d", tr.Disc, tr.Number)]; ok {
+				monT = m
+			}
+			trackID, terr := s.deps.Repo.CreateTrack(ctx, dom.Track{
+				AlbumID:   al.ID,
+				MBID:      tr.MBID,
+				Disc:      tr.Disc,
+				Number:    tr.Number,
+				Title:     tr.Title,
+				Duration:  tr.Duration,
+				Monitored: monT,
+			})
+			if terr != nil {
+				rebuilt = false
+				break
+			}
+			if monT {
+				_ = s.deps.Repo.EnsureWantedTrack(ctx, al.ID, trackID)
+			}
+		}
+		if !rebuilt {
+			report.AlbumsFailed++
+			continue
+		}
+		report.AlbumsRefreshed++
+	}
+
+	fresh, err := s.deps.Repo.GetArtist(ctx, artistID)
+	if err != nil {
+		fresh = artist
+	}
+	s.record(ctx, artistID, "refreshed", fmt.Sprintf("artist + %d album(s) refreshed", report.AlbumsRefreshed))
+	return fresh, report, nil
+}
+
+// ScanMusicLibrary (L4, Lidarr import phase 1) scans a root folder's
+// immediate subfolders as artist candidates and matches them against the
+// tracked artists. A folder with no subfolders and only audio files
+// directly in it (a single-artist flat layout) is still a candidate: its
+// files are counted. Phase 1 ends at the report — no file moves, no artist
+// creation (the UI adds selected new artists through the add-artist flow).
+func (s *Service) ScanMusicLibrary(ctx context.Context, root string) (*dom.MusicImportReport, error) {
+	if strings.TrimSpace(root) == "" {
+		return nil, fmt.Errorf("music: import: root folder path is required")
+	}
+	clean := filepath.Clean(root)
+	entries, err := os.ReadDir(clean)
+	if err != nil {
+		return nil, fmt.Errorf("music: import: read root folder %q: %w", root, err)
+	}
+	known, err := s.deps.Repo.ListArtists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	report := &dom.MusicImportReport{Root: clean, Candidates: []dom.MusicImportCandidate{}}
+	for _, ent := range entries {
+		if !ent.IsDir() {
+			continue
+		}
+		title, _ := dom.ParseFolderName(ent.Name())
+		cand := dom.MusicImportCandidate{
+			Path:  filepath.Join(clean, ent.Name()),
+			Title: title,
+		}
+		cand.Files, cand.Size = scanArtistDir(cand.Path)
+		for _, ka := range known {
+			if dom.CandidateMatchesArtist(cand.Title, ka) {
+				cand.Matched = true
+				cand.ArtistID = ka.ID
+				break
+			}
+		}
+		report.Scanned++
+		report.Candidates = append(report.Candidates, cand)
+	}
+	return report, nil
+}
+
+// scanArtistDir counts the audio files (and their total size) under dir,
+// recursively: the flat layout keeps files directly in the folder, the
+// standard layout nests albums in subfolders.
+func scanArtistDir(dir string) (files int, size int64) {
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if dom.IsAudioFile(d.Name()) {
+			files++
+			if info, ierr := d.Info(); ierr == nil {
+				size += info.Size()
+			}
+		}
+		return nil
+	})
+	return files, size
 }
 
 // resolveMonitored resolves the album's monitored flag: an explicit
@@ -585,6 +849,12 @@ func (s *Service) sendToClient(ctx context.Context, artist *dom.Artist, album do
 		DownloadClient: s.deps.Client.Name(),
 		State:          dom.QueueQueued,
 		Progress:       0,
+		// L4 Activity display columns (Lidarr queue row). Whole-album row:
+		// quality/formats carry the matched format; TrackTitle is "".
+		AlbumTitle: album.Name,
+		Quality:    dom.DisplayQuality(rel.Quality),
+		Formats:    dom.DisplayFormats(rel.Quality.Format),
+		TrackTitle: "",
 	}
 	id, err := s.deps.Repo.CreateQueue(ctx, qe)
 	if err != nil {

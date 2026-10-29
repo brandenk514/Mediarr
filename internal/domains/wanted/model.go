@@ -89,6 +89,18 @@ type Item struct {
 	EpisodeTitle string     `json:"episode_title"`
 	AirDate      *time.Time `json:"air_date"`
 	Status       string     `json:"status"`
+
+	// L4 music extras (kind=music; omitempty keeps the TV wire shape
+	// byte-compatible). SeriesID/SeriesTitle carry the album id/title and
+	// season/episode/episode_title carry the track (0/0/"" for album rows);
+	// Quality is the imported quality string (cutoff-unmet rows).
+	ArtistID    int64      `json:"artist_id,omitempty"`
+	ArtistTitle string     `json:"artist_title,omitempty"`
+	AlbumID     int64      `json:"album_id,omitempty"`
+	AlbumTitle  string     `json:"album_title,omitempty"`
+	AlbumType   string     `json:"album_type,omitempty"`
+	ReleaseDate *time.Time `json:"release_date,omitempty"`
+	Quality     string     `json:"quality,omitempty"`
 }
 
 // EpisodeRef identifies an episode within its series.
@@ -107,6 +119,10 @@ type ManualImport struct {
 	Episode      int    `json:"episode"`
 	FilePath     string `json:"file_path"`
 	ReleaseTitle string `json:"release_title"`
+	// L4 (kind=music): the album the file belongs to. 0 for TV requests;
+	// FilePath is a single audio file (whole-album import) or a directory
+	// of per-track files.
+	AlbumID int64 `json:"album_id,omitempty"`
 }
 
 // ManualImportReport is the result of a manual import.
@@ -246,6 +262,25 @@ type Repo interface {
 	// SatisfyWanted marks the episode's wanted row satisfied by the given
 	// release + quality. It is a no-op when no row exists.
 	SatisfyWanted(ctx context.Context, seriesID int64, season, episode int, releaseTitle, quality string) error
+
+	// L4 music (kind=music). The rows come from the music_* tables.
+	// MusicRows returns the music wanted rows: one album-level row per
+	// effectively-monitored album (artist AND album monitored) plus one
+	// row per monitored track of such an album, ordered by artist name,
+	// album (year, name), disc, number.
+	MusicRows(ctx context.Context) ([]MusicRow, error)
+	// EnsureMusicWanted inserts a pending music_wanted row for the ref
+	// (the whole album when disc/number are zero, else the track), or
+	// resets an existing satisfied row back to pending (re-requesting the
+	// search). Pending rows are left untouched.
+	EnsureMusicWanted(ctx context.Context, albumID int64, disc, number int) error
+	// SetMusicMonitoredOff turns monitoring off for the music ref (whole
+	// album when disc/number are zero, else the one track) and reports
+	// whether a row was updated (false = unknown ref).
+	SetMusicMonitoredOff(ctx context.Context, albumID int64, disc, number int) (bool, error)
+	// AddMusicHistory appends a music_history event (kind "music" in the
+	// global Activity feed) for the artist.
+	AddMusicHistory(ctx context.Context, artistID int64, event, detail string) error
 }
 
 // SeriesRef is the series shape the wanted service needs (id, title, and the

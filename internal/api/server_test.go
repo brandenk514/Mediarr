@@ -186,6 +186,9 @@ func (stubMusicRepo) ListAlbums(context.Context, int64) ([]musicdom.Album, error
 func (stubMusicRepo) SetAlbumMonitored(context.Context, int64, bool) error {
 	panic("stubMusicRepo.SetAlbumMonitored should not be called")
 }
+func (stubMusicRepo) UpdateAlbum(context.Context, musicdom.Album) error {
+	panic("stubMusicRepo.UpdateAlbum should not be called")
+}
 func (stubMusicRepo) CreateTrack(context.Context, musicdom.Track) (int64, error) {
 	panic("stubMusicRepo.CreateTrack should not be called")
 }
@@ -197,6 +200,12 @@ func (stubMusicRepo) ListTracks(context.Context, int64) ([]musicdom.Track, error
 }
 func (stubMusicRepo) SetTrackMonitored(context.Context, int64, int, int, bool) error {
 	panic("stubMusicRepo.SetTrackMonitored should not be called")
+}
+func (stubMusicRepo) SetTrackStatus(context.Context, int64, int, int, string) (bool, error) {
+	panic("stubMusicRepo.SetTrackStatus should not be called")
+}
+func (stubMusicRepo) DeleteTracks(context.Context, int64) error {
+	panic("stubMusicRepo.DeleteTracks should not be called")
 }
 func (stubMusicRepo) EnsureWantedAlbum(context.Context, int64) error {
 	panic("stubMusicRepo.EnsureWantedAlbum should not be called")

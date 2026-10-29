@@ -18,6 +18,7 @@ import (
 type memCalendarRepo struct {
 	rows   []cdom.EpisodeRow
 	movies []cdom.MovieRow
+	music  []cdom.MusicRow
 }
 
 func (m *memCalendarRepo) Episodes(_ context.Context) ([]cdom.EpisodeRow, error) {
@@ -26,6 +27,10 @@ func (m *memCalendarRepo) Episodes(_ context.Context) ([]cdom.EpisodeRow, error)
 
 func (m *memCalendarRepo) MovieRows(_ context.Context) ([]cdom.MovieRow, error) {
 	return m.movies, nil
+}
+
+func (m *memCalendarRepo) MusicRows(_ context.Context) ([]cdom.MusicRow, error) {
+	return m.music, nil
 }
 
 // newCalendarTestServer wires a fresh server with a minted bearer token and a
@@ -307,5 +312,115 @@ func TestCalendar_Feed_TVUnchanged(t *testing.T) {
 	}
 	if strings.Contains(body, "VALUE=DATE") {
 		t.Errorf("TV feed must not use all-day DATE values:\n%s", body)
+	}
+}
+
+// musicCalendarRows returns music rows anchored to the real current time so
+// the handler's future cutoff (time.Now) is deterministic.
+func musicCalendarRows() []cdom.MusicRow {
+	now := time.Now().UTC()
+	rel := func(d int) *time.Time {
+		t := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, d)
+		return &t
+	}
+	return []cdom.MusicRow{
+		{ArtistID: 1, ArtistTitle: "Nirvana", AlbumID: 11, AlbumTitle: "AlbumA", AlbumType: "album", Year: 2026, ReleaseDate: rel(1), Monitored: true, QualityProfile: "Lossless"},
+		{ArtistID: 1, ArtistTitle: "Nirvana", AlbumID: 12, AlbumTitle: "AlbumB", Year: 2026, ReleaseDate: rel(2), Monitored: true, QualityProfile: "Lossless"},
+		{ArtistID: 2, ArtistTitle: "Rage", AlbumID: 13, AlbumTitle: "AlbumPast", Year: 2020, ReleaseDate: rel(-1), Monitored: true},
+		{ArtistID: 2, ArtistTitle: "Rage", AlbumID: 14, AlbumTitle: "AlbumUnmon", Year: 2026, ReleaseDate: rel(1), Monitored: false},
+		{ArtistID: 2, ArtistTitle: "Rage", AlbumID: 15, AlbumTitle: "AlbumNoDate", Year: 2026, ReleaseDate: nil, Monitored: true},
+	}
+}
+
+// TestCalendar_List_Music is the L4 endpoint contract: kind=music returns
+// the upcoming monitored-album releases with the music entry shape (album as
+// the primary identity, artist in the music extras).
+func TestCalendar_List_Music(t *testing.T) {
+	now := time.Now().UTC()
+	q := "?kind=music&start=" + now.Format(time.RFC3339) + "&end=" + now.AddDate(0, 0, 30).Format(time.RFC3339)
+	s, token := newCalendarTestServer(t, &memCalendarRepo{music: musicCalendarRows()})
+	rec := doReq(t, s.Handler(), http.MethodGet, "/api/v1/calendar"+q, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body %s", rec.Code, rec.Body.String())
+	}
+	var entries []cdom.Entry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries (monitored + in-window + future release), got %d: %+v", len(entries), entries)
+	}
+	if entries[0].Kind != "music" {
+		t.Errorf("kind = %q, want music", entries[0].Kind)
+	}
+	if entries[0].SeriesID != 11 || entries[0].SeriesTitle != "AlbumA" {
+		t.Errorf("first entry = %+v, want AlbumA / 11", entries[0])
+	}
+	if entries[0].ArtistID != 1 || entries[0].ArtistTitle != "Nirvana" || entries[0].AlbumID != 11 || entries[0].AlbumTitle != "AlbumA" || entries[0].AlbumType != "album" {
+		t.Errorf("music extras = %+v, want Nirvana / AlbumA / album", entries[0])
+	}
+	if entries[0].Year != 2026 || entries[0].Status != "unreleased" || entries[0].QualityProfile != "Lossless" {
+		t.Errorf("music entry extras = %+v, want year 2026 / unreleased / Lossless", entries[0])
+	}
+	if !entries[0].AirStart.Equal(entries[0].AirEnd.Add(-23*time.Hour - 59*time.Minute)) {
+		t.Errorf("all-day range not populated: %v .. %v", entries[0].AirStart, entries[0].AirEnd)
+	}
+}
+
+// TestCalendar_List_MusicEmptyIs200Array: no release dates at all (keyless
+// dev) -> a valid 200 [].
+func TestCalendar_List_MusicEmptyIs200Array(t *testing.T) {
+	s, token := newCalendarTestServer(t, &memCalendarRepo{})
+	rec := doReq(t, s.Handler(), http.MethodGet, "/api/v1/calendar?kind=music", token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body %s", rec.Code, rec.Body.String())
+	}
+	body := strings.TrimSpace(rec.Body.String())
+	if body != "[]" {
+		t.Fatalf("empty music calendar body = %q, want []", body)
+	}
+}
+
+// TestCalendar_List_TVUnchanged_L4 pins the P4 wire regression against the
+// L4 additions: TV entries must not carry the music extras.
+func TestCalendar_List_TVNoMusicExtras(t *testing.T) {
+	now := time.Now().UTC()
+	q := "?kind=tv&start=" + now.Format(time.RFC3339) + "&end=" + now.AddDate(0, 0, 30).Format(time.RFC3339)
+	s, token := newCalendarTestServer(t, &memCalendarRepo{rows: calendarRows()})
+	rec := doReq(t, s.Handler(), http.MethodGet, "/api/v1/calendar"+q, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body %s", rec.Code, rec.Body.String())
+	}
+	var entries []cdom.Entry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, e := range entries {
+		if e.ArtistID != 0 || e.ArtistTitle != "" || e.AlbumID != 0 || e.AlbumTitle != "" || e.AlbumType != "" {
+			t.Errorf("TV entries must not carry music extras: %+v", e)
+		}
+	}
+}
+
+func TestCalendar_Feed_Music(t *testing.T) {
+	s, token := newCalendarTestServer(t, &memCalendarRepo{music: musicCalendarRows()})
+	rec := doReq(t, s.Handler(), http.MethodGet, "/calendar.ics?kind=music&token="+token, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"BEGIN:VCALENDAR",
+		"UID:mediarr-music-11@mediarr",
+		"SUMMARY:Nirvana - AlbumA (2026)",
+		"DTSTART;VALUE=DATE:",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("music feed missing %q:\n%s", want, body)
+		}
+	}
+	// Only the 2 monitored + future releases become all-day events.
+	if n := strings.Count(body, "BEGIN:VEVENT"); n != 2 {
+		t.Errorf("expected 2 VEVENTs, got %d\n%s", n, body)
 	}
 }

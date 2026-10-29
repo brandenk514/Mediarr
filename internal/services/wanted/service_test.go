@@ -3,6 +3,7 @@ package wanted
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,10 @@ type fakeRepo struct {
 	history     []histEvent
 	satisfied   []satisfyCall
 	err         error
+	// L4 music
+	musicRows   []dom.MusicRow
+	musicWanted []musRef
+	musicOff    map[string]bool // "album/disc/number" -> monitored
 }
 
 type histEvent struct {
@@ -118,6 +123,52 @@ func (f *fakeRepo) SatisfyWanted(_ context.Context, seriesID int64, season, epis
 		return f.err
 	}
 	f.satisfied = append(f.satisfied, satisfyCall{seriesID, season, episode, releaseTitle, quality})
+	return nil
+}
+
+// --- L4 music ---
+
+type musRef struct {
+	albumID int64
+	disc    int
+	number  int
+}
+
+func (f *fakeRepo) MusicRows(_ context.Context) ([]dom.MusicRow, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.musicRows, nil
+}
+
+func (f *fakeRepo) EnsureMusicWanted(_ context.Context, albumID int64, disc, number int) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.musicWanted = append(f.musicWanted, musRef{albumID, disc, number})
+	return nil
+}
+
+func (f *fakeRepo) SetMusicMonitoredOff(_ context.Context, albumID int64, disc, number int) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	k := fmt.Sprintf("%d/%d/%d", albumID, disc, number)
+	if f.musicOff == nil {
+		return false, nil
+	}
+	if ok, exists := f.musicOff[k]; exists && ok {
+		f.musicOff[k] = false
+		return true, nil
+	}
+	return false, nil
+}
+
+func (f *fakeRepo) AddMusicHistory(_ context.Context, artistID int64, event, detail string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.history = append(f.history, histEvent{"music", artistID, event, detail})
 	return nil
 }
 

@@ -2,6 +2,9 @@ package music
 
 import (
 	"sort"
+	"strings"
+
+	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // quality.go carries the music quality-profile machinery. It mirrors the
@@ -213,4 +216,90 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// DisplayQuality is the queue row's quality string for a matched release:
+// the upper-cased audio format (e.g. "FLAC"), or "" when the format is
+// unknown (FormatAny / empty) — the queue shows no quality rather than
+// guessing.
+func DisplayQuality(m ProfileMatch) string {
+	if m.Format == "" || m.Format == FormatAny {
+		return ""
+	}
+	return strings.ToUpper(m.Format)
+}
+
+// DisplayFormats joins a release's codec list into the queue row's formats
+// string: comma-separated, upper-cased, unknown codes dropped. A whole-album
+// release carries its single format ("FLAC"); a track release carries each
+// track's codec ("FLAC,MP3"). An all-unknown list yields "".
+func DisplayFormats(codes ...string) string {
+	var out []string
+	for _, c := range codes {
+		if c == "" || c == FormatAny {
+			continue
+		}
+		out = append(out, strings.ToUpper(c))
+	}
+	return strings.Join(out, ",")
+}
+
+// CodecFromExtension is the manual-import codec detector: a file extension
+// (with or without the leading dot, any case) mapped to the upper-case codec
+// name; "" = not a recognized audio file. It is the phase-1 stand-in for a
+// tag reader (the file tracker is deferred): the codec is inferred from the
+// extension, which is also how the downloaded files are named.
+func CodecFromExtension(ext string) string {
+	ext = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(ext), "."))
+	switch ext {
+	case "flac":
+		return "FLAC"
+	case "mp3":
+		return "MP3"
+	case "m4a", "aac", "alac":
+		return "AAC"
+	case "ogg", "oga":
+		return "OGG"
+	case "opus":
+		return "OPUS"
+	case "wav":
+		return "WAV"
+	case "ape":
+		return "APE"
+	case "wv", "wvpack":
+		return "WAVPACK"
+	case "wma":
+		return "WMA"
+	}
+	return ""
+}
+
+// QualityLevelID maps a codec name (any case, e.g. "flac", "MP3") to its
+// Lidarr music quality level ID in the seeded ladder (the settings music
+// level space); 0 = unknown codec (no level — treated as "Unknown", which
+// the cutoff rule ranks below every level). Without tag-level bitrates the
+// codec family's highest seeded level is the level (an MP3 is MP3-320, an
+// OGG Vorbis is Q10): that is the most the extension alone can claim.
+func QualityLevelID(codec string) int {
+	switch strings.ToUpper(strings.TrimSpace(codec)) {
+	case "WAV":
+		return settings.MusicLevelWAV
+	case "APE":
+		return settings.MusicLevelAPE
+	case "WAVPACK":
+		return settings.MusicLevelWavPack
+	case "FLAC":
+		return settings.MusicLevelFLAC
+	case "ALAC":
+		return settings.MusicLevelALAC
+	case "OGG":
+		return settings.MusicLevelOGGQ10
+	case "AAC":
+		return settings.MusicLevelAAC320
+	case "MP3":
+		return settings.MusicLevelMP3320
+	case "WMA":
+		return settings.MusicLevelWMA
+	}
+	return 0
 }

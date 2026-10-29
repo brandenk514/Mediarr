@@ -4,17 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	musicdom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/paging"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
+	rfsvc "github.com/brandenk514/mediarr/internal/services/rootfolders"
 	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // MusicDeps bundles what the music endpoints need.
 type MusicDeps struct {
 	Svc *musicsvc.Service
+	// RootFolders, when non-nil, backs POST /api/v1/music/import's
+	// root_folder_id resolution (L4). Nil-safe: import by path still works
+	// without it.
+	RootFolders *rfsvc.Service
 }
 
 // SetMusic wires the music endpoints. Called after construction, mirroring
@@ -46,6 +53,8 @@ func (s *Server) SetMusic(deps *MusicDeps) {
 	s.register("PUT /api/v1/music/albums/{id}/tracks/{disc}/{number}", s.requireAuth(s.SetTrackMonitored))
 	s.register("GET /api/v1/music/albums/{id}/wanted", s.requireAuth(s.ListAlbumWanted))
 	s.register("POST /api/v1/music/artists/{id}/pipeline", s.requireAuth(s.RunMusicPipeline))
+	s.register("POST /api/v1/music/artists/{id}/refresh", s.requireAuth(s.RefreshArtist))
+	s.register("POST /api/v1/music/import", s.requireAuth(s.ImportMusicLibrary))
 }
 
 // addArtistRequest is the body for POST /api/v1/music. Monitored is a pointer
@@ -180,16 +189,24 @@ func (s *Server) MusicLibrarySummary(w http.ResponseWriter, r *http.Request) {
 // addAlbumRequest is the body for POST /api/v1/music/{id}/albums. Monitored
 // is a pointer: "omitted" derives the value from the artist's L2 monitor
 // policy, an explicit false opts out, an explicit true forces on.
+// ReleaseGroupMBID (L4) is an optional MusicBrainz release-group (or bare
+// release) id: when present, the album and its tracks are enriched from the
+// keyless metadata adapter, and adapter failure is surfaced in the 201
+// warnings array (the add itself still succeeds).
 type addAlbumRequest struct {
-	Name           string `json:"name"`
-	Year           int    `json:"year"`
-	QualityProfile string `json:"quality_profile"`
-	Monitored      *bool  `json:"monitored"`
+	Name             string `json:"name"`
+	Year             int    `json:"year"`
+	QualityProfile   string `json:"quality_profile"`
+	Monitored        *bool  `json:"monitored"`
+	ReleaseGroupMBID string `json:"release_group_mb_id"`
 }
 
 // AddAlbum handles POST /api/v1/music/{id}/albums. A newly added album
 // follows the artist's monitor policy (L2) unless the request sets
-// "monitored" explicitly (PLAN §4; Lidarr L2 policy application).
+// "monitored" explicitly (PLAN §4; Lidarr L2 policy application). L4: an
+// optional release_group_mb_id enriches the album + tracks from
+// MusicBrainz; the 201 body is {id, warnings} with warnings always present
+// (empty when enrichment succeeded or was not requested).
 func (s *Server) AddAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -204,12 +221,86 @@ func (s *Server) AddAlbum(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	albumID, err := s.musicDeps.Svc.AddAlbum(r.Context(), id, req.Name, req.Year, req.QualityProfile, req.Monitored)
+	albumID, warnings, err := s.musicDeps.Svc.AddAlbum(r.Context(), id, req.Name, req.Year, req.QualityProfile, req.Monitored, req.ReleaseGroupMBID)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": albumID})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": albumID, "warnings": warnings})
+}
+
+// RefreshArtist handles POST /api/v1/music/artists/{id}/refresh (L4): the
+// keyless adapter re-fetches the artist's metadata (status, genres, links,
+// cover) and refreshes every album with a release MBID (metadata + track
+// replacement, surviving tracks keep their monitored flag). Response: the
+// refreshed artist plus the {albums_refreshed, albums_failed} report.
+func (s *Server) RefreshArtist(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	artist, report, err := s.musicDeps.Svc.RefreshArtist(r.Context(), id)
+	if err != nil {
+		writeMusicMonitoredError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"artist": artist, "report": report})
+}
+
+// musicImportRequest is the body for POST /api/v1/music/import (L4).
+// Exactly one of root_folder_id (a registered root folder) or path (an
+// ad-hoc path, the "unmapped" case) is required — same shape as the TV
+// import.
+type musicImportRequest struct {
+	RootFolderID int64  `json:"root_folder_id"`
+	Path         string `json:"path"`
+}
+
+// ImportMusicLibrary handles POST /api/v1/music/import (L4, Lidarr
+// import phase 1, mirroring the TV wizard): it scans a root folder,
+// matches the candidate artist folders against the tracked artists, and
+// reports them for confirmation. Phase 1 ends at the report — no file
+// moves and no artist creation from this endpoint (the UI adds selected
+// new artists through the existing add-artist flow).
+func (s *Server) ImportMusicLibrary(w http.ResponseWriter, r *http.Request) {
+	var req musicImportRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	var rootPath string
+	if req.RootFolderID > 0 {
+		if s.musicDeps.RootFolders == nil {
+			writeError(w, http.StatusBadRequest, "root folder registry is not configured")
+			return
+		}
+		rf, err := s.musicDeps.RootFolders.Get(req.RootFolderID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "root folder not found")
+			return
+		}
+		rootPath = rf.Path
+	} else {
+		rootPath = req.Path
+	}
+	if rootPath == "" {
+		writeError(w, http.StatusBadRequest, "root_folder_id or path is required")
+		return
+	}
+	// Map filesystem problems to a clean 404/400 before the scan.
+	if fi, err := os.Stat(filepath.Clean(rootPath)); err != nil {
+		writeError(w, http.StatusNotFound, "root folder not found: "+rootPath)
+		return
+	} else if !fi.IsDir() {
+		writeError(w, http.StatusBadRequest, "root folder is not a directory: "+rootPath)
+		return
+	}
+	report, err := s.musicDeps.Svc.ScanMusicLibrary(r.Context(), rootPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
 }
 
 // ListAlbums handles GET /api/v1/music/{id}/albums.

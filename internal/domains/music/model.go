@@ -64,6 +64,9 @@ type Artist struct {
 	MonitorPolicy    string   // PolicyAll/... ; "" = all
 	MonitorNewAlbums string   // "all_albums"; "" = all_albums
 	Tags             []string // free-form tags; empty = none
+	// L4 (Lidarr metadata): the artist's Cover Art Archive front cover;
+	// "" = none/unknown.
+	Cover string
 	// Per-artist aggregates for the Lidarr grid ribbon (L1 spec gap): computed
 	// by the repository from the tracks and the download queue — never stored.
 	TrackCount  int   // known tracks across the artist's albums
@@ -90,6 +93,11 @@ type Album struct {
 	Rating      float64 // 0 = unknown
 	Duration    int     // seconds; 0 = unknown
 	Size        int64   // bytes; 0 = unknown
+	// L4 (Lidarr metadata): enrichment from MusicBrainz + Cover Art Archive;
+	// the backend always populates them (""/empty = unknown/none).
+	Cover  string   // CAA front cover URL; "" = none/unknown
+	Labels []string // record labels; empty = none
+	Genres []string // music genres; empty = none
 	// TrackCount (known tracks) and FileCount (tracks with an imported file,
 	// powering Lidarr's "3/9" badge) are COMPUTED by the repository from the
 	// tracks — never stored as denormalized counters.
@@ -159,10 +167,18 @@ type QueueEntry struct {
 	ReleaseTitle   string
 	Indexer        string
 	DownloadClient string
-	State          QueueState
-	Progress       int
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// L4 Activity display columns (Lidarr queue row: Album Title / Quality /
+	// Formats / Track Title; Artist is the queue parent, Date is UpdatedAt).
+	// The pipeline populates them; Formats is a comma-joined codec list
+	// ("" = unknown). TrackTitle is "" for whole-album rows.
+	AlbumTitle string
+	Quality    string
+	Formats    string
+	TrackTitle string
+	State      QueueState
+	Progress   int
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // HistoryEntry is an auditable event in an artist's lifecycle.
@@ -195,6 +211,11 @@ var ErrArtistNotFound = errors.New("music: artist not found")
 // ErrAlbumNotFound is returned when an album does not exist.
 var ErrAlbumNotFound = errors.New("music: album not found")
 
+// ErrUnsupportedFile is a manual import whose file is not a recognized
+// audio type (phase 1 detects the codec from the extension; archives are
+// not supported).
+var ErrUnsupportedFile = errors.New("music: unsupported file type (phase 1 imports single audio files or a directory of track files)")
+
 // ErrTrackNotFound is returned when a track does not exist.
 var ErrTrackNotFound = errors.New("music: track not found")
 
@@ -216,7 +237,8 @@ type Repo interface {
 	ListArtists(ctx context.Context) ([]Artist, error)
 	SetArtistMonitored(ctx context.Context, id int64, monitored bool) error
 	// UpdateArtist updates the L1/L2 editable fields (monitored, policy,
-	// quality profile, path, tags) in one row.
+	// quality profile, path, tags) and the L4 enrichment fields (rating,
+	// genre, links, cover) in one row.
 	UpdateArtist(ctx context.Context, a Artist) error
 
 	// Albums
@@ -224,12 +246,25 @@ type Repo interface {
 	GetAlbum(ctx context.Context, id int64) (*Album, error)
 	ListAlbums(ctx context.Context, artistID int64) ([]Album, error)
 	SetAlbumMonitored(ctx context.Context, id int64, monitored bool) error
+	// UpdateAlbum updates the L4 metadata enrichment fields (mbid, year,
+	// album_type, release_date, duration, cover, labels, genres) in one row
+	// (the add/refresh flows' "replace the album's metadata" primitive).
+	UpdateAlbum(ctx context.Context, a Album) error
 
 	// Tracks
 	CreateTrack(ctx context.Context, t Track) (int64, error)
 	GetTrack(ctx context.Context, albumID int64, disc, number int) (*Track, error)
 	ListTracks(ctx context.Context, albumID int64) ([]Track, error)
 	SetTrackMonitored(ctx context.Context, albumID int64, disc, number int, monitored bool) error
+	// SetTrackStatus sets a track's imported-file status — the quality
+	// string of its imported file (e.g. "FLAC") or "" for no file (the L4
+	// manual import marks a track imported; the library scan populates it
+	// on creation). A bool result reports whether a row was updated
+	// (false = unknown track).
+	SetTrackStatus(ctx context.Context, albumID int64, disc, number int, status string) (bool, error)
+	// DeleteTracks removes all tracks of an album (the L4 refresh flow
+	// replaces tracks wholesale).
+	DeleteTracks(ctx context.Context, albumID int64) error
 
 	// Wanted (album or track granularity)
 	EnsureWantedAlbum(ctx context.Context, albumID int64) error

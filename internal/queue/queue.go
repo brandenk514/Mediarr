@@ -30,15 +30,23 @@ const (
 // the top-level media item the job belongs to (movie id, series id, artist
 // id, author id); the queue view drills into that parent's history from it.
 type Item struct {
-	Kind           Kind      `json:"kind"`
-	ParentID       int64     `json:"parent_id"`
-	ParentName     string    `json:"parent_name"`
-	ReleaseTitle   string    `json:"release_title"`
-	Indexer        string    `json:"indexer"`
-	State          string    `json:"state"`
-	Progress       int       `json:"progress"`
-	DownloadClient string    `json:"download_client"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	Kind           Kind   `json:"kind"`
+	ParentID       int64  `json:"parent_id"`
+	ParentName     string `json:"parent_name"`
+	ReleaseTitle   string `json:"release_title"`
+	Indexer        string `json:"indexer"`
+	State          string `json:"state"`
+	Progress       int    `json:"progress"`
+	DownloadClient string `json:"download_client"`
+	// L4 music display columns (the Lidarr queue row: Artist / Album Title /
+	// Quality / Formats / Track Title / Date; Artist is ParentName, Date is
+	// UpdatedAt). Populated for music rows; every other kind keeps "" — the
+	// fields are always present on the wire so the row shape is stable.
+	AlbumTitle string    `json:"album_title"`
+	Quality    string    `json:"quality"`
+	Formats    string    `json:"formats"`
+	TrackTitle string    `json:"track_title"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // HistoryEvent is one lifecycle event for a parent media item — the content of

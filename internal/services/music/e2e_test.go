@@ -105,6 +105,11 @@ func (r *memRepo) UpdateArtist(ctx context.Context, a dom.Artist) error {
 	cur.MonitorPolicy = a.MonitorPolicy
 	cur.MonitorNewAlbums = a.MonitorNewAlbums
 	cur.Tags = a.Tags
+	// L4 enrichment fields (mirrors MusicRepo.UpdateArtist).
+	cur.Rating = a.Rating
+	cur.Genre = a.Genre
+	cur.Links = a.Links
+	cur.Cover = a.Cover
 	r.artists[a.ID] = cur
 	return nil
 }
@@ -152,6 +157,24 @@ func (r *memRepo) SetAlbumMonitored(ctx context.Context, id int64, monitored boo
 	return nil
 }
 
+// UpdateAlbum mirrors MusicRepo.UpdateAlbum (L4 enrichment fields only).
+func (r *memRepo) UpdateAlbum(ctx context.Context, a dom.Album) error {
+	cur, ok := r.albums[a.ID]
+	if !ok {
+		return dom.ErrAlbumNotFound
+	}
+	cur.MBID = a.MBID
+	cur.Year = a.Year
+	cur.AlbumType = a.AlbumType
+	cur.ReleaseDate = a.ReleaseDate
+	cur.Duration = a.Duration
+	cur.Cover = a.Cover
+	cur.Labels = a.Labels
+	cur.Genres = a.Genres
+	r.albums[a.ID] = cur
+	return nil
+}
+
 func (r *memRepo) CreateTrack(ctx context.Context, t dom.Track) (int64, error) {
 	for _, v := range r.tracks[t.AlbumID] {
 		if v.Disc == t.Disc && v.Number == t.Number {
@@ -187,6 +210,24 @@ func (r *memRepo) SetTrackMonitored(ctx context.Context, albumID int64, disc, nu
 		}
 	}
 	return dom.ErrTrackNotFound
+}
+
+// SetTrackStatus mirrors MusicRepo.SetTrackStatus (L4 manual import).
+func (r *memRepo) SetTrackStatus(ctx context.Context, albumID int64, disc, number int, status string) (bool, error) {
+	for i, t := range r.tracks[albumID] {
+		if t.Disc == disc && t.Number == number {
+			t.Status = status
+			r.tracks[albumID][i] = t
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// DeleteTracks mirrors MusicRepo.DeleteTracks (L4 track replacement).
+func (r *memRepo) DeleteTracks(ctx context.Context, albumID int64) error {
+	delete(r.tracks, albumID)
+	return nil
 }
 
 func (r *memRepo) EnsureWantedAlbum(ctx context.Context, albumID int64) error {
@@ -372,7 +413,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
-	albumID, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true))
+	albumID, _, err := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true), "")
 	if err != nil {
 		t.Fatalf("add album: %v", err)
 	}
@@ -418,6 +459,21 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	if qs[0].State != dom.QueueComplete {
 		t.Errorf("queue state = %q, want complete", qs[0].State)
 	}
+	// L4 Activity display columns: the pipeline populates them from the
+	// album + matched release (Lidarr queue row: Album Title / Quality /
+	// Formats / Track Title).
+	if qs[0].AlbumTitle != "Legend" {
+		t.Errorf("queue album_title = %q, want Legend", qs[0].AlbumTitle)
+	}
+	if qs[0].Quality != "FLAC" {
+		t.Errorf("queue quality = %q, want FLAC", qs[0].Quality)
+	}
+	if qs[0].Formats != "FLAC" {
+		t.Errorf("queue formats = %q, want FLAC", qs[0].Formats)
+	}
+	if qs[0].TrackTitle != "" {
+		t.Errorf("queue track_title = %q, want \"\" (whole-album row)", qs[0].TrackTitle)
+	}
 
 	// 6. Idempotency: no pending wanted remains, so a re-run is a no-op.
 	if _, err := svc.RunPipeline(ctx, artistID); !errors.Is(err, ErrNoWanted) {
@@ -445,7 +501,7 @@ func TestPipeline_TrackWanted_SatisfiedByAlbum(t *testing.T) {
 	ctx := context.Background()
 
 	artistID, _ := svc.AddArtist(ctx, AddArtistInput{Name: "Bob Marley", Monitored: true})
-	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(false))
+	albumID, _, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(false), "")
 	// Add a known track and monitor it (track-level wanted, not album-level).
 	trackID, err := svc.AddTrack(ctx, albumID, 1, 1, "No Woman, No Man", true)
 	if err != nil {
@@ -501,8 +557,8 @@ func TestPipeline_AlbumMonitor_Acceptance(t *testing.T) {
 	ctx := context.Background()
 
 	artistID, _ := svc.AddArtist(ctx, AddArtistInput{Name: "Bob Marley", Monitored: true})
-	legendID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true))
-	uprisingID, _ := svc.AddAlbum(ctx, artistID, "Uprising", 1980, "Lossless", boolPtr(false))
+	legendID, _, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true), "")
+	uprisingID, _, _ := svc.AddAlbum(ctx, artistID, "Uprising", 1980, "Lossless", boolPtr(false), "")
 	_ = uprisingID
 
 	// Only the monitored album has a wanted row.
@@ -556,7 +612,7 @@ func TestPipeline_ChecksumMismatch(t *testing.T) {
 	ctx := context.Background()
 
 	artistID, _ := svc.AddArtist(ctx, AddArtistInput{Name: "Bob Marley", Monitored: true})
-	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true))
+	albumID, _, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true), "")
 	// Set an (intentionally wrong) expected checksum on the album.
 	album, _ := repo.GetAlbum(ctx, albumID)
 	album.Checksum = "deadbeef"
@@ -605,7 +661,7 @@ func TestPipeline_NoMatch(t *testing.T) {
 	ctx := context.Background()
 
 	artistID, _ := svc.AddArtist(ctx, AddArtistInput{Name: "Bob Marley", Monitored: true})
-	albumID, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true))
+	albumID, _, _ := svc.AddAlbum(ctx, artistID, "Legend", 1977, "Lossless", boolPtr(true), "")
 
 	_, err := svc.RunPipeline(ctx, artistID)
 	if !errors.Is(err, ErrNoMatch) {

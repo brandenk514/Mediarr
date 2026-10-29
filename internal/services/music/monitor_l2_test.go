@@ -54,11 +54,11 @@ func TestAddAlbum_MonitorPolicy(t *testing.T) {
 				t.Fatalf("add artist: %v", err)
 			}
 			for i, y := range tc.existing {
-				if _, err := svc.AddAlbum(ctx, artistID, "Existing", y, "Lossless", boolPtr(false)); err != nil {
+				if _, _, err := svc.AddAlbum(ctx, artistID, "Existing", y, "Lossless", boolPtr(false), ""); err != nil {
 					t.Fatalf("add existing album %d: %v", i, err)
 				}
 			}
-			albumID, err := svc.AddAlbum(ctx, artistID, "New", tc.albumYear, "Lossless", nil)
+			albumID, _, err := svc.AddAlbum(ctx, artistID, "New", tc.albumYear, "Lossless", nil, "")
 			if err != nil {
 				t.Fatalf("add album: %v", err)
 			}
@@ -83,7 +83,7 @@ func TestAddAlbum_ExplicitMonitoredWins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
-	onID, err := svc.AddAlbum(ctx, idNone, "Explicit On", 2020, "Lossless", boolPtr(true))
+	onID, _, err := svc.AddAlbum(ctx, idNone, "Explicit On", 2020, "Lossless", boolPtr(true), "")
 	if err != nil {
 		t.Fatalf("add album: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestAddAlbum_ExplicitMonitoredWins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
-	offID, err := svc.AddAlbum(ctx, idAll, "Explicit Off", 2020, "Lossless", boolPtr(false))
+	offID, _, err := svc.AddAlbum(ctx, idAll, "Explicit Off", 2020, "Lossless", boolPtr(false), "")
 	if err != nil {
 		t.Fatalf("add album: %v", err)
 	}
@@ -116,11 +116,11 @@ func TestUpdateArtist_L2Edit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add artist: %v", err)
 	}
-	album1, err := svc.AddAlbum(ctx, id, "Legend", 1977, "Lossless", boolPtr(false))
+	album1, _, err := svc.AddAlbum(ctx, id, "Legend", 1977, "Lossless", boolPtr(false), "")
 	if err != nil {
 		t.Fatalf("add album 1: %v", err)
 	}
-	album2, err := svc.AddAlbum(ctx, id, "Uprising", 1980, "Lossless", boolPtr(false))
+	album2, _, err := svc.AddAlbum(ctx, id, "Uprising", 1980, "Lossless", boolPtr(false), "")
 	if err != nil {
 		t.Fatalf("add album 2: %v", err)
 	}
