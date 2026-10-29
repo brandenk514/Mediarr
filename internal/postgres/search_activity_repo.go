@@ -5,12 +5,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/brandenk514/mediarr/internal/indexers"
 )
+
+// queryHistorySelectSQL is the base SELECT for query-history pages; the
+// filter WHERE clause (if any) and the LIMIT/OFFSET are appended at the call
+// site via Sprintf.
+const queryHistorySelectSQL = `
+		SELECT id, indexer_id, indexer_name, term, categories, ok, elapsed_ms, at
+		FROM search_queries`
 
 // SearchActivityRepo is the Postgres-backed implementation of
 // indexers.SearchActivityRepo (migration 0022). It stores manual-search
@@ -122,11 +128,9 @@ func (r *SearchActivityRepo) ListQueries(ctx context.Context, f indexers.QueryFi
 	offsetArg := limitArg + 1
 	args = append(args, size, (page-1)*size)
 
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, indexer_id, indexer_name, term, categories, ok, elapsed_ms, at
-		FROM search_queries`+where+`
-		ORDER BY at DESC, id DESC
-		LIMIT $`+strconv.Itoa(limitArg)+` OFFSET $`+strconv.Itoa(offsetArg), args...)
+	query := fmt.Sprintf("%s%s\n		ORDER BY at DESC, id DESC\n		LIMIT $%d OFFSET $%d",
+		queryHistorySelectSQL, where, limitArg, offsetArg)
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("search-activity: list queries: %w", err)
 	}

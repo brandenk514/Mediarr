@@ -134,7 +134,9 @@ func (s *Server) ManualSearch(w http.ResponseWriter, r *http.Request) {
 	for i, m := range results {
 		def := defs[i] // SearchAll returns one result per def, in input order
 		id := def.ID
-		if err := d.Activity.RecordQuery(ctx, indexers.QueryLog{
+		// A history-write failure must not fail the search itself (the
+		// releases are the primary payload); the row is simply skipped.
+		_ = d.Activity.RecordQuery(ctx, indexers.QueryLog{
 			IndexerID:  &id,
 			Indexer:    def.Name,
 			Term:       req.Query,
@@ -142,10 +144,7 @@ func (s *Server) ManualSearch(w http.ResponseWriter, r *http.Request) {
 			OK:         m.Err == nil,
 			ElapsedMS:  m.Elapsed.Milliseconds(),
 			At:         now,
-		}); err != nil {
-			// A history-write failure must not fail the search itself (the
-			// releases are the primary payload); the row is simply skipped.
-		}
+		})
 		for _, res := range m.Results {
 			out = append(out, searchReleaseJSON{
 				Title:     res.Title,
@@ -253,15 +252,14 @@ func (s *Server) GrabRelease(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("failed to send release to download client: %v", err))
 		return
 	}
-	if err := d.Activity.RecordGrab(ctx, indexers.GrabLog{
+	// The release was handed to the client; a history-write failure is
+	// non-fatal (stats will undercount, but the download proceeded).
+	_ = d.Activity.RecordGrab(ctx, indexers.GrabLog{
 		Indexer:  req.Indexer,
 		Title:    req.Title,
 		Protocol: req.Protocol,
 		At:       time.Now().UTC(),
-	}); err != nil {
-		// The release was handed to the client; a history-write failure is
-		// non-fatal (stats will undercount, but the download proceeded).
-	}
+	})
 	writeJSON(w, http.StatusOK, grabResultJSON{OK: true, Indexer: req.Indexer, Protocol: req.Protocol})
 }
 
