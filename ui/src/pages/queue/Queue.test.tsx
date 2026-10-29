@@ -55,6 +55,11 @@ function item(
     state,
     progress: state === 'downloading' ? 42 : state === 'complete' ? 100 : 0,
     download_client: state === 'queued' ? '' : 'qBittorrent',
+    // L4 music display columns (Lidarr queue row); "" for non-music rows.
+    album_title: '',
+    quality: '',
+    formats: '',
+    track_title: '',
     updated_at: NOW,
   }
 }

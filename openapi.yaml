@@ -4969,29 +4969,61 @@ components:
     WantedItem:
       type: object
       required: [kind, series_id, series_title, season, episode, episode_title, air_date, status]
-      description: One episode in the global Wanted table (a row is always TV).
+      description: >-
+        One row in the global Wanted table. kind=tv: a wanted episode
+        (missing or cutoff-unmet). kind=music (L4): a wanted album/track —
+        series_id/series_title carry the album id/title, season/episode
+        identify a monitored track within the album (0/0 for album-level
+        rows), air_date the enriched release date, and status the same
+        missing:/cutoff: classification.
       properties:
         kind:
           type: string
-          enum: [tv]
+          enum: [tv, music]
         series_id:
           type: integer
           format: int64
+          description: The series id (kind=tv) or the album id (kind=music).
         series_title:
           type: string
+          description: The show title (kind=tv) or the album title (kind=music).
         season:
           type: integer
+          description: The season number (kind=tv); the disc number (kind=music, 0 for album rows).
         episode:
           type: integer
+          description: The episode number (kind=tv); the track number (kind=music, 0 for album rows).
         episode_title:
           type: string
+          description: The episode title (kind=tv); the track title (kind=music, "" for album rows).
         air_date:
           type: string
           format: date
           nullable: true
+          description: The air date (kind=tv) or the enriched catalog release date (kind=music, null when unknown).
         status:
           type: string
-          description: 'Why the episode is wanted (missing: or cutoff: prefix + detail).'
+          description: 'Why the item is wanted (missing: or cutoff: prefix + detail).'
+        artist_id:
+          type: integer
+          format: int64
+          description: The artist id (kind=music only; omitted on TV rows).
+        artist_title:
+          type: string
+          description: The artist name (kind=music only; omitted on TV rows).
+        album_id:
+          type: integer
+          format: int64
+          description: The album id (kind=music only; omitted on TV rows).
+        album_title:
+          type: string
+          description: The album title (kind=music only; omitted on TV rows).
+        album_type:
+          type: string
+          description: The album type, e.g. album/ep/single/compilation (kind=music only; omitted on TV rows).
+        quality:
+          type: string
+          description: 'The imported quality string for cutoff-unmet rows (kind=music only; omitted on TV rows).'
     PageWantedItem:
       type: object
       required: [items, total, page, pageSize]
@@ -5081,6 +5113,11 @@ components:
         tab:
           default: missing
           $ref: "#/components/schemas/WantedTab"
+        kind:
+          type: string
+          default: tv
+          enum: [tv, music]
+          description: The kind to fan out a search for (kind=tv episodes by default; kind=music L4 albums).
     WantedEpisodeRef:
       type: object
       required: [series_id, season, episode]
@@ -5094,12 +5131,38 @@ components:
           type: integer
     WantedUnmonitorRequest:
       type: object
-      required: [episodes]
+      description: >-
+        A batch of wanted items to unmonitor. kind=tv (default; omit kind
+        for TV): send episodes; kind=music (L4): send music (albums and/or
+        monitored tracks).
       properties:
+        kind:
+          type: string
+          default: tv
+          enum: [tv, music]
         episodes:
           type: array
+          description: The episode refs to unmonitor (kind=tv).
           items:
             $ref: "#/components/schemas/WantedEpisodeRef"
+        music:
+          type: array
+          description: The album/track refs to unmonitor (kind=music, L4).
+          items:
+            $ref: "#/components/schemas/WantedMusicRef"
+    WantedMusicRef:
+      type: object
+      required: [album_id]
+      properties:
+        album_id:
+          type: integer
+          format: int64
+        disc:
+          type: integer
+          description: The disc a monitored track is on (0 for an album-level ref).
+        number:
+          type: integer
+          description: The track number within the disc (0 for an album-level ref).
     WantedActionResult:
       type: object
       description: Result of a Search All (searched) or Unmonitor (unmonitored) action.
@@ -5112,20 +5175,30 @@ components:
           description: How many episodes had monitoring turned off (Unmonitor).
     ManualImportRequest:
       type: object
-      required: [kind, series_id, season, episode, file_path]
+      required: [kind, file_path]
       properties:
         kind:
           $ref: "#/components/schemas/MediaKind"
         series_id:
           type: integer
           format: int64
+          description: The series id (kind=tv); omit for kind=music.
         season:
           type: integer
+          description: The season number (kind=tv); omit for kind=music.
         episode:
           type: integer
+          description: The episode number (kind=tv); omit for kind=music.
+        album_id:
+          type: integer
+          format: int64
+          description: The album the file belongs to (kind=music, L4; required for kind=music).
         file_path:
           type: string
-          description: Server-side path of the episode file to import.
+          description: >-
+            Server-side path of the file to import. For kind=tv the episode
+            file; for kind=music (L4) a single audio file (whole-album import)
+            or a directory of per-track files.
         release_title:
           type: string
           description: Optional release name recorded in history.
