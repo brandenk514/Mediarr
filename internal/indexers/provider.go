@@ -55,6 +55,14 @@ type Definition struct {
 	SettingsJSON string
 	Enabled      bool
 	LastTest     *time.Time
+	// Prowlarr PR1 indexer-hub list columns. Privacy is one of
+	// "public" / "private" / "semi-private" (default "public"). Priority is
+	// the search-ordering weight (default 25). SyncProfile names the
+	// synchronization profile (default "standard"). Added is the created time.
+	Privacy     string
+	Priority    int
+	SyncProfile string
+	Added       time.Time
 }
 
 // Registry maps a protocol kind to a constructor that builds a Provider from a

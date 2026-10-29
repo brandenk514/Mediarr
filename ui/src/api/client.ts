@@ -308,6 +308,8 @@ export const client = {
   listIndexers: () => request<Indexer[]>('GET', '/indexers'),
   indexerStats: (id: number) => request<IndexerStats>('GET', `/indexers/${id}/stats`),
   testIndexer: (id: number) => request<IndexerTestResult>('POST', `/indexers/${id}/test`),
+  // Prowlarr PR1 "Test All Indexers": fan-out probe over every enabled indexer.
+  testAllIndexers: () => request<IndexerTestResult[]>('POST', '/indexers/test-all'),
   // Indexer write surface (#44): create / update / enable-toggle / delete.
   // api_key is plaintext in the body but is never echoed back.
   createIndexer: (req: IndexerCreate) => request<Indexer>('POST', '/indexers', req),

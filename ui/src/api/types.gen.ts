@@ -900,6 +900,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/indexers/test-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Health probe for every enabled indexer.
+         * @description The "Test All Indexers" toolbar action (Prowlarr PR1). Fans out a probe
+         *     over every enabled indexer and returns the per-indexer outcomes. A
+         *     per-indexer failure is a 200 with ok false for that indexer.
+         */
+        post: operations["testAllIndexers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/indexers/{id}": {
         parameters: {
             query?: never;
@@ -3165,6 +3187,20 @@ export interface components {
             auto_search: boolean;
             /** @description Interactive (manual) search for this indexer (Radarr R5a per-indexer toggle). */
             interactive_search: boolean;
+            /**
+             * @description Visibility (Prowlarr PR1 hub column).
+             * @enum {string}
+             */
+            privacy: "public" | "private" | "semi-private";
+            /** @description Search-ordering weight (Prowlarr PR1 hub column). */
+            priority: number;
+            /** @description Synchronization profile name (Prowlarr PR1 hub column). */
+            sync_profile: string;
+            /**
+             * Format: date-time
+             * @description Created time (Prowlarr PR1 hub column).
+             */
+            added: string;
         };
         IndexerCreate: {
             name: string;
@@ -3183,6 +3219,15 @@ export interface components {
             auto_search?: boolean;
             /** @description Interactive search for this indexer (Radarr R5a). Omitted = true. */
             interactive_search?: boolean;
+            /**
+             * @description Omitted = public.
+             * @enum {string}
+             */
+            privacy?: "public" | "private" | "semi-private";
+            /** @description Omitted = 25. */
+            priority?: number;
+            /** @description Omitted = standard. */
+            sync_profile?: string;
         };
         IndexerUpdate: {
             name: string;
@@ -3199,6 +3244,15 @@ export interface components {
             auto_search?: boolean;
             /** @description Omitted = keep the stored value (Radarr R5a). */
             interactive_search?: boolean;
+            /**
+             * @description Omitted = keep the stored value.
+             * @enum {string}
+             */
+            privacy?: "public" | "private" | "semi-private";
+            /** @description Omitted = keep the stored value. */
+            priority?: number;
+            /** @description Omitted = keep the stored value. */
+            sync_profile?: string;
         };
         IndexerEnabled: {
             enabled: boolean;
@@ -6060,6 +6114,28 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    testAllIndexers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One result per enabled indexer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexerTestResult"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
         };
     };
