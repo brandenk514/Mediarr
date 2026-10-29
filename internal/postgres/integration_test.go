@@ -113,8 +113,8 @@ func TestVersion_TracksAppliedMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after migrate: %v", err)
 	}
-	if v != "0021_indexer_definitions" {
-		t.Errorf("version = %q, want 0021_indexer_definitions (highest applied)", v)
+	if v != "0022_search_activity" {
+		t.Errorf("version = %q, want 0022_search_activity (highest applied)", v)
 	}
 }
 
