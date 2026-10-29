@@ -5305,7 +5305,7 @@ components:
           description: How many queue jobs were removed.
     Indexer:
       type: object
-      required: [id, name, kind, base_url, enabled, has_api_key, last_test, rss, auto_search, interactive_search, privacy, priority, sync_profile, added]
+      required: [id, name, kind, base_url, enabled, has_api_key, last_test, rss, auto_search, interactive_search, privacy, priority, sync_profile, added, categories]
       properties:
         id:
           type: integer
@@ -5349,6 +5349,11 @@ components:
           type: string
           format: date-time
           description: Created time (Prowlarr PR1 hub column).
+        categories:
+          type: array
+          items:
+            type: string
+          description: Category badges from the indexer's settings (PR1 hub column; empty when none).
     IndexerCreate:
       type: object
       required: [name, kind]

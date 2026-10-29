@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -64,6 +65,7 @@ type indexerJSON struct {
 	Priority    int       `json:"priority"`
 	SyncProfile string    `json:"sync_profile"`
 	Added       time.Time `json:"added"`
+	Categories  []string  `json:"categories"`
 }
 
 func defToJSON(d indexers.Definition) indexerJSON {
@@ -95,7 +97,45 @@ func defToJSON(d indexers.Definition) indexerJSON {
 		Priority:          priority,
 		SyncProfile:       syncProfile,
 		Added:             d.Added,
+		Categories:        parseCategories(d.SettingsJSON),
 	}
+}
+
+// parseCategories pulls the indexer's category badges out of its settings_json
+// bag (PR1 list parity: "category badges"). The bag may carry categories as a
+// JSON array of strings or a comma-separated string; a missing/empty value
+// yields an empty slice (the UI renders a dash).
+func parseCategories(raw string) []string {
+	if raw == "" {
+		return []string{}
+	}
+	var bag map[string]any
+	if err := json.Unmarshal([]byte(raw), &bag); err != nil {
+		return []string{}
+	}
+	v, ok := bag["categories"]
+	if !ok {
+		return []string{}
+	}
+	switch c := v.(type) {
+	case string:
+		out := []string{}
+		for _, p := range strings.Split(c, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				out = append(out, p)
+			}
+		}
+		return out
+	case []any:
+		out := []string{}
+		for _, e := range c {
+			if s, ok := e.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return []string{}
 }
 
 // ListIndexers handles GET /api/v1/indexers: every configured indexer.

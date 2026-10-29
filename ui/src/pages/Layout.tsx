@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { client } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { KINDS, SHARED_SECTIONS, DASHBOARD_SECTION, kindById, type KindId, type SharedSection } from '../nav'
+import { KINDS, SHARED_SECTIONS, DASHBOARD_SECTION, INDEXERS_SECTION, kindById, type KindId, type SharedSection } from '../nav'
 
 // Layout is the authenticated Sonarr-parity shell (P1): a full-width teal top
 // bar (logo · global search · notifications · profile) over a slate left rail
@@ -179,6 +179,10 @@ export function Rail() {
           ...(meta.extraLinks ?? []),
         ]}
       />
+
+      {/* Prowlarr PR1: Indexers is a first-class hub — the list IS the page.
+          Rendered as its own rail section (home = /indexers, sub = Stats stub). */}
+      <SharedRailSection section={INDEXERS_SECTION} pathname={pathname} />
 
       {/* Shared sections: Calendar, Activity, Wanted, Settings, System. The
           System section carries the live health-count badge. */}

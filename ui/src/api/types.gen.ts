@@ -3201,6 +3201,8 @@ export interface components {
              * @description Created time (Prowlarr PR1 hub column).
              */
             added: string;
+            /** @description Category badges from the indexer's settings (PR1 hub column; empty when none). */
+            categories: string[];
         };
         IndexerCreate: {
             name: string;
