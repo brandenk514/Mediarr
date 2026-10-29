@@ -31,6 +31,8 @@ type Server struct {
 	settingsDeps        *SettingsDeps
 	settingsSectionDeps *SettingsSectionDeps
 	settingsP5Deps      *SettingsP5Deps
+	notificationsDeps   *NotificationsDeps
+	indexerProxiesDeps  *IndexerProxiesDeps
 	eventsDeps          *EventsDeps
 	moviesDeps          *MoviesDeps
 	tvDeps              *TVDeps
