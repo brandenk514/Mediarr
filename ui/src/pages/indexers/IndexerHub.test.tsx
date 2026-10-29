@@ -3,13 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
-import type { Indexer, IndexerTestResult } from '../../api/types'
+import type { Indexer, IndexerDefinition, IndexerTestResult } from '../../api/types'
 import { IndexerHubPage } from './IndexerHub'
 
 // Mock the typed client so the hub talks to in-test fakes.
 vi.mock('../../api/client', () => ({
   client: {
     listIndexers: vi.fn(),
+    listIndexerDefinitions: vi.fn(),
     testIndexer: vi.fn(),
     testAllIndexers: vi.fn(),
     createIndexer: vi.fn(),
@@ -60,6 +61,72 @@ const SEED = [
   indexer({ id: 3, name: 'nulled', kind: 'torznab', privacy: 'semi-private', priority: 50, categories: ['TV'], enabled: false, added: '2026-08-20T00:00:00Z' }),
 ]
 
+// Prowlarr PR2: fake definition library for the two-stage picker/form flow.
+// Covers the kind mapping (torrent -> torrent-rss, usenet -> nzb,
+// generic-torznab -> torznab), every contract field type, and an advanced
+// field.
+const TORRENT_DEF: IndexerDefinition = {
+  id: 'test-torrent',
+  name: 'Test Torrent',
+  protocol: 'torrent',
+  privacy: 'public',
+  language: '',
+  categories: ['Movies', 'TV'],
+  urls: ['https://torrent.example.org/api'],
+  legacyUrls: [],
+  fields: [
+    { name: 'username', type: 'textbox', label: 'Username', required: true },
+    { name: 'password', type: 'password', label: 'Password' },
+    { name: 'note', type: 'info', label: 'Info Title', hint: 'Info body' },
+  ],
+  presets: [],
+}
+const USNET_DEF: IndexerDefinition = {
+  id: 'test-usenet',
+  name: 'Test Usenet',
+  protocol: 'usenet',
+  privacy: 'private',
+  language: '',
+  categories: [],
+  urls: ['https://usenet.example.org'],
+  legacyUrls: [],
+  fields: [],
+  presets: [],
+}
+const TORZ_DEF: IndexerDefinition = {
+  id: 'generic-torznab',
+  name: 'Generic Torznab',
+  protocol: 'torrent',
+  privacy: 'public',
+  language: '',
+  categories: [],
+  urls: ['https://example.org/torznab'],
+  legacyUrls: [],
+  fields: [{ name: 'apikey', type: 'password', label: 'API Key' }],
+  presets: [],
+}
+const ALL_TYPES_DEF: IndexerDefinition = {
+  id: 'all-types',
+  name: 'All Types',
+  protocol: 'torrent',
+  privacy: 'semi-private',
+  language: '',
+  categories: ['TV'],
+  urls: ['https://types.example.org', 'https://types2.example.org'],
+  legacyUrls: [],
+  fields: [
+    { name: 'textbox', type: 'textbox', label: 'Text Field' },
+    { name: 'password', type: 'password', label: 'Secret' },
+    { name: 'number', type: 'number', label: 'Count' },
+    { name: 'checkbox', type: 'checkbox', label: 'Enable thing' },
+    { name: 'select', type: 'select', label: 'Choice', options: { a: 'Option A', b: 'Option B' } },
+    { name: 'note', type: 'info', label: 'Info Title', hint: 'Info body' },
+    { name: 'adv', type: 'textbox', label: 'Adv Field', advanced: true },
+  ],
+  presets: [],
+}
+const DEFS: IndexerDefinition[] = [TORRENT_DEF, USNET_DEF, TORZ_DEF, ALL_TYPES_DEF]
+
 function renderHub() {
   return render(
     <MemoryRouter initialEntries={['/indexers']}>
@@ -71,6 +138,7 @@ function renderHub() {
 beforeEach(() => {
   vi.clearAllMocks()
   ;(client.listIndexers as ReturnType<typeof vi.fn>).mockResolvedValue(SEED)
+  ;(client.listIndexerDefinitions as ReturnType<typeof vi.fn>).mockResolvedValue(DEFS)
   ;(client.testAllIndexers as ReturnType<typeof vi.fn>).mockResolvedValue(SEED.map((i) => tResult(i.id, true)))
 })
 afterEach(() => {
@@ -236,33 +304,105 @@ describe('IndexerHubPage — row actions + add/edit (existing endpoints)', () =>
     await waitFor(() => expect(client.setIndexerEnabled).toHaveBeenCalledWith(1, false))
   })
 
-  it('creates an indexer from the Add modal with the new hub fields', async () => {
+  it('creates a torrent-definition indexer: kind -> torrent-rss + config_fields + definition_name', async () => {
     const user = userEvent.setup()
-    const created = indexer({ id: 7, name: 'newidx', kind: 'torznab', base_url: 'https://x' })
+    const created = indexer({ id: 7, name: 'newidx', kind: 'torrent-rss', base_url: 'https://torrent.example.org/api' })
     ;(client.createIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(created)
     renderHub()
+    // Add now opens the definition picker (stage 1).
     await screen.findByTestId('idx-add')
     await user.click(screen.getByTestId('idx-add'))
+    await waitFor(() => expect(screen.getByTestId('idx-picker-modal')).toBeInTheDocument())
+    // Pick the torrent definition.
+    await user.click(screen.getByTestId('idx-def-test-torrent'))
     await waitFor(() => expect(screen.getByTestId('idx-form-modal')).toBeInTheDocument())
+    // The form is prefilled with the definition's base URL + contract fields.
+    expect(screen.getByTestId('idx-base')).toHaveValue('https://torrent.example.org/api')
+    expect(screen.getByTestId('idx-field-username')).toBeInTheDocument()
     await user.type(screen.getByTestId('idx-name'), 'newidx')
-    await user.selectOptions(screen.getByTestId('idx-kind'), 'torznab')
-    await user.type(screen.getByTestId('idx-base'), 'https://x')
-    await user.selectOptions(screen.getByTestId('idx-privacy'), 'private')
-    const prio = screen.getByTestId('idx-priority')
-    await user.clear(prio)
-    await user.type(prio, '10')
+    await user.type(screen.getByTestId('idx-field-username'), 'myuser')
     await user.click(screen.getByTestId('idx-save'))
     await waitFor(() =>
       expect(client.createIndexer).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'newidx',
-          kind: 'torznab',
-          privacy: 'private',
-          priority: 10,
-          sync_profile: 'standard',
+          kind: 'torrent-rss',
+          definition_name: 'test-torrent',
+          config_fields: expect.objectContaining({ username: 'myuser' }),
+          base_url: 'https://torrent.example.org/api',
         }),
       ),
     )
+  })
+
+  it('creates a usenet-definition indexer: kind -> nzb + definition_name', async () => {
+    const user = userEvent.setup()
+    const created = indexer({ id: 8, name: 'newnzb', kind: 'nzb', base_url: 'https://usenet.example.org' })
+    ;(client.createIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    renderHub()
+    await screen.findByTestId('idx-add')
+    await user.click(screen.getByTestId('idx-add'))
+    await user.click(screen.getByTestId('idx-def-test-usenet'))
+    await waitFor(() => expect(screen.getByTestId('idx-form-modal')).toBeInTheDocument())
+    await user.type(screen.getByTestId('idx-name'), 'newnzb')
+    await user.click(screen.getByTestId('idx-save'))
+    await waitFor(() =>
+      expect(client.createIndexer).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'newnzb', kind: 'nzb', definition_name: 'test-usenet', base_url: 'https://usenet.example.org' }),
+      ),
+    )
+  })
+
+  it('creates a generic-torznab indexer: kind -> torznab (not torrent-rss)', async () => {
+    const user = userEvent.setup()
+    const created = indexer({ id: 9, name: 'newtz', kind: 'torznab', base_url: 'https://example.org/torznab' })
+    ;(client.createIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(created)
+    renderHub()
+    await screen.findByTestId('idx-add')
+    await user.click(screen.getByTestId('idx-add'))
+    await user.click(screen.getByTestId('idx-def-generic-torznab'))
+    await waitFor(() => expect(screen.getByTestId('idx-form-modal')).toBeInTheDocument())
+    await user.type(screen.getByTestId('idx-name'), 'newtz')
+    await user.click(screen.getByTestId('idx-save'))
+    await waitFor(() =>
+      expect(client.createIndexer).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'newtz', kind: 'torznab', definition_name: 'generic-torznab' }),
+      ),
+    )
+  })
+
+  it('blocks create when a required contract field is missing', async () => {
+    const user = userEvent.setup()
+    ;(client.createIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(indexer({ id: 7 }))
+    renderHub()
+    await screen.findByTestId('idx-add')
+    await user.click(screen.getByTestId('idx-add'))
+    await user.click(screen.getByTestId('idx-def-test-torrent'))
+    await waitFor(() => expect(screen.getByTestId('idx-form-modal')).toBeInTheDocument())
+    await user.type(screen.getByTestId('idx-name'), 'newidx')
+    // Leave the required Username blank -> submit is blocked, no API call.
+    await user.click(screen.getByTestId('idx-save'))
+    await waitFor(() =>
+      expect(screen.getByTestId('idx-form-error')).toHaveTextContent('Username is required'),
+    )
+    expect(client.createIndexer).not.toHaveBeenCalled()
+  })
+
+  it('blocks create when the Base Url is emptied', async () => {
+    const user = userEvent.setup()
+    ;(client.createIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(indexer({ id: 7 }))
+    renderHub()
+    await screen.findByTestId('idx-add')
+    await user.click(screen.getByTestId('idx-add'))
+    await user.click(screen.getByTestId('idx-def-test-torrent'))
+    await waitFor(() => expect(screen.getByTestId('idx-form-modal')).toBeInTheDocument())
+    await user.type(screen.getByTestId('idx-name'), 'newidx')
+    await user.type(screen.getByTestId('idx-field-username'), 'myuser')
+    const base = screen.getByTestId('idx-base')
+    await user.clear(base)
+    await user.click(screen.getByTestId('idx-save'))
+    await waitFor(() => expect(screen.getByTestId('idx-form-error')).toHaveTextContent('Base Url is required'))
+    expect(client.createIndexer).not.toHaveBeenCalled()
   })
 
   it('Edit Indexer opens the same modal prefilled and updates with hub fields', async () => {
@@ -328,5 +468,114 @@ describe('IndexerHubPage — row actions + add/edit (existing endpoints)', () =>
     expect(screen.getByTestId('idx-selected-count')).toHaveTextContent('3')
     await user.click(screen.getByTestId('idx-bulk-enable'))
     await waitFor(() => expect(client.setIndexerEnabled).toHaveBeenCalledTimes(3))
+  })
+})
+
+describe('IndexerHubPage — PR2 definition picker + contract form', () => {
+  it('opens the picker on Add and renders every fetched definition with protocol/privacy pills', async () => {
+    const user = userEvent.setup()
+    renderHub()
+    await screen.findByTestId('idx-add')
+    await user.click(screen.getByTestId('idx-add'))
+    await waitFor(() => expect(screen.getByTestId('idx-picker-modal')).toBeInTheDocument())
+    // All 4 seeded definitions are present as rows.
+    expect(screen.getByTestId('idx-def-test-torrent')).toHaveTextContent('Test Torrent')
+    expect(screen.getByTestId('idx-def-test-usenet')).toHaveTextContent('Test Usenet')
+    expect(screen.getByTestId('idx-def-generic-torznab')).toHaveTextContent('Generic Torznab')
+    expect(screen.getByTestId('idx-def-all-types')).toHaveTextContent('All Types')
+    expect(screen.getByTestId('idx-picker-count')).toHaveTextContent('4 of 4 definitions')
+  })
+
+  it('search + protocol/privacy/category filters each narrow the picker list', async () => {
+    const user = userEvent.setup()
+    renderHub()
+    await screen.findByTestId('idx-add')
+    await user.click(screen.getByTestId('idx-add'))
+    // Search narrows to the one matching definition.
+    await user.type(screen.getByTestId('idx-picker-search'), 'all types')
+    await waitFor(() => expect(screen.getByTestId('idx-picker-count')).toHaveTextContent('1 of 4 definitions'))
+    // Clear search, filter by protocol.
+    await user.clear(screen.getByTestId('idx-picker-search'))
+    await user.selectOptions(screen.getByTestId('idx-picker-protocol'), 'usenet')
+    await waitFor(() => expect(screen.getByTestId('idx-picker-count')).toHaveTextContent('1 of 4 definitions'))
+    // Reset protocol, filter by privacy.
+    await user.selectOptions(screen.getByTestId('idx-picker-protocol'), 'all')
+    await user.selectOptions(screen.getByTestId('idx-picker-privacy'), 'private')
+    await waitFor(() => expect(screen.getByTestId('idx-picker-count')).toHaveTextContent('1 of 4 definitions'))
+    // Reset privacy, filter by category (Movies+TV on torrent, TV on all-types -> 2).
+    await user.selectOptions(screen.getByTestId('idx-picker-privacy'), 'all')
+    await user.selectOptions(screen.getByTestId('idx-picker-category'), 'TV')
+    await waitFor(() => expect(screen.getByTestId('idx-picker-count')).toHaveTextContent('2 of 4 definitions'))
+  })
+
+  it('picking a definition renders every contract field type; advanced fields stay hidden until toggled', async () => {
+    const user = userEvent.setup()
+    renderHub()
+    await screen.findByTestId('idx-add')
+    await user.click(screen.getByTestId('idx-add'))
+    await user.click(screen.getByTestId('idx-def-all-types'))
+    await waitFor(() => expect(screen.getByTestId('idx-form-modal')).toBeInTheDocument())
+    // Picker closed, form open.
+    expect(screen.queryByTestId('idx-picker-modal')).not.toBeInTheDocument()
+    // Base Url is a SELECT (the def has two candidate URLs).
+    const base = screen.getByTestId('idx-base')
+    expect(base).toHaveValue('https://types.example.org')
+    expect((base as HTMLSelectElement).tagName).toBe('SELECT')
+    // Every contract field type renders as the right input.
+    expect((screen.getByTestId('idx-field-textbox') as HTMLInputElement).type).toBe('text')
+    expect((screen.getByTestId('idx-field-password') as HTMLInputElement).type).toBe('password')
+    expect((screen.getByTestId('idx-field-number') as HTMLInputElement).type).toBe('number')
+    expect(screen.getByTestId('idx-field-checkbox')).toBeInTheDocument()
+    expect((screen.getByTestId('idx-field-select') as HTMLSelectElement).tagName).toBe('SELECT')
+    // Info renders as static text, not an input.
+    expect(screen.getByTestId('idx-field-note')).toHaveTextContent('Info Title')
+    expect(screen.getByTestId('idx-field-note')).toHaveTextContent('Info body')
+    // Advanced field is hidden until the toggle.
+    expect(screen.queryByTestId('idx-field-adv')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('idx-show-advanced'))
+    await waitFor(() => expect(screen.getByTestId('idx-field-adv')).toBeInTheDocument())
+  })
+
+  it('editing a PR2 indexer prefills the contract and keeps a blank password (masked-edit round-trip)', async () => {
+    const user = userEvent.setup()
+    const def = TORRENT_DEF
+    ;(client.listIndexers as ReturnType<typeof vi.fn>).mockResolvedValue([
+      indexer({
+        id: 11,
+        name: 'masked',
+        kind: 'torrent-rss',
+        base_url: 'https://torrent.example.org/api',
+        definition_name: def.id,
+        config_fields: { username: 'stored-user', password: '' },
+      }),
+    ])
+    ;(client.updateIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      indexer({ id: 11, definition_name: def.id, config_fields: { username: 'stored-user', password: '' } }),
+    )
+    renderHub()
+    await screen.findByTestId('idx-edit-11')
+    await user.click(screen.getByTestId('idx-edit-11'))
+    await waitFor(() => expect(screen.getByTestId('idx-form-modal')).toBeInTheDocument())
+    // Contract field prefilled with the stored value.
+    expect(screen.getByTestId('idx-field-username')).toHaveValue('stored-user')
+    // Password arrives masked '' -> placeholder dots + '(blank to keep)' hint.
+    const pw = screen.getByTestId('idx-field-password') as HTMLInputElement
+    expect(pw.type).toBe('password')
+    expect(pw.value).toBe('')
+    expect(pw).toHaveAttribute('placeholder', '••••••••')
+    expect(screen.getByTestId('idx-form')).toHaveTextContent('(blank to keep)')
+    // Save keeps the blank password (empty = keep the stored secret).
+    await user.click(screen.getByTestId('idx-save'))
+    await waitFor(() =>
+      expect(client.updateIndexer).toHaveBeenCalledWith(
+        11,
+        expect.objectContaining({
+          name: 'masked',
+          kind: 'torrent-rss',
+          definition_name: def.id,
+          config_fields: expect.objectContaining({ username: 'stored-user', password: '' }),
+        }),
+      ),
+    )
   })
 })
