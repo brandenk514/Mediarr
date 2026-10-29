@@ -71,6 +71,12 @@ type Definition struct {
 	// (no contract stored). The API masks password values before responding.
 	DefinitionName string
 	ConfigFields   map[string]any
+	// Prowlarr PR4: Tags are the tag labels assigned to this indexer (its
+	// traffic is routed through any proxy carrying a matching tag; nil/empty
+	// when none). Redirect marks a redirected indexer: grabs are recorded for
+	// stats parity but NOT sent to the download client.
+	Tags     []string
+	Redirect bool
 }
 
 // DefinitionNamePtr exposes the library definition name in the nullable form

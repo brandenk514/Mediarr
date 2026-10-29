@@ -37,3 +37,28 @@ func (r *TagUsageRepo) CountByTag(ctx context.Context, label string) (int, int, 
 	}
 	return series, episodes, nil
 }
+
+// IndexersByTag returns (count, names) of the indexers whose tags array
+// carries the tag label (Prowlarr PR4). indexers.tags is a JSONB array of
+// strings, so the containment check is a JSONB @> against a one-element array.
+// Names are sorted a-to-z for a stable UI list.
+func (r *TagUsageRepo) IndexersByTag(ctx context.Context, label string) (int, []string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT name FROM indexers WHERE tags @> to_jsonb(ARRAY[$1]::text[]) ORDER BY name`, label)
+	if err != nil {
+		return 0, nil, fmt.Errorf("tag usage: list indexers: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop below
+	names := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return 0, nil, fmt.Errorf("tag usage: scan indexer: %w", err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, nil, fmt.Errorf("tag usage: indexer rows: %w", err)
+	}
+	return len(names), names, nil
+}

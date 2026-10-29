@@ -82,6 +82,11 @@ type indexerJSON struct {
 	// indexer was added from (null on the legacy path).
 	ConfigFields   map[string]any `json:"config_fields"`
 	DefinitionName *string        `json:"definition_name"`
+	// Prowlarr PR4: the tag labels assigned to this indexer (empty array when
+	// none) and the redirect flag (a redirected indexer records grabs for
+	// stats parity but does not send them to the download client).
+	Tags     []string `json:"tags"`
+	Redirect bool     `json:"redirect"`
 }
 
 func defToJSON(d indexers.Definition) indexerJSON {
@@ -97,6 +102,10 @@ func defToJSON(d indexers.Definition) indexerJSON {
 	priority := d.Priority
 	if priority == 0 {
 		priority = 25
+	}
+	tags := d.Tags
+	if tags == nil {
+		tags = []string{}
 	}
 	return indexerJSON{
 		ID:                d.ID,
@@ -116,6 +125,8 @@ func defToJSON(d indexers.Definition) indexerJSON {
 		Categories:        parseCategories(d.SettingsJSON),
 		ConfigFields:      maskConfigFields(&d),
 		DefinitionName:    d.DefinitionNamePtr(),
+		Tags:              tags,
+		Redirect:          d.Redirect,
 	}
 }
 
@@ -292,6 +303,9 @@ type indexerWriteRequest struct {
 	// mirrored into the contract's baseurl value for adapter parity.
 	ConfigFields   *map[string]any `json:"config_fields,omitempty"`
 	DefinitionName string          `json:"definition_name,omitempty"`
+	// Prowlarr PR4: tags (omitted = []) and redirect (omitted = false).
+	Tags     []string `json:"tags"`
+	Redirect bool     `json:"redirect"`
 }
 
 // indexerUpdateRequest is the body for PUT /api/v1/indexers/{id}. An empty
@@ -317,6 +331,10 @@ type indexerUpdateRequest struct {
 	// DefinitionName omitted = the stored name.
 	ConfigFields   *map[string]any `json:"config_fields,omitempty"`
 	DefinitionName string          `json:"definition_name,omitempty"`
+	// Prowlarr PR4: tags (nil = keep the stored value; an explicit empty
+	// array clears them) and redirect (nil = keep the stored value).
+	Tags     *[]string `json:"tags,omitempty"`
+	Redirect *bool     `json:"redirect,omitempty"`
 }
 
 // indexerEnabledRequest is the body for PATCH /api/v1/indexers/{id}/enabled.
@@ -467,6 +485,12 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 	if priority == 0 {
 		priority = 25
 	}
+	// Prowlarr PR4: tags (omitted = []) and redirect (omitted = false).
+	tags := req.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	redirect := req.Redirect
 	id, err := s.indexersDeps.Repo.Create(r.Context(), indexers.Definition{
 		Name:           name,
 		Kind:           req.Kind,
@@ -479,6 +503,8 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 		SyncProfile:    syncProfile,
 		DefinitionName: defName,
 		ConfigFields:   configFields,
+		Tags:           tags,
+		Redirect:       redirect,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -503,6 +529,8 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 		Added:          time.Now().UTC(),
 		DefinitionName: defName,
 		ConfigFields:   configFields,
+		Tags:           tags,
+		Redirect:       redirect,
 	}))
 }
 
@@ -563,6 +591,19 @@ func (s *Server) UpdateIndexer(w http.ResponseWriter, r *http.Request) {
 	if req.Priority != nil {
 		priority = *req.Priority
 	}
+	// Prowlarr PR4: tags / redirect. Omitted (nil) keeps the stored value;
+	// an explicit empty tags array clears them.
+	tags := existing.Tags
+	if req.Tags != nil {
+		tags = *req.Tags
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+	redirect := existing.Redirect
+	if req.Redirect != nil {
+		redirect = *req.Redirect
+	}
 	// Prowlarr PR2: resolve the config-contract values against the named
 	// definition's contract (a nil req.ConfigFields keeps the stored values).
 	configFields, defName, err := s.resolveConfigFields(req.ConfigFields, req.DefinitionName, req.BaseURL, existing)
@@ -585,6 +626,8 @@ func (s *Server) UpdateIndexer(w http.ResponseWriter, r *http.Request) {
 		Added:          existing.Added,
 		DefinitionName: defName,
 		ConfigFields:   configFields,
+		Tags:           tags,
+		Redirect:       redirect,
 	}
 	if err := s.indexersDeps.Repo.Update(r.Context(), def); err != nil {
 		if isUniqueViolation(err) {
