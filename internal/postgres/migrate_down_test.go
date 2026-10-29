@@ -33,8 +33,8 @@ func TestMigrate_DownRevertsAndReapplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after up: %v", err)
 	}
-	if v != "0022_search_activity" {
-		t.Fatalf("version = %q, want 0022_search_activity (highest applied)", v)
+	if v != "0025_indexer_tags_redirect" {
+		t.Fatalf("version = %q, want 0025_indexer_tags_redirect (highest applied)", v)
 	}
 	for _, tbl := range []string{"users", "movies", "editions", "movie_files", "tv_series", "music_artists", "book_authors", "indexers", "schema_migrations"} {
 		ok, err := hasTable(tbl)
@@ -64,6 +64,7 @@ func TestMigrate_DownRevertsAndReapplies(t *testing.T) {
 		"book_wanted", "book_queue", "book_history",
 		"indexers", "blocklist",
 		"search_queries", "search_grabs",
+		"notifications", "indexer_proxies",
 		"schema_migrations"} {
 		ok, err := hasTable(tbl)
 		if err != nil {
@@ -87,8 +88,8 @@ func TestMigrate_DownRevertsAndReapplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after re-up: %v", err)
 	}
-	if v != "0022_search_activity" {
-		t.Fatalf("version after re-up = %q, want 0022_search_activity", v)
+	if v != "0025_indexer_tags_redirect" {
+		t.Fatalf("version after re-up = %q, want 0025_indexer_tags_redirect", v)
 	}
 	if ok, _ := hasTable("music_artists"); !ok {
 		t.Error("music_artists missing after re-migrate up")
