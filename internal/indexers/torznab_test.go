@@ -280,9 +280,91 @@ func TestTorznab_Search_SendsSeasonEpisode(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	adapter := NewTorznabIndexer(Definition{Name: "s", BaseURL: srv.URL, APIKey: "k"}, AdapterDeps{})
+	adapter := NewTorznabIndexer(Definition{Name: "s", BaseURL: srv.URL, APIKey: "***"}, AdapterDeps{})
 	_, _ = adapter.Search(context.Background(), SearchQuery{Term: "show", Year: 2020, Season: 3, Episode: 7})
 	if got["q"] != "show" || got["year"] != "2020" || got["season"] != "3" || got["ep"] != "7" {
 		t.Fatalf("expected q=show year=2020 season=3 ep=7, got %v", got)
+	}
+}
+
+// TestTorznab_Search_SendsCatParam confirms the optional Categories field is
+// threaded into the Torznab request as `cat` (a single category) or a
+// comma-joined `cats` (multiple), and omitted when none are set.
+func TestTorznab_Search_SendsCatParam(t *testing.T) {
+	var got map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		got = map[string]string{"cat": q.Get("cat"), "cats": q.Get("cats")}
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><rss><channel></channel></rss>`))
+	}))
+	defer srv.Close()
+
+	adapter := NewTorznabIndexer(Definition{Name: "c", BaseURL: srv.URL, APIKey: "***"}, AdapterDeps{})
+
+	_, _ = adapter.Search(context.Background(), SearchQuery{Term: "x", Categories: []string{"5040"}})
+	if got["cat"] != "5040" || got["cats"] != "" {
+		t.Fatalf("single category: expected cat=5040 and no cats, got %v", got)
+	}
+
+	_, _ = adapter.Search(context.Background(), SearchQuery{Term: "x", Categories: []string{"5040", "5045"}})
+	if got["cats"] != "5040,5045" || got["cat"] != "" {
+		t.Fatalf("multiple categories: expected cats=5040,5045 and no cat, got %v", got)
+	}
+
+	_, _ = adapter.Search(context.Background(), SearchQuery{Term: "x"})
+	if got["cat"] != "" || got["cats"] != "" {
+		t.Fatalf("no categories: expected no cat/cats, got %v", got)
+	}
+}
+
+// TestTorznab_Search_ParsesCategory confirms the Torznab <category> element is
+// parsed into SearchResult.Category: the namespaced element wins, a bare
+// element (value only) falls back to its id, and a missing element leaves it
+// empty.
+func TestTorznab_Search_ParsesCategory(t *testing.T) {
+	feed := `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="https://torznab.com/schemas/spec/">
+  <channel>
+    <item>
+      <title>Namespaced.Release.2024.1080p</title>
+      <link>magnet:?xt=urn:btih:aaa</link>
+      <torznab:category value="5040" name="TV/Anime"/>
+    </item>
+    <item>
+      <title>Bare.Release.2024.720p</title>
+      <link>magnet:?xt=urn:btih:bbb</link>
+      <category value="2000"/>
+    </item>
+    <item>
+      <title>NoCat.Release.2024</title>
+      <link>magnet:?xt=urn:btih:ccc</link>
+    </item>
+  </channel>
+</rss>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(feed))
+	}))
+	defer srv.Close()
+
+	adapter := NewTorznabIndexer(Definition{Name: "cat", BaseURL: srv.URL, APIKey: "***"}, AdapterDeps{})
+	res, err := adapter.Search(context.Background(), SearchQuery{Term: "Release"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(res))
+	}
+	byTitle := map[string]SearchResult{}
+	for _, r := range res {
+		byTitle[r.Title] = r
+	}
+	if got := byTitle["Namespaced.Release.2024.1080p"].Category; got != "TV/Anime" {
+		t.Errorf("namespaced: expected name TV/Anime, got %q", got)
+	}
+	if got := byTitle["Bare.Release.2024.720p"].Category; got != "2000" {
+		t.Errorf("bare: expected value 2000, got %q", got)
+	}
+	if got := byTitle["NoCat.Release.2024"].Category; got != "" {
+		t.Errorf("no category: expected empty, got %q", got)
 	}
 }
