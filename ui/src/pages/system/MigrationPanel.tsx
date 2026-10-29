@@ -14,6 +14,9 @@ const ENTITIES: { key: keyof MigrationInclude; label: string }[] = [
   { key: 'tags', label: 'tags' },
   { key: 'indexers', label: 'indexers' },
   { key: 'download_client', label: 'download client' },
+  // Lidarr-only: import the source's root folders with their derived
+  // per-root default profiles (L5). Ignored by the Sonarr/Radarr migrators.
+  { key: 'root_folders', label: 'root folders' },
 ]
 
 type MigrationAction = MigrationResult['items'][number]['action']
@@ -51,6 +54,7 @@ export function MigrationPanel() {
     tags: true,
     indexers: true,
     download_client: true,
+    root_folders: true,
   })
 
   const [running, setRunning] = useState(false)
@@ -83,7 +87,7 @@ export function MigrationPanel() {
   if (!status) {
     return (
       <div className="card" data-testid="system-migration">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Sonarr Import</h3>
+        <h3 style={{ margin: '0 0 0.5rem' }}>Migration</h3>
         <p className="dim">Loading migration status…</p>
       </div>
     )
@@ -115,11 +119,13 @@ export function MigrationPanel() {
   return (
     <div data-testid="system-migration">
       <div className="card">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Sonarr Import</h3>
+        <h3 style={{ margin: '0 0 0.5rem' }}>Migration</h3>
         <p className="dim" style={{ marginTop: 0 }}>
-          {source === 'radarr'
-            ? 'Drop-in migration from a Radarr instance: movies + editions, quality profiles, tags, indexers, the download client, and a best-effort settings subset.'
-            : 'Drop-in migration from a Sonarr instance: series + episodes, quality profiles, tags, indexers, and the download client.'}{' '}
+          {source === 'lidarr'
+            ? 'Drop-in migration from a Lidarr instance: artists + albums (type, monitoring, tracks), quality profiles + definitions, metadata profiles, tags, root folders (with default profiles), indexers, and the download client.'
+            : source === 'radarr'
+              ? 'Drop-in migration from a Radarr instance: movies + editions, quality profiles, tags, indexers, the download client, and a best-effort settings subset.'
+              : 'Drop-in migration from a Sonarr instance: series + episodes, quality profiles, tags, indexers, and the download client.'}{' '}
           Idempotent and resumable — a dry run changes nothing.
         </p>
         <div className="list-table" data-testid="migration-status">
@@ -128,7 +134,7 @@ export function MigrationPanel() {
               <span className={`pill ${STATUS_PILL[status.status]}`}>{status.status}</span>
             </span>
             <span className="lt-dim">
-              {status.done}/{status.total} series
+              {status.done}/{status.total} {source === 'lidarr' ? 'artists' : source === 'radarr' ? 'movies' : 'series'}
             </span>
             <span className="lt-dim">
               {status.started_at ? `started ${new Date(status.started_at).toLocaleString()}` : ''}
@@ -149,23 +155,28 @@ export function MigrationPanel() {
           >
             <option value="sonarr">Sonarr</option>
             <option value="radarr">Radarr</option>
+            <option value="lidarr">Lidarr</option>
           </select>
         </label>
         <p className="dim" data-testid="migration-source-help" style={{ marginTop: 0 }}>
-          {source === 'radarr' ? 'Base URL of the Radarr instance.' : 'Base URL of the Sonarr instance.'}
+          {source === 'lidarr'
+            ? 'Base URL of the Lidarr instance.'
+            : source === 'radarr'
+              ? 'Base URL of the Radarr instance.'
+              : 'Base URL of the Sonarr instance.'}
         </p>
         <label>
-          {source === 'radarr' ? 'Radarr base URL' : 'Sonarr base URL'}
+          {source === 'lidarr' ? 'Lidarr base URL' : source === 'radarr' ? 'Radarr base URL' : 'Sonarr base URL'}
           <input
             data-testid="migration-source-url"
             type="url"
-            placeholder={source === 'radarr' ? 'https://radarr.local:7878' : 'http://sonarr.local:8989'}
+            placeholder={source === 'lidarr' ? 'https://lidarr.local:8666' : source === 'radarr' ? 'https://radarr.local:7878' : 'http://sonarr.local:8989'}
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
           />
         </label>
         <label>
-          Sonarr API key
+          {source === 'lidarr' ? 'Lidarr API key' : source === 'radarr' ? 'Radarr API key' : 'Sonarr API key'}
           <input
             data-testid="migration-api-key"
             type="password"
@@ -196,7 +207,7 @@ export function MigrationPanel() {
           Include
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1.25rem' }}>
-          {ENTITIES.map(({ key, label }) => (
+          {ENTITIES.filter((e) => e.key !== 'root_folders' || source === 'lidarr').map(({ key, label }) => (
             <label key={key} className="dim" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginTop: 0 }}>
               <input
                 type="checkbox"

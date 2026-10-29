@@ -826,12 +826,13 @@ type MigrationRunner interface {
 }
 
 // MigrationService routes the drop-in migration endpoints to the source
-// selected by MigrationRequest.source (R6: 'sonarr' by default, or
-// 'radarr'). Status reflects the most recently run source, so
+// selected by MigrationRequest.source (R6: 'sonarr' by default, 'radarr', or
+// Lidarr L5: 'lidarr'). Status reflects the most recently run source, so
 // GET /system/migration/status shows the run the user just kicked off.
 type MigrationService struct {
 	Sonarr MigrationRunner
 	Radarr MigrationRunner
+	Lidarr MigrationRunner
 
 	mu   sync.Mutex
 	last MigrationRunner
@@ -839,9 +840,9 @@ type MigrationService struct {
 
 // NewMigrationService builds the router. A nil runner for a source answers a
 // validation error (400 at the API) when that source is selected — main.go
-// wires both.
-func NewMigrationService(sonarr, radarr MigrationRunner) *MigrationService {
-	return &MigrationService{Sonarr: sonarr, Radarr: radarr, last: sonarr}
+// wires all three.
+func NewMigrationService(sonarr, radarr, lidarr MigrationRunner) *MigrationService {
+	return &MigrationService{Sonarr: sonarr, Radarr: radarr, Lidarr: lidarr, last: sonarr}
 }
 
 // Run validates the source, routes to that source's runner, and records it
@@ -856,8 +857,10 @@ func (s *MigrationService) Run(ctx context.Context, req MigrationRequest) (*Migr
 		r = s.Sonarr
 	case SourceRadarr:
 		r = s.Radarr
+	case SourceLidarr:
+		r = s.Lidarr
 	default:
-		return nil, fmt.Errorf("migration: unknown source %q (want sonarr or radarr)", req.Source)
+		return nil, fmt.Errorf("migration: unknown source %q (want sonarr, radarr, or lidarr)", req.Source)
 	}
 	if r == nil {
 		return nil, fmt.Errorf("migration: the %s migration is not wired", req.Source)

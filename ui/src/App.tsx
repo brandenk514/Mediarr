@@ -18,6 +18,7 @@ import { SettingsShell } from './pages/settings/SettingsShell'
 import { MovieDetailPage } from './pages/movies/MovieDetail'
 import { SeriesDetailPage } from './pages/tv/SeriesDetail'
 import { ArtistDetailPage } from './pages/music/ArtistDetail'
+import { UnmappedFilesPage } from './pages/music/UnmappedFiles'
 import { LibraryImportPage } from './pages/tv/LibraryImport'
 import { CalendarPage } from './pages/Calendar'
 import { HistoryPage } from './pages/activity/History'
@@ -66,6 +67,9 @@ export default function App() {
         <Route path="/movies/add" element={<MovieAddPage />} />
         <Route path="/tv/add" element={<TvAddPage />} />
         <Route path="/music/add" element={<ArtistAddPage />} />
+        {/* Lidarr L5: the Unmapped Files page (static, ranks above
+            /music/:id). */}
+        <Route path="/music/unmapped" element={<UnmappedFilesPage />} />
         {/* Lidarr L1: the artist detail deep route (the static /music/add
             ranks above /music/:id). */}
         <Route path="/music/:id" element={<ArtistDetailPage />} />

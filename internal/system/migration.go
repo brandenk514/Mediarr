@@ -254,6 +254,9 @@ type MigrationInclude struct {
 	Tags            *bool `json:"tags,omitempty"`
 	Indexers        *bool `json:"indexers,omitempty"`
 	DownloadClient  *bool `json:"download_client,omitempty"`
+	// RootFolders (Lidarr L5): import the source's root folders (with their
+	// derived per-root default profiles). Omitted = true.
+	RootFolders *bool `json:"root_folders,omitempty"`
 }
 
 func (i *MigrationInclude) wantSeries() bool         { return boolOrTrue(i.Series) }
@@ -262,6 +265,7 @@ func (i *MigrationInclude) wantProfiles() bool       { return boolOrTrue(i.Quali
 func (i *MigrationInclude) wantTags() bool           { return boolOrTrue(i.Tags) }
 func (i *MigrationInclude) wantIndexers() bool       { return boolOrTrue(i.Indexers) }
 func (i *MigrationInclude) wantDownloadClient() bool { return boolOrTrue(i.DownloadClient) }
+func (i *MigrationInclude) wantRootFolders() bool    { return boolOrTrue(i.RootFolders) }
 
 func boolOrTrue(b *bool) bool { return b == nil || *b }
 

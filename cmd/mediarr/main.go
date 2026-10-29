@@ -20,6 +20,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,6 +29,8 @@ import (
 	"github.com/brandenk514/mediarr/internal/auth"
 	"github.com/brandenk514/mediarr/internal/config"
 	moviedom "github.com/brandenk514/mediarr/internal/domains/movies"
+	music "github.com/brandenk514/mediarr/internal/domains/music"
+	rfdom "github.com/brandenk514/mediarr/internal/domains/rootfolders"
 	tvd "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/health"
@@ -654,6 +658,17 @@ func run(logSvc *system.LogService) error {
 		migrationRadarrMovies := &migrationRadarrMovieStore{repo: postgres.NewMovieRepo(pg.DB())}
 		radarrTarget := system.NewRadarrPostgresTarget(settingsRepo, migrationRadarrMovies, migrationRadarrIndexers)
 
+		// Lidarr L5: the Lidarr source of the drop-in migration. The target
+		// maps artists/albums/tracks onto the music domain, the music
+		// quality + metadata profiles + quality ladder onto the seeded
+		// profile/quality sections, tags onto the tags section, root folders
+		// (with derived per-root default profiles) onto the registry,
+		// indexers onto the indexer store, and the download client +
+		// media-management subset onto the settings documents.
+		migrationLidarrMusic := &migrationLidarrMusicStore{repo: postgres.NewMusicRepo(pg.DB())}
+		migrationLidarrRoots := &migrationLidarrRootFolderStore{svc: rfSvc}
+		lidarrTarget := system.NewLidarrPostgresTarget(settingsRepo, migrationLidarrMusic, migrationLidarrRoots, migrationRadarrIndexers)
+
 		// P6 Wave 2: the System depth services. Backup exports/imports the
 		// configuration over the settings repo (queue / series snapshots are
 		// optional attachments; the series snapshot can be imported back
@@ -706,13 +721,16 @@ func run(logSvc *system.LogService) error {
 				return n, nil
 			},
 		}
-		// P6 Wave 3 / Radarr R6: the migrators (Sonarr: source factory = the
-		// live Sonarr v3 client, target = the real Mediarr import sink;
-		// Radarr: the live Radarr v3 client into the movie domain). Both are
-		// routed through MigrationService by the request's source.
+		// P6 Wave 3 / Radarr R6 / Lidarr L5: the migrators (Sonarr: source
+		// factory = the live Sonarr v3 client, target = the real Mediarr
+		// import sink; Radarr: the live Radarr v3 client into the movie
+		// domain; Lidarr: the live Lidarr v3 client into the music domain).
+		// All three are routed through MigrationService by the request's
+		// source.
 		migrator := system.NewMigrator(system.NewPostgresTarget(settingsRepo, migrationIndexers, migrationTV))
 		radarrMigrator := system.NewRadarrMigrator(radarrTarget)
-		migrationSvc := system.NewMigrationService(migrator, radarrMigrator)
+		lidarrMigrator := system.NewLidarrMigrator(lidarrTarget)
+		migrationSvc := system.NewMigrationService(migrator, radarrMigrator, lidarrMigrator)
 
 		srv.SetSystem(&api.SystemDeps{
 			Health:       system.NewHealth(probes),
@@ -850,6 +868,133 @@ func (s *migrationRadarrMovieStore) AddMovie(ctx context.Context, ref system.Rad
 
 func (s *migrationRadarrMovieStore) EnsureEdition(ctx context.Context, movieID int64, e system.RadarrEditionRef) (int64, bool, error) {
 	return s.repo.UpsertEdition(ctx, movieID, e.Label, e.Monitored, e.Quality, e.Size)
+}
+
+// migrationLidarrMusicStore adapts the Postgres music repo to the Lidarr
+// migration target's music seam (system.LidarrMusicStore). It writes through
+// the repo directly (not the music service): the migration may reference a
+// quality-profile name that was just created in the profiles document, which
+// the service's add validation (the seeded name set) would reject. Identity
+// matches the music domain: artists by name, albums by title+year, tracks by
+// disc+number.
+type migrationLidarrMusicStore struct {
+	repo *postgres.MusicRepo
+}
+
+func (s *migrationLidarrMusicStore) FindArtist(ctx context.Context, name string) (int64, bool) {
+	artists, err := s.repo.ListArtists(ctx)
+	if err != nil {
+		return 0, false
+	}
+	want := strings.ToLower(name)
+	for i := range artists {
+		if strings.ToLower(artists[i].Name) == want {
+			return artists[i].ID, true
+		}
+	}
+	return 0, false
+}
+
+func (s *migrationLidarrMusicStore) AddArtist(ctx context.Context, ref system.LidarrArtistRef) (int64, error) {
+	id, err := s.repo.CreateArtist(ctx, music.Artist{
+		Name:             ref.Name,
+		MBID:             ref.MBID,
+		Status:           ref.Status,
+		Path:             ref.Path,
+		Monitored:        ref.Monitored,
+		QualityProfile:   ref.QualityProfile,
+		MonitorPolicy:    ref.MonitorPolicy,
+		MonitorNewAlbums: ref.MonitorNewAlbums,
+		Tags:             ref.Tags,
+		Genre:            ref.Genre,
+		Rating:           ref.Rating,
+	})
+	if err != nil {
+		return 0, err
+	}
+	_ = s.repo.AddHistory(ctx, music.HistoryEntry{ArtistID: id, Event: "added", Detail: "migrated from Lidarr"})
+	return id, nil
+}
+
+func (s *migrationLidarrMusicStore) FindAlbum(ctx context.Context, artistID int64, name string, year int) (int64, bool) {
+	albums, err := s.repo.ListAlbums(ctx, artistID)
+	if err != nil {
+		return 0, false
+	}
+	for i := range albums {
+		if albums[i].Name == name && albums[i].Year == year {
+			return albums[i].ID, true
+		}
+	}
+	return 0, false
+}
+
+func (s *migrationLidarrMusicStore) AddAlbum(ctx context.Context, artistID int64, ref system.LidarrAlbumRef) (int64, error) {
+	return s.repo.CreateAlbum(ctx, music.Album{
+		ArtistID:       artistID,
+		Name:           ref.Name,
+		Year:           ref.Year,
+		AlbumType:      ref.AlbumType,
+		ReleaseDate:    ref.ReleaseDate,
+		QualityProfile: ref.QualityProfile,
+		Monitored:      ref.Monitored,
+		Size:           ref.Size,
+	})
+}
+
+func (s *migrationLidarrMusicStore) TrackKeys(ctx context.Context, albumID int64) (map[string]bool, error) {
+	tracks, err := s.repo.ListTracks(ctx, albumID)
+	if err != nil {
+		return nil, err
+	}
+	keys := make(map[string]bool, len(tracks))
+	for _, t := range tracks {
+		keys[fmt.Sprintf("%d-%d", t.Disc, t.Number)] = true
+	}
+	return keys, nil
+}
+
+func (s *migrationLidarrMusicStore) AddTrack(ctx context.Context, albumID int64, ref system.LidarrTrackRef) (int64, error) {
+	// ref.Quality is the imported file's quality string; "" = no file yet.
+	return s.repo.CreateTrack(ctx, music.Track{
+		AlbumID:   albumID,
+		Disc:      ref.Disc,
+		Number:    ref.Number,
+		Title:     ref.Title,
+		Duration:  ref.Duration,
+		Monitored: ref.Monitored,
+		Size:      ref.Size,
+		Status:    ref.Quality,
+	})
+}
+
+// migrationLidarrRootFolderStore adapts the root-folders service to the
+// Lidarr migration target's root-folder seam (system.LidarrRootFolderStore).
+type migrationLidarrRootFolderStore struct {
+	svc *rootfolders.Service
+}
+
+func (s *migrationLidarrRootFolderStore) FindRootFolder(ctx context.Context, path string) (int64, bool) {
+	all, err := s.svc.List()
+	if err != nil {
+		return 0, false
+	}
+	clean := filepath.Clean(path)
+	for i := range all {
+		if all[i].Path == clean {
+			return all[i].ID, true
+		}
+	}
+	return 0, false
+}
+
+func (s *migrationLidarrRootFolderStore) CreateRootFolder(ctx context.Context, path, name, defaultQuality, defaultMetadata string) (int64, error) {
+	return s.svc.Create(rfdom.RootFolder{
+		Path:                   path,
+		Name:                   name,
+		DefaultQualityProfile:  defaultQuality,
+		DefaultMetadataProfile: defaultMetadata,
+	})
 }
 
 // migrationTVStore adapts the Postgres TV repo to the migration target's TV

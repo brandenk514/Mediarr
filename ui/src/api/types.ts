@@ -55,6 +55,7 @@ export type AlbumWanted = components["schemas"]["AlbumWanted"]
 // Lidarr L1 detail endpoints (artist history + library summary status bar).
 export type MusicHistoryEntry = components["schemas"]["MusicHistoryEntry"]
 export type MusicLibrarySummary = components["schemas"]["MusicLibrarySummary"]
+export type UnmappedFile = components["schemas"]["UnmappedFile"]
 export type Author = components["schemas"]["Author"]
 export type AddAuthorRequest = components["schemas"]["AddAuthorRequest"]
 export type BookTitle = components["schemas"]["BookTitle"]
