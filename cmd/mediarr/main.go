@@ -410,6 +410,18 @@ func run(logSvc *system.LogService) error {
 	} else {
 		logger.Warn("download client init failed; movie pipeline disabled", "error", clientErr)
 	}
+	// Prowlarr PR3: manual search, grab, query history, and the stats summary.
+	// The fan-out reuses the same indexer repo + registry as the hub (and the
+	// live search path); the activity store is migration 0022; a grab routes by
+	// protocol to the configured download client (nil client → 503, unhandled
+	// protocol → 409).
+	srv.SetIndexerSearch(&api.IndexerSearchDeps{
+		Indexers:   indexerRepo,
+		Registry:   registry,
+		Activity:   postgres.NewSearchActivityRepo(pg.DB()),
+		Client:     dlClient,
+		ClientKind: downloads.ClientKind(cfg.ClientType),
+	})
 	tmdbClient := providers.NewTMDB(cfg.Providers.TMDBAPIKey)
 	movieSvc := moviesvc.New(moviesvc.Deps{
 		Repo:           postgres.NewMovieRepo(pg.DB()),
