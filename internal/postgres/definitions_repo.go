@@ -120,9 +120,8 @@ func (r *IndexerDefinitionsRepo) SeedIfEmpty(ctx context.Context, defs []indexer
 		return 0, fmt.Errorf("definitions: begin seed: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }() // no-op after Commit
-	stmt, err := tx.PrepareContext(ctx, `\
-		INSERT INTO indexer_definitions
-			(id, name, protocol, privacy, language, categories, urls, legacy_urls, fields, raw, seed_revision)
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO indexer_definitions
+		(id, name, protocol, privacy, language, categories, urls, legacy_urls, fields, raw, seed_revision)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`)
 	if err != nil {
 		return 0, fmt.Errorf("definitions: prepare seed: %w", err)
