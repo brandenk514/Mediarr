@@ -2112,6 +2112,288 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/settings/notifications:
+    get:
+      tags: [settings]
+      summary: List saved notification sinks.
+      operationId: listNotifications
+      description: |
+        The Prowlarr PR4 Notifications section: the saved notification sinks
+        (webhook / Plex / Jellyfin / Emby), in creation order. Secrets are
+        masked on read — `token` is always an empty string and `token_set`
+        reports its presence.
+      responses:
+        "200":
+          description: The saved notification sinks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NotificationSink"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [settings]
+      summary: Create a notification sink.
+      operationId: createNotification
+      description: |
+        Creates a notification sink. `kind` must be one of webhook, plex,
+        jellyfin, emby and `url` is required; either violation is a 400
+        carrying the sink-construction message. The `token` is stored
+        vault-encrypted and never echoed back (token_set reports presence).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationSinkCreate"
+      responses:
+        "201":
+          description: The created notification sink (token masked).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSink"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/notifications/{id}:
+    put:
+      tags: [settings]
+      summary: Update a notification sink.
+      operationId: updateNotification
+      description: |
+        Full replace of the sink's fields. An empty `token` keeps the stored
+        token (masked-edit round-trip, same convention as indexer passwords).
+        An unknown id is a 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationSinkUpdate"
+      responses:
+        "200":
+          description: The updated sink (token masked).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSink"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [settings]
+      summary: Delete a notification sink.
+      operationId: deleteNotification
+      description: Removes the sink. An unknown id is a 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: The sink was deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/notifications/{id}/test:
+    post:
+      tags: [settings]
+      summary: Test a notification sink.
+      operationId: testNotification
+      description: |
+        Builds the sink from the stored (vault-decrypted) config and delivers
+        a test event to it. A config error (missing url / unknown kind) is a
+        400; a delivery failure (unreachable or non-2xx target) is a 502;
+        success is 200 with {ok: true}.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: The test event was delivered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationSinkTestResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/proxies:
+    get:
+      tags: [settings]
+      summary: List saved indexer proxies (FlareSolverr instances).
+      operationId: listIndexerProxies
+      description: |
+        The Prowlarr PR4 Indexer Proxies section. Indexers whose tags
+        intersect a proxy's tags are routed through it. Secrets are masked on
+        read — `password` is always an empty string and `password_set`
+        reports its presence.
+      responses:
+        "200":
+          description: The saved indexer proxies.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IndexerProxy"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [settings]
+      summary: Create an indexer proxy.
+      operationId: createIndexerProxy
+      description: |
+        Creates a FlareSolverr proxy entry. `name` and `url` are required.
+        The `password` is stored vault-encrypted and never echoed back
+        (password_set reports presence).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexerProxyCreate"
+      responses:
+        "201":
+          description: The created proxy (password masked).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndexerProxy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/proxies/{id}:
+    put:
+      tags: [settings]
+      summary: Update an indexer proxy.
+      operationId: updateIndexerProxy
+      description: |
+        Full replace of the proxy's fields. An empty `password` keeps the
+        stored password (masked-edit round-trip). An unknown id is a 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexerProxyUpdate"
+      responses:
+        "200":
+          description: The updated proxy (password masked).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndexerProxy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [settings]
+      summary: Delete an indexer proxy.
+      operationId: deleteIndexerProxy
+      description: Removes the proxy. An unknown id is a 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: The proxy was deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/proxies/{id}/test:
+    post:
+      tags: [settings]
+      summary: Test an indexer proxy (FlareSolverr health).
+      operationId: testIndexerProxy
+      description: |
+        GETs the instance root with a short (~5s) timeout. The FlareSolverr
+        root serves JSON with a version field: a reachable instance is 200
+        with {ok: true, version}; an unreachable or non-2xx instance is a 502
+        with a clear message.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: The instance is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndexerProxyTestResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/settings/custom-formats/score:
     post:
       tags: [settings]
@@ -2737,6 +3019,10 @@ paths:
         configured client cannot handle the protocol, this is a 409. A missing
         or empty client is a 503. On success the grab is recorded and feeds the
         stats `total_grabs` and grab series.
+        Redirected indexers (Prowlarr PR4): when the source indexer has
+        `redirect: true`, the release is NOT sent to the download client —
+        the grab is still recorded (Prowlarr counts redirected grabs) and the
+        response is `{ok: true, redirected: true, url}`.
       requestBody:
         required: true
         content:
@@ -5513,7 +5799,7 @@ components:
           description: How many queue jobs were removed.
     Indexer:
       type: object
-      required: [id, name, kind, base_url, enabled, has_api_key, last_test, rss, auto_search, interactive_search, privacy, priority, sync_profile, added, categories]
+      required: [id, name, kind, base_url, enabled, has_api_key, last_test, rss, auto_search, interactive_search, privacy, priority, sync_profile, added, categories, tags, redirect]
       properties:
         id:
           type: integer
@@ -5562,6 +5848,18 @@ components:
           items:
             type: string
           description: Category badges from the indexer's settings (PR1 hub column; empty when none).
+        tags:
+          type: array
+          items:
+            type: string
+          description: Tag labels assigned to this indexer (Prowlarr PR4); the indexer's traffic is routed through any proxy carrying a matching tag. Always present (empty array when none).
+        redirect:
+          type: boolean
+          description: >
+            Redirected indexer (Prowlarr PR4). When true, a grab against this
+            indexer is recorded (stats parity) but NOT sent to the download
+            client; the grab response carries redirected true and the release
+            url.
         config_fields:
           type: object
           additionalProperties:
@@ -5616,6 +5914,14 @@ components:
         sync_profile:
           type: string
           description: Omitted = standard.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Tag labels (Prowlarr PR4). Omitted = [].
+        redirect:
+          type: boolean
+          description: Redirected indexer (Prowlarr PR4). Omitted = false.
         config_fields:
           type: object
           additionalProperties:
@@ -5670,6 +5976,14 @@ components:
         sync_profile:
           type: string
           description: Omitted = keep the stored value.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Tag labels (Prowlarr PR4). Omitted = keep the stored value.
+        redirect:
+          type: boolean
+          description: Redirected indexer (Prowlarr PR4). Omitted = keep the stored value.
         config_fields:
           type: object
           additionalProperties:
@@ -5903,7 +6217,7 @@ components:
           type: integer
     GrabResult:
       type: object
-      required: [ok, indexer, protocol]
+      required: [ok, indexer, protocol, redirected]
       properties:
         ok:
           type: boolean
@@ -5911,6 +6225,15 @@ components:
           type: string
         protocol:
           type: string
+        redirected:
+          type: boolean
+          description: >
+            True when the source indexer is a redirected indexer (Prowlarr
+            PR4): the grab was recorded for stats but NOT sent to the download
+            client.
+        url:
+          type: string
+          description: The grabbed release URL (present on redirected grabs).
     SearchHistory:
       type: object
       description: A page of query history plus the total match count.
@@ -6447,7 +6770,10 @@ components:
         App-level settings, reconciled with the env-based boot config.
         host/port/base_url/ssl are persisted here for display and for the
         next boot; auth_enabled/auth_pinning take effect at next boot.
-      required: [host, port, base_url, ssl, auth_enabled, auth_pinning]
+        The PR4 fields (allowed_hosts, cert_validation, http_proxy,
+        log_level, analytics) are savable now; applying log_level and
+        http_proxy live requires a restart.
+      required: [host, port, base_url, ssl, auth_enabled, auth_pinning, allowed_hosts, cert_validation, http_proxy, log_level, analytics]
       properties:
         host:
           type: string
@@ -6461,9 +6787,35 @@ components:
           type: boolean
         auth_pinning:
           type: boolean
+        allowed_hosts:
+          type: string
+          description: >
+            Comma-separated hostnames the server is allowed to be reached on
+            (Prowlarr PR4; empty = no restriction).
+        cert_validation:
+          type: boolean
+          description: >
+            Validate TLS certificates on outbound connections (Prowlarr PR4;
+            defaults to true).
+        http_proxy:
+          type: string
+          description: >
+            Outbound HTTP proxy address (Prowlarr PR4; empty = none). Applying
+            it requires a restart.
+        log_level:
+          type: string
+          enum: [debug, info, warn, error]
+          description: >
+            Application log verbosity (Prowlarr PR4; defaults to info).
+            Applying it requires a restart.
+        analytics:
+          type: boolean
+          description: >
+            Opt-in for anonymous analytics (Prowlarr PR4; defaults to false =
+            analytics off — the Prowlarr default).
     UISettings:
       type: object
-      required: [default_view, date_format, time_format, items_per_page, expand_albums, expand_eps, expand_singles, expand_broadcast, expand_other, theme, color_impaired]
+      required: [default_view, date_format, time_format, items_per_page, expand_albums, expand_eps, expand_singles, expand_broadcast, expand_other, theme, color_impaired, language]
       properties:
         default_view:
           type: string
@@ -6497,6 +6849,9 @@ components:
         color_impaired:
           type: boolean
           description: Boost contrast for color-impaired users (L3; defaults to false).
+        language:
+          type: string
+          description: BCP-47 language tag of the UI (Prowlarr PR4; defaults to en).
     QualityLevel:
       type: object
       required: [id, name, group, source, resolution, size_limit_mb]
@@ -6698,7 +7053,7 @@ components:
             $ref: "#/components/schemas/TagInfo"
     TagUsage:
       type: object
-      required: [id, label, series, episodes]
+      required: [id, label, series, episodes, indexers]
       properties:
         id:
           type: integer
@@ -6710,6 +7065,184 @@ components:
         episodes:
           type: integer
           description: Episodes of series carrying the tag.
+        indexers:
+          type: object
+          required: [count, names]
+          description: Indexers whose tags include this label (Prowlarr PR4 usage view).
+          properties:
+            count:
+              type: integer
+            names:
+              type: array
+              items:
+                type: string
+              description: Indexer names, sorted a-to-z.
+    NotificationSink:
+      type: object
+      description: >
+        A saved notification sink (Prowlarr PR4 Notifications section). The
+        token is vault-encrypted at rest and masked on read: the token field
+        is always an empty string and token_set reports its presence.
+      required: [id, name, kind, enabled, url, section_id, token, token_set, user_agent, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          description: Display name of the sink (e.g. "ntfy home").
+        kind:
+          type: string
+          enum: [webhook, plex, jellyfin, emby]
+        enabled:
+          type: boolean
+          description: Omitted sinks are not delivered to.
+        url:
+          type: string
+          description: The sink's target URL (webhook target, or the Plex/Jellyfin/Emby base URL).
+        section_id:
+          type: string
+          description: Plex library-section id for a pinned Plex refresh; empty = root refresh.
+        token:
+          type: string
+          description: Always empty on read (masked presence via token_set).
+        token_set:
+          type: boolean
+          description: True when a token is stored for this sink.
+        user_agent:
+          type: string
+          description: Custom User-Agent for the sink's requests; empty = the mediarr default.
+        created_at:
+          type: string
+          format: date-time
+    NotificationSinkCreate:
+      type: object
+      required: [name, kind, url]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [webhook, plex, jellyfin, emby]
+          description: A kind outside this set (or a missing url) is a 400 carrying the BuildSink message.
+        enabled:
+          type: boolean
+          description: Omitted = true (enabled).
+        url:
+          type: string
+        section_id:
+          type: string
+        token:
+          type: string
+          description: Plaintext in the request; stored vault-encrypted; never echoed back.
+        user_agent:
+          type: string
+    NotificationSinkUpdate:
+      type: object
+      required: [name, kind, url]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [webhook, plex, jellyfin, emby]
+        enabled:
+          type: boolean
+        url:
+          type: string
+        section_id:
+          type: string
+        token:
+          type: string
+          description: Empty = keep the stored token (masked-edit round-trip).
+        user_agent:
+          type: string
+    NotificationSinkTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+    IndexerProxy:
+      type: object
+      description: >
+        A saved indexer proxy (Prowlarr PR4 "Indexer Proxies" — FlareSolverr
+        instances). Indexers whose tags intersect the proxy's tags are routed
+        through it. The password is vault-encrypted at rest and masked on
+        read: the password field is always an empty string and password_set
+        reports its presence.
+      required: [id, name, url, username, password, password_set, tags, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        url:
+          type: string
+          description: The FlareSolverr instance base URL (e.g. http://flaresolverr:8191).
+        username:
+          type: string
+          description: Basic-auth username for the instance; empty = none.
+        password:
+          type: string
+          description: Always empty on read (masked presence via password_set).
+        password_set:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+          description: The tag labels that route indexers to this proxy.
+        created_at:
+          type: string
+          format: date-time
+    IndexerProxyCreate:
+      type: object
+      required: [name, url]
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+          description: Plaintext in the request; stored vault-encrypted; never echoed back.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Omitted = [].
+    IndexerProxyUpdate:
+      type: object
+      required: [name, url]
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+          description: Empty = keep the stored password (masked-edit round-trip).
+        tags:
+          type: array
+          items:
+            type: string
+          description: Omitted = keep the stored tags.
+    IndexerProxyTestResult:
+      type: object
+      description: The outcome of a FlareSolverr reachability probe.
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        version:
+          type: string
+          description: The instance's reported version when the root JSON carries one.
     NamingTemplate:
       type: object
       required: [series, episode, movie, album, track, author, title]
