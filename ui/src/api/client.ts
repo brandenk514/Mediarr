@@ -33,6 +33,13 @@ import type {
   IndexerStats,
   IndexerTestResult,
   IndexerUpdate,
+  StatsSummary,
+  SearchRequest,
+  SearchRelease,
+  SearchHistory,
+  HistoryCleared,
+  GrabRequest,
+  GrabResult,
   LibraryOverride,
   LibraryOverrides,
   ListQuery,
@@ -328,6 +335,30 @@ export const client = {
   testIndexer: (id: number) => request<IndexerTestResult>('POST', `/indexers/${id}/test`),
   // Prowlarr PR1 "Test All Indexers": fan-out probe over every enabled indexer.
   testAllIndexers: () => request<IndexerTestResult[]>('POST', '/indexers/test-all'),
+  // Prowlarr PR3: the cross-indexer stats rollup (KPI totals + 30-day series,
+  // by-indexer series) the Stats page charts client-side.
+  indexerStatsSummary: () => request<StatsSummary>('GET', '/indexers/stats/summary'),
+  // Prowlarr PR3: manual release search. Fans the query over the selected
+  // indexers (empty/omitted indexer_ids = every enabled indexer) and returns
+  // every candidate release — no cross-indexer dedup.
+  searchReleases: (req: SearchRequest) => request<SearchRelease[]>('POST', '/search', req),
+  // Prowlarr PR3: grab a search-result row. The server routes it to the
+  // configured download client by protocol (409 when the client can't handle
+  // the protocol, 503 when no client is configured).
+  grabSearchRelease: (req: GrabRequest) => request<GrabResult>('POST', '/search/grab', req),
+  // Prowlarr PR3: query history (server-side pagination; page 1-based,
+  // page_size default 25 max 100; filters: exact indexer name + q substring).
+  searchHistory: (f?: { indexer?: string; q?: string; page?: number; page_size?: number }) => {
+    const params = new URLSearchParams()
+    if (f?.indexer) params.set('indexer', f.indexer)
+    if (f?.q) params.set('q', f.q)
+    if (f?.page) params.set('page', String(f.page))
+    if (f?.page_size) params.set('page_size', String(f.page_size))
+    const s = params.toString()
+    return request<SearchHistory>('GET', `/search/history${s ? `?${s}` : ''}`)
+  },
+  // Prowlarr PR3: clear all query history (the Prowlarr "Clear" action).
+  clearSearchHistory: () => request<HistoryCleared>('DELETE', '/search/history'),
   // Indexer write surface (#44): create / update / enable-toggle / delete.
   // api_key is plaintext in the body but is never echoed back.
   createIndexer: (req: IndexerCreate) => request<Indexer>('POST', '/indexers', req),
