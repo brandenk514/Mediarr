@@ -20,6 +20,10 @@ type SearchQuery struct {
 	// Episode, when set together with Season, restricts a TV search to a single
 	// episode (Torznab "imdbid"/"ep" parameters). Zero means "season-wide".
 	Episode int
+	// Categories is an optional category filter. Only the torznab adapter uses
+	// it (mapped to the Torznab `cat` request parameter); torrent-rss and nzb
+	// adapters ignore it. Empty means "no category filter".
+	Categories []string
 }
 
 // SearchResult is a single candidate release from an indexer.
@@ -36,6 +40,11 @@ type SearchResult struct {
 	// (a magnet/.torrent URL for torrent kinds, an NZB URL + usenet fields for
 	// the usenet kind).
 	Info ReleaseInfo
+	// Category is the release's category name, populated by adapters that
+	// report it (the torznab adapter reads the Torznab `category` element).
+	// It is empty when the indexer does not report a category — this is the
+	// case for the fake indexer and for the torrent-rss and nzb adapters.
+	Category string
 }
 
 // ReleaseInfo is the protocol-specific metadata a real indexer surfaces for a

@@ -27,6 +27,8 @@ import { WantedPage } from './pages/wanted/Wanted'
 import { SystemPage } from './pages/system/System'
 import { IndexerHubPage } from './pages/indexers/IndexerHub'
 import { IndexerStatsPage } from './pages/indexers/IndexerStats'
+import { ReleaseSearchPage } from './pages/indexers/ReleaseSearch'
+import { SearchHistoryPage } from './pages/indexers/SearchHistory'
 
 // App is the route table. /login is public; everything else requires a valid
 // in-memory token (see AuthProvider). The authenticated routes share the
@@ -99,8 +101,10 @@ export default function App() {
         {/* Shared: Wanted. */}
         <Route path="/wanted/missing" element={<WantedPage tab="missing" />} />
         <Route path="/wanted/cutoff" element={<WantedPage tab="cutoff" />} />
-        {/* Prowlarr PR1: the Indexers hub (first-class list page) + Stats stub.
-            /indexers/stats is static; there is no /indexers/:id deep route. */}
+        {/* Prowlarr PR3: manual search + query history (top-level Prowlarr IA;
+            /indexers/stats is static; there is no /indexers/:id deep route). */}
+        <Route path="/search" element={<ReleaseSearchPage />} />
+        <Route path="/history" element={<SearchHistoryPage />} />
         <Route path="/indexers/stats" element={<IndexerStatsPage />} />
         <Route path="/indexers" element={<IndexerHubPage />} />
         {/* Settings IA (13 sections; default section is media-management). */}

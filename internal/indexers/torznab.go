@@ -83,6 +83,16 @@ func (t *TorznabIndexer) Search(ctx context.Context, q SearchQuery) ([]SearchRes
 	if q.Episode > 0 {
 		params.Set("ep", strconv.Itoa(q.Episode))
 	}
+	if len(q.Categories) > 0 {
+		// Torznab carries a category filter as `cat` (single) or a comma-joined
+		// `cats` (multiple). We pass the raw category strings the UI sent — they
+		// come from the definition's category mappings, so no re-mapping here.
+		if len(q.Categories) == 1 {
+			params.Set("cat", q.Categories[0])
+		} else {
+			params.Set("cats", strings.Join(q.Categories, ","))
+		}
+	}
 	if t.apiKey != "" {
 		params.Set("apikey", t.apiKey)
 	}
@@ -112,6 +122,20 @@ type torznabItem struct {
 	Description string      `xml:"description"`
 	Size        string      `xml:"size"`
 	Enclosure   torznabEncl `xml:"enclosure"`
+	// CategoryNS is the standard Torznab <category> element, which lives in the
+	// https://torznab.com/schemas/spec/ namespace (Go's encoding/xml matches a
+	// namespaced element only when the tag names the exact namespace URI).
+	CategoryNS torznabCategory `xml:"https://torznab.com/schemas/spec/ category"`
+	// CategoryLocal is a fallback for feeds that emit a bare <category> element
+	// with no namespace. Whichever is present wins (CategoryNS first).
+	CategoryLocal torznabCategory `xml:"category"`
+}
+
+// torznabCategory is a Torznab <category> reference: a numeric id (value) and a
+// human-readable name (e.g. "TV/Anime").
+type torznabCategory struct {
+	Value string `xml:"value,attr"`
+	Name  string `xml:"name,attr"`
 }
 
 type torznabEncl struct {
@@ -170,7 +194,22 @@ func torznabItemToResult(indexer string, it torznabItem) (SearchResult, bool) {
 		SizeBytes: size,
 		Indexer:   indexer,
 		Info:      info,
+		Category:  torznabCategoryName(it),
 	}, true
+}
+
+// torznabCategoryName returns the human-readable category name for an item,
+// preferring the namespaced Torznab element and falling back to the bare one,
+// then to the numeric value, then to "" (a missing category is legal).
+func torznabCategoryName(it torznabItem) string {
+	cat := it.CategoryNS
+	if cat.Value == "" && cat.Name == "" {
+		cat = it.CategoryLocal
+	}
+	if cat.Name != "" {
+		return cat.Name
+	}
+	return cat.Value
 }
 
 // parseTorznabSize prefers the <size> element, falling back to the enclosure

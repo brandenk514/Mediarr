@@ -72,6 +72,8 @@ tags:
     description: Upcoming monitored air dates (Calendar page + iCal feed).
   - name: search
     description: Provider search for the add flows + quality profiles.
+  - name: indexer-search
+    description: Manual release search, grab, query history, and the activity stats summary (Prowlarr PR3 — the indexer hub's depth).
   - name: events
     description: Live WebSocket push of queue/history events.
   - name: metrics
@@ -1890,6 +1892,32 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/indexers/stats/summary:
+    get:
+      tags: [indexers]
+      summary: Cross-indexer activity stats (queries, grabs, and time series).
+      operationId: indexerStatsSummary
+      description: |
+        The Prowlarr PR3 stats rollup the Search/Stats pages chart client-side.
+        `active_indexers` is the count of enabled indexers. `total_queries`
+        counts every recorded query attempt (ok + failed) and `total_grabs`
+        counts every recorded grab, both all-time. `active_apps` is always 0:
+        a unified-service Mediarr has no connected Prowlarr-style apps — the
+        per-kind settings replace them. `series` holds UTC-day buckets for the
+        last 30 days, including zero days (so the UI x-axis is stable);
+        `by_indexer` covers only indexers with at least one query or grab in
+        that window.
+      responses:
+        "200":
+          description: The aggregated stats document.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/settings/download-client:
     get:
       tags: [settings]
@@ -2657,6 +2685,134 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search:
+    post:
+      tags: [indexer-search]
+      summary: Manual release search (fan-out over indexers).
+      operationId: searchReleases
+      description: |
+        Fans a single search query out over the selected indexers concurrently
+        (per-indexer 30s timeout) and returns every candidate release. There is
+        NO cross-indexer dedup — a release that appears on two indexers is two
+        grab-able rows. `query` is required and non-empty (400 otherwise).
+        `indexer_ids` empty or omitted searches every enabled indexer; a provided
+        id that is not an enabled indexer is filtered out (not searched, no
+        error). `categories` is optional and is passed to the torznab adapter's
+        `cat` parameter; torrent-rss and nzb adapters do not support categories
+        (their results carry an empty category). One query-history row is
+        recorded per attempted indexer, including failures. A cancelled request
+        is a 500.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: The candidate releases (flat array, no dedup).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchRelease"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/grab:
+    post:
+      tags: [indexer-search]
+      summary: Grab a search result (send it to the download client).
+      operationId: grabSearchRelease
+      description: |
+        Routes a search result to the configured download client by protocol.
+        `torrent` and `torrent-file` go to the qBittorrent client and `nzb` to
+        the SABnzbd client. The mock client accepts any protocol. If the
+        configured client cannot handle the protocol, this is a 409. A missing
+        or empty client is a 503. On success the grab is recorded and feeds the
+        stats `total_grabs` and grab series.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrabRequest"
+      responses:
+        "200":
+          description: The release was handed to the download client.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrabResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/history:
+    get:
+      tags: [indexer-search]
+      summary: Query history (paginated, filterable).
+      operationId: searchHistory
+      description: |
+        The Prowlarr History table. One row per attempted indexer search,
+        newest first. Server-side pagination (page 1-based, page_size default 25
+        max 100). Filters are `indexer` (exact name) and `q` (case-insensitive
+        substring on the term). The response is `{items, total}`.
+      parameters:
+        - name: indexer
+          in: query
+          required: false
+          description: Exact indexer-name match.
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          description: Case-insensitive substring match on the search term.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/ListPage"
+        - $ref: "#/components/parameters/ListPageSize"
+      responses:
+        "200":
+          description: One page of history plus the total match count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchHistory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [indexer-search]
+      summary: Clear all query history.
+      operationId: clearSearchHistory
+      description: |
+        The Prowlarr "Clear" action — deletes every query-history row.
+      responses:
+        "200":
+          description: How many rows were deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryCleared"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/search/movies:
@@ -5672,6 +5828,192 @@ components:
         total_latency_ns:
           type: integer
           format: int64
+    SearchRequest:
+      type: object
+      description: >-
+        A manual release search over the selected (or all enabled) indexers.
+        indexer_ids empty or omitted means every enabled indexer. categories is
+        optional and only affects the torznab adapter (its cat parameter).
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          description: The search term (release name, partial match).
+        indexer_ids:
+          type: array
+          description: Indexer ids to search. Empty/omitted = all enabled indexers.
+          items:
+            type: integer
+        categories:
+          type: array
+          description: Optional category strings (mapped to the torznab cat param).
+          items:
+            type: string
+    SearchRelease:
+      type: object
+      description: >-
+        A single candidate release from one indexer. No cross-indexer dedup —
+        the same title on two indexers is two rows, each grab-able independently.
+        category is populated only by the torznab adapter; it is empty for
+        torrent-rss and nzb results.
+      required: [title, indexer, protocol, url]
+      properties:
+        title:
+          type: string
+        indexer:
+          type: string
+          description: The indexer name that produced this release.
+        size_bytes:
+          type: integer
+          description: Release size in bytes (0 when the indexer does not report it).
+        seeders:
+          type: integer
+          description: Seeder count (0 when the indexer does not report it).
+        protocol:
+          type: string
+          description: "torrent, torrent-file, or nzb (drives grab routing)."
+        url:
+          type: string
+          description: Magnet/torrent URL (torrent) or NZB download URL (nzb).
+        category:
+          type: string
+          description: Release category name (torznab only; empty otherwise).
+    GrabRequest:
+      type: object
+      description: >-
+        An echo of a search-result row being grabbed. protocol routes it to the
+        download client (torrent/torrent-file to qBittorrent, nzb to SABnzbd).
+      required: [title, indexer, protocol, url]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        indexer:
+          type: string
+          description: The indexer name the result came from.
+        protocol:
+          type: string
+          description: "torrent, torrent-file, or nzb."
+        url:
+          type: string
+        size_bytes:
+          type: integer
+        seeders:
+          type: integer
+    GrabResult:
+      type: object
+      required: [ok, indexer, protocol]
+      properties:
+        ok:
+          type: boolean
+        indexer:
+          type: string
+        protocol:
+          type: string
+    SearchHistory:
+      type: object
+      description: A page of query history plus the total match count.
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchHistoryItem"
+        total:
+          type: integer
+          description: Total rows matching the filters (across all pages).
+    SearchHistoryItem:
+      type: object
+      description: One attempted indexer search (the Prowlarr History table row).
+      required: [id, indexer, term, ok, elapsed_ms, at]
+      properties:
+        id:
+          type: integer
+        indexer:
+          type: string
+          description: Indexer name (empty string for a failed indexer build).
+        term:
+          type: string
+        categories:
+          type: array
+          items:
+            type: string
+          description: Categories the query used (empty when none).
+        ok:
+          type: boolean
+          description: Whether the indexer search succeeded.
+        elapsed_ms:
+          type: integer
+          description: How long the indexer search took, in milliseconds.
+        at:
+          type: string
+          format: date-time
+    HistoryCleared:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: integer
+          description: Number of history rows deleted.
+    StatsSummary:
+      type: object
+      description: >-
+        The Prowlarr PR3 stats rollup. active_apps is always 0 (a unified-service
+        Mediarr has no connected Prowlarr apps; per-kind settings replace them).
+        series holds UTC-day buckets for the last 30 days including zero days so
+        the UI x-axis is stable; by_indexer covers only indexers with at least
+        one query or grab in that window.
+      required: [active_indexers, active_apps, total_queries, total_grabs, series]
+      properties:
+        active_indexers:
+          type: integer
+        active_apps:
+          type: integer
+        total_queries:
+          type: integer
+        total_grabs:
+          type: integer
+        series:
+          type: object
+          required: [queries, grabs, by_indexer]
+          properties:
+            queries:
+              type: array
+              items:
+                $ref: "#/components/schemas/StatsDayBucket"
+            grabs:
+              type: array
+              items:
+                $ref: "#/components/schemas/StatsDayBucket"
+            by_indexer:
+              type: array
+              items:
+                $ref: "#/components/schemas/StatsIndexerSeries"
+    StatsDayBucket:
+      type: object
+      required: [date, count]
+      properties:
+        date:
+          type: string
+          description: A UTC day, YYYY-MM-DD.
+        count:
+          type: integer
+    StatsIndexerSeries:
+      type: object
+      description: Per-indexer activity for the 30-day window (indexers with at least one event).
+      required: [indexer, queries, grabs]
+      properties:
+        indexer:
+          type: string
+        queries:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatsDayBucket"
+        grabs:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatsDayBucket"
     DownloadClientView:
       type: object
       required: [kind, qb_base, qb_username, qb_api_key_set, qb_password_set, sab_base, sab_api_key_set, sab_complete_dir]

@@ -59,6 +59,11 @@ const ROUTES: [string, string][] = [
   ['/system/status', 'system-status'],
   ['/tv/import', 'library-import'],
   ['/dashboard', 'refresh'],
+  // Prowlarr PR3: the Indexers hub + Stats page, and the Search/History pages.
+  ['/indexers', 'idx-hub-title'],
+  ['/indexers/stats', 'indexers-stats-title'],
+  ['/search', 'release-search-title'],
+  ['/history', 'search-history-title'],
 ]
 
 for (const [route, testId] of ROUTES) {

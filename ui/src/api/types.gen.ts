@@ -1027,6 +1027,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/indexers/stats/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cross-indexer activity stats (queries, grabs, and time series).
+         * @description The Prowlarr PR3 stats rollup the Search/Stats pages chart client-side.
+         *     `active_indexers` is the count of enabled indexers. `total_queries`
+         *     counts every recorded query attempt (ok + failed) and `total_grabs`
+         *     counts every recorded grab, both all-time. `active_apps` is always 0:
+         *     a unified-service Mediarr has no connected Prowlarr-style apps — the
+         *     per-kind settings replace them. `series` holds UTC-day buckets for the
+         *     last 30 days, including zero days (so the UI x-axis is stable);
+         *     `by_indexer` covers only indexers with at least one query or grab in
+         *     that window.
+         */
+        get: operations["indexerStatsSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/download-client": {
         parameters: {
             query?: never;
@@ -1502,6 +1530,88 @@ export interface paths {
          */
         post: operations["manualImport"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Manual release search (fan-out over indexers).
+         * @description Fans a single search query out over the selected indexers concurrently
+         *     (per-indexer 30s timeout) and returns every candidate release. There is
+         *     NO cross-indexer dedup — a release that appears on two indexers is two
+         *     grab-able rows. `query` is required and non-empty (400 otherwise).
+         *     `indexer_ids` empty or omitted searches every enabled indexer; a provided
+         *     id that is not an enabled indexer is filtered out (not searched, no
+         *     error). `categories` is optional and is passed to the torznab adapter's
+         *     `cat` parameter; torrent-rss and nzb adapters do not support categories
+         *     (their results carry an empty category). One query-history row is
+         *     recorded per attempted indexer, including failures. A cancelled request
+         *     is a 500.
+         */
+        post: operations["searchReleases"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search/grab": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Grab a search result (send it to the download client).
+         * @description Routes a search result to the configured download client by protocol.
+         *     `torrent` and `torrent-file` go to the qBittorrent client and `nzb` to
+         *     the SABnzbd client. The mock client accepts any protocol. If the
+         *     configured client cannot handle the protocol, this is a 409. A missing
+         *     or empty client is a 503. On success the grab is recorded and feeds the
+         *     stats `total_grabs` and grab series.
+         */
+        post: operations["grabSearchRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Query history (paginated, filterable).
+         * @description The Prowlarr History table. One row per attempted indexer search,
+         *     newest first. Server-side pagination (page 1-based, page_size default 25
+         *     max 100). Filters are `indexer` (exact name) and `q` (case-insensitive
+         *     substring on the term). The response is `{items, total}`.
+         */
+        get: operations["searchHistory"];
+        put?: never;
+        post?: never;
+        /**
+         * Clear all query history.
+         * @description The Prowlarr "Clear" action — deletes every query-history row.
+         */
+        delete: operations["clearSearchHistory"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3401,6 +3511,95 @@ export interface components {
             avg_latency_ns: number;
             /** Format: int64 */
             total_latency_ns: number;
+        };
+        /** @description A manual release search over the selected (or all enabled) indexers. indexer_ids empty or omitted means every enabled indexer. categories is optional and only affects the torznab adapter (its cat parameter). */
+        SearchRequest: {
+            /** @description The search term (release name, partial match). */
+            query: string;
+            /** @description Indexer ids to search. Empty/omitted = all enabled indexers. */
+            indexer_ids?: number[];
+            /** @description Optional category strings (mapped to the torznab cat param). */
+            categories?: string[];
+        };
+        /** @description A single candidate release from one indexer. No cross-indexer dedup — the same title on two indexers is two rows, each grab-able independently. category is populated only by the torznab adapter; it is empty for torrent-rss and nzb results. */
+        SearchRelease: {
+            title: string;
+            /** @description The indexer name that produced this release. */
+            indexer: string;
+            /** @description Release size in bytes (0 when the indexer does not report it). */
+            size_bytes?: number;
+            /** @description Seeder count (0 when the indexer does not report it). */
+            seeders?: number;
+            /** @description torrent, torrent-file, or nzb (drives grab routing). */
+            protocol: string;
+            /** @description Magnet/torrent URL (torrent) or NZB download URL (nzb). */
+            url: string;
+            /** @description Release category name (torznab only; empty otherwise). */
+            category?: string;
+        };
+        /** @description An echo of a search-result row being grabbed. protocol routes it to the download client (torrent/torrent-file to qBittorrent, nzb to SABnzbd). */
+        GrabRequest: {
+            title: string;
+            /** @description The indexer name the result came from. */
+            indexer: string;
+            /** @description torrent, torrent-file, or nzb. */
+            protocol: string;
+            url: string;
+            size_bytes?: number;
+            seeders?: number;
+        };
+        GrabResult: {
+            ok: boolean;
+            indexer: string;
+            protocol: string;
+        };
+        /** @description A page of query history plus the total match count. */
+        SearchHistory: {
+            items: components["schemas"]["SearchHistoryItem"][];
+            /** @description Total rows matching the filters (across all pages). */
+            total: number;
+        };
+        /** @description One attempted indexer search (the Prowlarr History table row). */
+        SearchHistoryItem: {
+            id: number;
+            /** @description Indexer name (empty string for a failed indexer build). */
+            indexer: string;
+            term: string;
+            /** @description Categories the query used (empty when none). */
+            categories?: string[];
+            /** @description Whether the indexer search succeeded. */
+            ok: boolean;
+            /** @description How long the indexer search took, in milliseconds. */
+            elapsed_ms: number;
+            /** Format: date-time */
+            at: string;
+        };
+        HistoryCleared: {
+            /** @description Number of history rows deleted. */
+            deleted: number;
+        };
+        /** @description The Prowlarr PR3 stats rollup. active_apps is always 0 (a unified-service Mediarr has no connected Prowlarr apps; per-kind settings replace them). series holds UTC-day buckets for the last 30 days including zero days so the UI x-axis is stable; by_indexer covers only indexers with at least one query or grab in that window. */
+        StatsSummary: {
+            active_indexers: number;
+            active_apps: number;
+            total_queries: number;
+            total_grabs: number;
+            series: {
+                queries: components["schemas"]["StatsDayBucket"][];
+                grabs: components["schemas"]["StatsDayBucket"][];
+                by_indexer: components["schemas"]["StatsIndexerSeries"][];
+            };
+        };
+        StatsDayBucket: {
+            /** @description A UTC day, YYYY-MM-DD. */
+            date: string;
+            count: number;
+        };
+        /** @description Per-indexer activity for the 30-day window (indexers with at least one event). */
+        StatsIndexerSeries: {
+            indexer: string;
+            queries: components["schemas"]["StatsDayBucket"][];
+            grabs: components["schemas"]["StatsDayBucket"][];
         };
         DownloadClientView: {
             /** @description Download-client kind (mock, qbittorrent, sabnzbd). */
@@ -6419,6 +6618,28 @@ export interface operations {
             500: components["responses"]["Internal"];
         };
     };
+    indexerStatsSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The aggregated stats document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
     getDownloadClient: {
         parameters: {
             query?: never;
@@ -7095,6 +7316,116 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["Internal"];
+        };
+    };
+    searchReleases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchRequest"];
+            };
+        };
+        responses: {
+            /** @description The candidate releases (flat array, no dedup). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchRelease"][];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    grabSearchRelease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrabRequest"];
+            };
+        };
+        responses: {
+            /** @description The release was handed to the download client. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrabResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["Internal"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    searchHistory: {
+        parameters: {
+            query?: {
+                /** @description Exact indexer-name match. */
+                indexer?: string;
+                /** @description Case-insensitive substring match on the search term. */
+                q?: string;
+                /** @description 1-based page number (default 1). */
+                page?: components["parameters"]["ListPage"];
+                /** @description Page size (default 25, max 100). */
+                page_size?: components["parameters"]["ListPageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of history plus the total match count. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchHistory"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    clearSearchHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many rows were deleted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryCleared"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
         };
     };
