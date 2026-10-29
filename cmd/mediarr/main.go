@@ -358,6 +358,15 @@ func run(logSvc *system.LogService) error {
 		Store:    settingsRepo,
 		TagUsage: postgres.NewTagUsageRepo(pg.DB()),
 	})
+	// Prowlarr PR4: saved notification sinks (token vault-encrypted at rest)
+	// and indexer proxies — FlareSolverr instances (password vault-encrypted
+	// at rest), each with its own CRUD + test endpoint.
+	srv.SetNotifications(&api.NotificationsDeps{
+		Repo: postgres.NewNotificationsRepo(pg.DB(), vault),
+	})
+	srv.SetIndexerProxies(&api.IndexerProxiesDeps{
+		Repo: postgres.NewIndexerProxiesRepo(pg.DB(), vault),
+	})
 	authRepo := auth.NewRepo(pg.DB())
 	srv.SetAuth(&api.AuthDeps{Repo: authRepo})
 	srv.SetEvents(&api.EventsDeps{Repo: authRepo, Events: events})
