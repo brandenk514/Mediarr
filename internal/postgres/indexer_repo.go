@@ -32,7 +32,7 @@ func NewIndexersRepo(db *sql.DB, vault *secrets.Vault) *IndexersRepo {
 
 var _ indexers.IndexerRepo = (*IndexersRepo)(nil)
 
-const indexerColumns = `id, name, kind, base_url, api_key_encrypted, settings_json, enabled, last_test, privacy, priority, sync_profile, added, config_fields_json, definition_name, tags, redirect`
+const indexerColumns = `id, name, kind, base_url, api_key_encrypted, settings_json, enabled, last_test, privacy, priority, sync_profile, added, config_fields_json, definition_name, tags, redirect, download_client_id`
 
 // encryptKey stores the ciphertext for a plaintext key, or NULL for an empty
 // key (keyless indexers). An empty plaintext never round-trips through the
@@ -75,7 +75,7 @@ func (r *IndexersRepo) scanIndexer(row interface {
 	err := row.Scan(&def.ID, &def.Name, &def.Kind, &def.BaseURL, &key,
 		&def.SettingsJSON, &def.Enabled, &lastTest,
 		&def.Privacy, &def.Priority, &def.SyncProfile, &def.Added,
-		&cfgJSON, &defName, &tagsJSON, &redirect)
+		&cfgJSON, &defName, &tagsJSON, &redirect, &def.DownloadClientID)
 	if err != nil {
 		return nil, err
 	}
@@ -236,13 +236,14 @@ func (r *IndexersRepo) Create(ctx context.Context, def indexers.Definition) (int
 	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO indexers (name, kind, base_url, api_key_encrypted, settings_json, enabled,
 		                               privacy, priority, sync_profile, added,
-		                               config_fields_json, definition_name, tags, redirect)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)
+		                               config_fields_json, definition_name, tags, redirect,
+		                               download_client_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)
 		RETURNING id`,
 		def.Name, def.Kind, def.BaseURL, enc, def.SettingsJSON, def.Enabled,
 		privacy, priority, syncProfile, added,
 		cfgJSON, defName,
-		tagsJSON, def.Redirect,
+		tagsJSON, def.Redirect, def.DownloadClientID,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("indexers: create %q: %w", def.Name, err)
@@ -334,12 +335,13 @@ func (r *IndexersRepo) Update(ctx context.Context, def indexers.Definition) erro
 		    privacy = $8, priority = $9, sync_profile = $10,
 		    config_fields_json = $11, definition_name = $12,
 		    tags = $13::jsonb, redirect = $14,
+		    download_client_id = $15,
 		    updated_at = now()
 		WHERE id = $1`,
 		def.ID, def.Name, def.Kind, def.BaseURL, enc, def.SettingsJSON, def.Enabled,
 		def.Privacy, def.Priority, def.SyncProfile,
 		cfgJSON, defName,
-		tagsJSON, def.Redirect)
+		tagsJSON, def.Redirect, def.DownloadClientID)
 	if err != nil {
 		return fmt.Errorf("indexers: update %d: %w", def.ID, err)
 	}

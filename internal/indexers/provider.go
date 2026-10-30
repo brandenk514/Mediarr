@@ -77,6 +77,13 @@ type Definition struct {
 	// stats parity but NOT sent to the download client.
 	Tags     []string
 	Redirect bool
+	// Prowlarr PR5: DownloadClientID names the saved download client this
+	// indexer's grabs route to (nil = default routing: the first enabled
+	// client whose kind handles the release protocol). The id may reference
+	// a deleted, disabled, or protocol-mismatched client; grab resolution
+	// then falls through to default routing (the spec's "fall back to the
+	// default routing" clause).
+	DownloadClientID *int64
 }
 
 // DefinitionNamePtr exposes the library definition name in the nullable form

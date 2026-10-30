@@ -87,6 +87,10 @@ type indexerJSON struct {
 	// stats parity but does not send them to the download client).
 	Tags     []string `json:"tags"`
 	Redirect bool     `json:"redirect"`
+	// Prowlarr PR5: the download client this indexer's grabs route to.
+	// Null = default routing (the first enabled client whose kind handles
+	// the release protocol).
+	DownloadClientID *int64 `json:"download_client_id"`
 }
 
 func defToJSON(d indexers.Definition) indexerJSON {
@@ -127,6 +131,7 @@ func defToJSON(d indexers.Definition) indexerJSON {
 		DefinitionName:    d.DefinitionNamePtr(),
 		Tags:              tags,
 		Redirect:          d.Redirect,
+		DownloadClientID:  d.DownloadClientID,
 	}
 }
 
@@ -278,6 +283,32 @@ func (s *Server) IndexerStats(w http.ResponseWriter, r *http.Request) {
 
 // ---- write endpoints (#44) ----
 
+// nullableInt64 distinguishes an *absent* JSON field from an explicit
+// `null` — encoding/json collapses both into a nil *int64, but the
+// download_client_id contract (Prowlarr PR5) treats them differently on
+// update: omitted = keep the stored binding, explicit null = clear it.
+// `present` is true once the field appears in the body; `value` is non-nil
+// only for a JSON number.
+type nullableInt64 struct {
+	present bool
+	value   *int64
+}
+
+func (n *nullableInt64) UnmarshalJSON(b []byte) error {
+	n.present = true
+	s := strings.TrimSpace(string(b))
+	if s == "null" {
+		n.value = nil
+		return nil
+	}
+	var v int64
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	n.value = &v
+	return nil
+}
+
 // indexerWriteRequest is the body for POST /api/v1/indexers (create). APIKey is
 // plaintext in the request but is never echoed back in the response (defToJSON
 // only reports has_api_key). An empty APIKey is legal (keyless indexers).
@@ -306,6 +337,9 @@ type indexerWriteRequest struct {
 	// Prowlarr PR4: tags (omitted = []) and redirect (omitted = false).
 	Tags     []string `json:"tags"`
 	Redirect bool     `json:"redirect"`
+	// Prowlarr PR5: the download client this indexer's grabs route to.
+	// Omitted/null = no binding (default routing).
+	DownloadClientID nullableInt64 `json:"download_client_id"`
 }
 
 // indexerUpdateRequest is the body for PUT /api/v1/indexers/{id}. An empty
@@ -335,6 +369,9 @@ type indexerUpdateRequest struct {
 	// array clears them) and redirect (nil = keep the stored value).
 	Tags     *[]string `json:"tags,omitempty"`
 	Redirect *bool     `json:"redirect,omitempty"`
+	// Prowlarr PR5: omitted (absent) = keep the stored binding; an explicit
+	// null clears it (default routing); a number re-binds.
+	DownloadClientID nullableInt64 `json:"download_client_id"`
 }
 
 // indexerEnabledRequest is the body for PATCH /api/v1/indexers/{id}/enabled.
@@ -491,20 +528,26 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 		tags = []string{}
 	}
 	redirect := req.Redirect
+	// Prowlarr PR5: download-client binding (omitted/null = no binding).
+	var downloadClientID *int64
+	if req.DownloadClientID.present && req.DownloadClientID.value != nil {
+		downloadClientID = req.DownloadClientID.value
+	}
 	id, err := s.indexersDeps.Repo.Create(r.Context(), indexers.Definition{
-		Name:           name,
-		Kind:           req.Kind,
-		BaseURL:        req.BaseURL,
-		APIKey:         req.APIKey,
-		SettingsJSON:   settingsJSON,
-		Enabled:        enabled,
-		Privacy:        privacy,
-		Priority:       priority,
-		SyncProfile:    syncProfile,
-		DefinitionName: defName,
-		ConfigFields:   configFields,
-		Tags:           tags,
-		Redirect:       redirect,
+		Name:             name,
+		Kind:             req.Kind,
+		BaseURL:          req.BaseURL,
+		APIKey:           req.APIKey,
+		SettingsJSON:     settingsJSON,
+		Enabled:          enabled,
+		Privacy:          privacy,
+		Priority:         priority,
+		SyncProfile:      syncProfile,
+		DefinitionName:   defName,
+		ConfigFields:     configFields,
+		Tags:             tags,
+		Redirect:         redirect,
+		DownloadClientID: downloadClientID,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -516,21 +559,22 @@ func (s *Server) CreateIndexer(w http.ResponseWriter, r *http.Request) {
 	}
 	// No read-back: we know every field. A fresh create has no last_test.
 	writeJSON(w, http.StatusCreated, defToJSON(indexers.Definition{
-		ID:             id,
-		Name:           name,
-		Kind:           req.Kind,
-		BaseURL:        req.BaseURL,
-		APIKey:         req.APIKey,
-		SettingsJSON:   settingsJSON,
-		Enabled:        enabled,
-		Privacy:        privacy,
-		Priority:       priority,
-		SyncProfile:    syncProfile,
-		Added:          time.Now().UTC(),
-		DefinitionName: defName,
-		ConfigFields:   configFields,
-		Tags:           tags,
-		Redirect:       redirect,
+		ID:               id,
+		Name:             name,
+		Kind:             req.Kind,
+		BaseURL:          req.BaseURL,
+		APIKey:           req.APIKey,
+		SettingsJSON:     settingsJSON,
+		Enabled:          enabled,
+		Privacy:          privacy,
+		Priority:         priority,
+		SyncProfile:      syncProfile,
+		Added:            time.Now().UTC(),
+		DefinitionName:   defName,
+		ConfigFields:     configFields,
+		Tags:             tags,
+		Redirect:         redirect,
+		DownloadClientID: downloadClientID,
 	}))
 }
 
@@ -604,6 +648,12 @@ func (s *Server) UpdateIndexer(w http.ResponseWriter, r *http.Request) {
 	if req.Redirect != nil {
 		redirect = *req.Redirect
 	}
+	// Prowlarr PR5: download-client binding. Omitted keeps the stored
+	// binding; an explicit null clears it; a number re-binds.
+	downloadClientID := existing.DownloadClientID
+	if req.DownloadClientID.present {
+		downloadClientID = req.DownloadClientID.value
+	}
 	// Prowlarr PR2: resolve the config-contract values against the named
 	// definition's contract (a nil req.ConfigFields keeps the stored values).
 	configFields, defName, err := s.resolveConfigFields(req.ConfigFields, req.DefinitionName, req.BaseURL, existing)
@@ -612,22 +662,23 @@ func (s *Server) UpdateIndexer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	def := indexers.Definition{
-		ID:             id,
-		Name:           strings.TrimSpace(req.Name),
-		Kind:           req.Kind,
-		BaseURL:        req.BaseURL,
-		APIKey:         apiKey,
-		SettingsJSON:   settingsJSON,
-		Enabled:        existing.Enabled,
-		LastTest:       existing.LastTest,
-		Privacy:        privacy,
-		Priority:       priority,
-		SyncProfile:    syncProfile,
-		Added:          existing.Added,
-		DefinitionName: defName,
-		ConfigFields:   configFields,
-		Tags:           tags,
-		Redirect:       redirect,
+		ID:               id,
+		Name:             strings.TrimSpace(req.Name),
+		Kind:             req.Kind,
+		BaseURL:          req.BaseURL,
+		APIKey:           apiKey,
+		SettingsJSON:     settingsJSON,
+		Enabled:          existing.Enabled,
+		LastTest:         existing.LastTest,
+		Privacy:          privacy,
+		Priority:         priority,
+		SyncProfile:      syncProfile,
+		Added:            existing.Added,
+		DefinitionName:   defName,
+		ConfigFields:     configFields,
+		Tags:             tags,
+		Redirect:         redirect,
+		DownloadClientID: downloadClientID,
 	}
 	if err := s.indexersDeps.Repo.Update(r.Context(), def); err != nil {
 		if isUniqueViolation(err) {

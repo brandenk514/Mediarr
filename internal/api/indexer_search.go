@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brandenk514/mediarr/internal/downloadclients"
 	"github.com/brandenk514/mediarr/internal/downloads"
 	"github.com/brandenk514/mediarr/internal/indexers"
 	"github.com/brandenk514/mediarr/internal/paging"
@@ -36,6 +37,18 @@ type IndexerSearchDeps struct {
 	// protocol (torrent/torrent-file to qBittorrent, nzb to SABnzbd; the mock
 	// accepts any).
 	ClientKind downloads.ClientKind
+
+	// Prowlarr PR5: plural grab routing. When Clients is non-nil, a grab
+	// resolves its client through the saved-client store instead of the
+	// single boot client above: the indexer's download_client_id binding
+	// when it names a stored client that is enabled and whose kind handles
+	// the release protocol, else the first enabled client (position, then
+	// id — List's order) whose kind handles the protocol, else the 503.
+	// Clients nil keeps the legacy single-client path (Client/ClientKind).
+	// DownloadsDir is the completion directory handed to adapters built
+	// from saved clients (the same dir the boot client uses).
+	Clients      downloadclients.Repo
+	DownloadsDir string
 }
 
 // SetIndexerSearch wires the manual-search, grab, history, and stats-summary
@@ -207,6 +220,102 @@ func routeProtocol(client downloads.Client, kind downloads.ClientKind, protocol 
 	}
 }
 
+// grabClientError is a grab-client resolution failure with its HTTP status.
+type grabClientError struct {
+	status int
+	msg    string
+}
+
+func (e *grabClientError) Error() string { return e.msg }
+
+// resolveGrabClient picks the download client a grab goes to (Prowlarr PR5).
+//
+// Plural mode (Clients non-nil):
+//  1. the indexer's download_client_id binding, when it names a stored
+//     client that is enabled and whose kind handles the protocol;
+//  2. else the first enabled client (List order: position, then id) whose
+//     kind handles the protocol;
+//  3. else 503 "no download client is configured".
+//
+// A binding whose client kind has no adapter yet (transmission) falls
+// through to step 2 so a usable default can still pick up the grab; with no
+// usable client at all the grab 503s.
+//
+// Legacy mode (Clients nil): the single boot client must be non-nil and its
+// kind must handle the protocol (routeProtocol's contract: 409 on mismatch).
+func (d *IndexerSearchDeps) resolveGrabClient(r *http.Request, indexer, protocol string) (downloads.Client, *grabClientError) {
+	ctx := r.Context()
+	if d.Clients == nil {
+		if d.Client == nil {
+			return nil, &grabClientError{http.StatusServiceUnavailable, "no download client is configured"}
+		}
+		client, ok := routeProtocol(d.Client, d.ClientKind, protocol)
+		if !ok {
+			return nil, &grabClientError{http.StatusConflict,
+				fmt.Sprintf("the configured %s client cannot handle %q releases", d.ClientKind, protocol)}
+		}
+		return client, nil
+	}
+
+	// (1) The indexer's explicit binding.
+	if def, err := d.Indexers.GetByName(ctx, indexer); err == nil && def.DownloadClientID != nil {
+		if rec, err := d.Clients.Get(ctx, *def.DownloadClientID); err == nil && rec != nil &&
+			rec.Enabled && rec.Kind.HandlesProtocol(protocol) {
+			if client, buildErr := buildDownloadClient(*rec, d.DownloadsDir); buildErr == nil {
+				return client, nil
+			}
+			// No adapter for this kind yet (e.g. transmission): fall through
+			// to default routing.
+		}
+	}
+
+	// (2) Default routing: the first enabled client whose kind handles the
+	// protocol (List returns position-then-id order).
+	clients, err := d.Clients.List(ctx)
+	if err != nil {
+		return nil, &grabClientError{http.StatusInternalServerError,
+			"failed to list download clients: " + err.Error()}
+	}
+	for i := range clients {
+		rec := clients[i]
+		if !rec.Enabled || !rec.Kind.HandlesProtocol(protocol) {
+			continue
+		}
+		if client, buildErr := buildDownloadClient(rec, d.DownloadsDir); buildErr == nil {
+			return client, nil
+		}
+	}
+	return nil, &grabClientError{http.StatusServiceUnavailable, "no download client is configured"}
+}
+
+// buildDownloadClient builds a downloads.Client from a saved client record.
+// qBittorrent and SABnzbd map onto the real adapters (the record's
+// base_url/api_key/username/complete_dir fill the client configs);
+// transmission has no adapter yet and is an error, so the resolver skips it
+// (falling through to a usable default or 503) rather than failing the grab.
+func buildDownloadClient(rec downloadclients.Record, downloadsDir string) (downloads.Client, error) {
+	opts := downloads.ClientOptions{MockDir: downloadsDir}
+	switch rec.Kind {
+	case downloadclients.KindQB:
+		opts.Kind = downloads.KindQB
+		opts.QB = downloads.QBittorrentConfig{
+			Base:     rec.BaseURL,
+			APIKey:   rec.APIKey,
+			Username: rec.Username,
+		}
+	case downloadclients.KindSAB:
+		opts.Kind = downloads.KindSAB
+		opts.SAB = downloads.SABnzbdConfig{
+			Base:        rec.BaseURL,
+			APIKey:      rec.APIKey,
+			CompleteDir: rec.CompleteDir,
+		}
+	default:
+		return nil, fmt.Errorf("no adapter for client kind %q", rec.Kind)
+	}
+	return downloads.NewClient(opts)
+}
+
 // grabFileName is a safe on-disk name for the mock client (which writes one
 // file per grab). Real clients name from the release/URL; this is a fallback.
 func grabFileName(title string) string {
@@ -257,14 +366,15 @@ func (s *Server) GrabRelease(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if d.Client == nil {
+	if d.Client == nil && d.Clients == nil {
 		writeError(w, http.StatusServiceUnavailable, "no download client is configured")
 		return
 	}
-	client, ok := routeProtocol(d.Client, d.ClientKind, req.Protocol)
-	if !ok {
-		writeError(w, http.StatusConflict,
-			fmt.Sprintf("the configured %s client cannot handle %q releases", d.ClientKind, req.Protocol))
+	// Prowlarr PR5: plural resolution (binding → default routing → 503), or
+	// the legacy single-client protocol gate in legacy mode.
+	client, clientErr := d.resolveGrabClient(r, req.Indexer, req.Protocol)
+	if clientErr != nil {
+		writeError(w, clientErr.status, clientErr.msg)
 		return
 	}
 	release := downloads.Release{

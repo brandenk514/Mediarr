@@ -98,6 +98,7 @@ func newDriftServer(t *testing.T, h *harness) *driftWorld {
 	settingsRepo := postgres.NewSettingsRepo(h.db, vault)
 	authRepo := auth.NewRepo(h.db)
 	indexerRepo := postgres.NewIndexersRepo(h.db, vault)
+	dcRepo := postgres.NewDownloadClientsRepo(h.db, vault)
 
 	m := metrics.New(metrics.Options{})
 	movieS := moviesSvc.New(moviesSvc.Deps{Repo: movieRepo, Events: h.events, Metrics: m})
@@ -128,6 +129,7 @@ func newDriftServer(t *testing.T, h *harness) *driftWorld {
 	srv.SetDashboard(&api.DashboardDeps{Repo: dashRepo, Tracker: registry.Deps.Health, DefaultRecent: 10})
 	srv.SetQueue(&api.QueueDeps{Repo: queueRepo})
 	srv.SetSettings(&api.SettingsDeps{Store: settingsRepo})
+	srv.SetDownloadClients(&api.DownloadClientsDeps{Repo: dcRepo})
 	srv.SetAuth(&api.AuthDeps{Repo: authRepo})
 	srv.SetEvents(&api.EventsDeps{Repo: authRepo, Events: h.events})
 	srv.SetMovies(&api.MoviesDeps{Svc: movieS})
@@ -492,8 +494,21 @@ func TestOpenAPIDrift(t *testing.T) {
 	d.drift("GET", "/api/v1/queue", nil, nil, nil, http.StatusOK)
 	d.drift("GET", "/api/v1/queue", url.Values{"kind": []string{"movie"}, "state": []string{"queued"}}, nil, nil, http.StatusOK)
 	d.drift("GET", fmt.Sprintf("/api/v1/queue/movie/%d/history", movieID), nil, map[string]string{"kind": "movie", "parent": fmt.Sprint(movieID)}, nil, http.StatusOK)
-	d.drift("GET", "/api/v1/settings/download-client", nil, nil, nil, http.StatusOK)
-	d.drift("PUT", "/api/v1/settings/download-client", nil, nil, map[string]any{"kind": "mock"}, http.StatusOK)
+	d.drift("GET", "/api/v1/settings/download-clients", nil, nil, nil, http.StatusOK)
+	dcCreated := d.drift("POST", "/api/v1/settings/download-clients", nil, nil,
+		map[string]any{"name": "drift-qbit", "kind": "qbittorrent", "base_url": "http://qb:8080"}, http.StatusCreated)
+	var dcJSON map[string]any
+	if err := json.Unmarshal(dcCreated, &dcJSON); err != nil {
+		t.Fatalf("download client create body: %v: %s", err, dcCreated)
+	}
+	dcID := fmt.Sprint(dcJSON["id"])
+	d.drift("PUT", "/api/v1/settings/download-clients/"+dcID, nil, map[string]string{"id": dcID},
+		map[string]any{"enabled": false}, http.StatusOK)
+	d.drift("POST", "/api/v1/settings/download-clients/"+dcID+"/test", nil, map[string]string{"id": dcID},
+		nil, http.StatusOK)
+	d.drift("POST", "/api/v1/settings/download-clients/test-all", nil, nil, nil, http.StatusOK)
+	d.drift("DELETE", "/api/v1/settings/download-clients/"+dcID, nil, map[string]string{"id": dcID}, nil, http.StatusNoContent)
+	d.drift("GET", "/api/v1/settings/download-clients", nil, nil, nil, http.StatusOK)
 	d.drift("GET", "/api/v1/settings/library", nil, nil, nil, http.StatusOK)
 	for _, kind := range []string{"movie", "tv", "music", "book"} {
 		d.drift("PUT", "/api/v1/settings/library/"+kind, nil, map[string]string{"kind": kind},
