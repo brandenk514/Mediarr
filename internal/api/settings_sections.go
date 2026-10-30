@@ -13,6 +13,9 @@ import (
 // postgres.TagUsageRepo; nil makes the endpoint 501).
 type TagUsageer interface {
 	CountByTag(ctx context.Context, label string) (series, episodes int, err error)
+	// IndexersByTag (Prowlarr PR4) returns the count and a-to-z names of the
+	// indexers whose tags carry the label.
+	IndexersByTag(ctx context.Context, label string) (count int, names []string, err error)
 }
 
 // SettingsSectionDeps bundles the P5 generic section endpoints (the
@@ -151,8 +154,17 @@ func (s *Server) GetTagUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to read tag usage")
 		return
 	}
+	indexerCount, indexerNames, err := s.settingsSectionDeps.TagUsage.IndexersByTag(r.Context(), label)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read tag usage")
+		return
+	}
+	if indexerNames == nil {
+		indexerNames = []string{}
+	}
 	writeJSON(w, http.StatusOK, TagUsage{
 		ID: id, Label: label, Series: series, Episodes: episodes,
+		Indexers: TagUsageIndexers{Count: indexerCount, Names: indexerNames},
 	})
 }
 
@@ -162,6 +174,15 @@ type TagUsage struct {
 	Label    string `json:"label"`
 	Series   int    `json:"series"`
 	Episodes int    `json:"episodes"`
+	// Indexers (Prowlarr PR4): the indexers whose tags carry this label.
+	Indexers TagUsageIndexers `json:"indexers"`
+}
+
+// TagUsageIndexers is the indexers sub-object of a tag-usage response: the
+// count of matching indexers plus their a-to-z names.
+type TagUsageIndexers struct {
+	Count int      `json:"count"`
+	Names []string `json:"names"`
 }
 
 func joinSections() string {

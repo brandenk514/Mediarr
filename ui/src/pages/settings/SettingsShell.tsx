@@ -6,28 +6,36 @@ import { QualitySection } from './sections/QualitySection'
 import { ProfilesSection } from './sections/ProfilesSection'
 import { TagsSection } from './sections/TagsSection'
 import { MediaManagementSection } from './sections/MediaManagementSection'
-import { IndexersSection } from './sections/IndexersSection'
+import { IndexerProxiesSection } from './sections/IndexerProxiesSection'
 import { DownloadClientsSection } from './sections/DownloadClientsSection'
 import { CustomFormatsSection } from './sections/CustomFormatsSection'
 import { ConnectSection } from './sections/ConnectSection'
+import { NotificationsSection } from './sections/NotificationsSection'
+import { AppsSection } from './sections/AppsSection'
 import { MetadataSection } from './sections/MetadataSection'
 import { MetadataSourceSection } from './sections/MetadataSourceSection'
 import { ImportListsSection } from './sections/ImportListsSection'
 
-// The 13 Sonarr settings sections (the settings IA contract, P1). Each is a
-// route (/settings/:section). P1 established the nav + layout; P5 decomposes
-// the legacy monolithic settings page into per-section forms: the generic
-// sections ride the per-section document endpoints, while indexers and
-// download-clients keep their dedicated endpoints.
+// The 15 Sonarr settings sections (the settings IA contract, P1), plus the
+// two Prowlarr PR4 additions: the `indexers` slug becomes the Indexer Proxies
+// section (FlareSolverr instances + tag routing) and `notifications` / `apps`
+// are new slugs (apps is a read-only legacy note — no backend surface). Each
+// section is a route (/settings/:section). P1 established the nav + layout;
+// P5 decomposes the legacy monolithic settings page into per-section forms:
+// the generic sections ride the per-section document endpoints, while
+// indexers, download-clients, notifications and proxies keep their dedicated
+// endpoints.
 export const SETTINGS_SECTIONS: { slug: string; label: string }[] = [
   { slug: 'media-management', label: 'Media Management' },
   { slug: 'profiles', label: 'Profiles' },
   { slug: 'quality', label: 'Quality' },
   { slug: 'custom-formats', label: 'Custom Formats' },
-  { slug: 'indexers', label: 'Indexers' },
+  { slug: 'indexers', label: 'Indexer Proxies' },
   { slug: 'download-clients', label: 'Download Clients' },
   { slug: 'import-lists', label: 'Import Lists' },
   { slug: 'connect', label: 'Connect' },
+  { slug: 'notifications', label: 'Notifications' },
+  { slug: 'apps', label: 'Apps' },
   { slug: 'metadata', label: 'Metadata' },
   { slug: 'metadata-source', label: 'Metadata Source' },
   { slug: 'tags', label: 'Tags' },
@@ -35,7 +43,7 @@ export const SETTINGS_SECTIONS: { slug: string; label: string }[] = [
   { slug: 'ui', label: 'UI' },
 ]
 
-// renderSection maps a slug to its P5 section component. All 13 sections
+// renderSection maps a slug to its P5 section component. All 15 sections
 // have forms; the generic ones ride the per-section document endpoints.
 function renderSection(slug: string) {
   switch (slug) {
@@ -51,14 +59,22 @@ function renderSection(slug: string) {
       return <GeneralSection />
     case 'ui':
       return <UISection />
+    // Prowlarr PR4: the slug is kept for the IA contract; the section is now
+    // the Indexer Proxies (FlareSolverr) CRUD + test surface.
     case 'indexers':
-      return <IndexersSection />
+      return <IndexerProxiesSection />
     case 'download-clients':
       return <DownloadClientsSection />
     case 'custom-formats':
       return <CustomFormatsSection />
     case 'connect':
       return <ConnectSection />
+    // Prowlarr PR4: saved notification sinks (webhook / Plex / Jellyfin / Emby).
+    case 'notifications':
+      return <NotificationsSection />
+    // Prowlarr PR4: read-only legacy note — no backend surface.
+    case 'apps':
+      return <AppsSection />
     case 'metadata':
       return <MetadataSection />
     case 'metadata-source':

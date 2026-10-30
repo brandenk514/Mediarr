@@ -26,6 +26,9 @@ vi.mock('../../api/client', () => ({
       book: { path: '', quality_profile: '', checksum_verify: null },
     }),
     listIndexers: vi.fn().mockResolvedValue([]),
+    // Prowlarr PR4: the new dedicated-endpoint sections.
+    listNotifications: vi.fn().mockResolvedValue([]),
+    listIndexerProxies: vi.fn().mockResolvedValue([]),
     listRootFolders: vi.fn().mockResolvedValue([]),
     getProfiles: vi.fn().mockResolvedValue({ profiles: [], default: '' }),
     getSettingsSection: vi.fn(async (section: string) => {
@@ -93,10 +96,11 @@ function renderShell(path = '/settings/media-management') {
 }
 
 describe('SettingsShell', () => {
-  it('renders the 13-section nav (the P5 settings IA contract)', () => {
+  it('renders the 15-section nav (the P5 + PR4 settings IA contract)', () => {
     renderShell()
-    // All 13 sections are present as nav items.
-    expect(SETTINGS_SECTIONS).toHaveLength(13)
+    // All 15 sections are present as nav items (13 Sonarr + notifications +
+    // apps; the indexers slug is now the Indexer Proxies section).
+    expect(SETTINGS_SECTIONS).toHaveLength(15)
     for (const s of SETTINGS_SECTIONS) {
       expect(screen.getByTestId(`settings-nav-${s.slug}`)).toHaveTextContent(s.label)
     }
@@ -115,10 +119,15 @@ describe('SettingsShell', () => {
       ['/settings/quality', 'quality-card'],
       ['/settings/profiles', 'profiles-card'],
       ['/settings/tags', 'tags-card'],
-      ['/settings/indexers', 'idx-card'],
+      // Prowlarr PR4: the indexers slug now renders the Indexer Proxies
+      // section (empty state on the mock's empty list).
+      ['/settings/indexers', 'prox-empty'],
       ['/settings/download-clients', 'dc-card'],
       ['/settings/custom-formats', 'cf-card'],
       ['/settings/connect', 'connect-card'],
+      // Prowlarr PR4: the two new slugs.
+      ['/settings/notifications', 'notif-empty'],
+      ['/settings/apps', 'apps-card'],
       ['/settings/metadata', 'metadata-card'],
       ['/settings/metadata-source', 'ms-card'],
       ['/settings/import-lists', 'import-lists-card'],

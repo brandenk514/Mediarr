@@ -85,15 +85,34 @@ type GeneralSettings struct {
 	SSL         bool   `json:"ssl"`
 	AuthEnabled bool   `json:"auth_enabled"`
 	AuthPinning bool   `json:"auth_pinning"`
+	// Prowlarr PR4 additions. These are savable now; log_level and http_proxy
+	// take effect at the next boot (a restart actually applying them is out of
+	// scope this phase). AllowedHosts is a comma-separated host allow-list
+	// ("" = allow all). CertValidation disables TLS certificate validation
+	// when false. Analytics is the analytics opt-out flag (false = analytics
+	// OFF, Prowlarr's default).
+	AllowedHosts   string `json:"allowed_hosts"`
+	CertValidation bool   `json:"cert_validation"`
+	HTTPProxy      string `json:"http_proxy"`
+	LogLevel       string `json:"log_level"`
+	Analytics      bool   `json:"analytics"`
 }
+
+// GeneralLogLevels enumerates the valid log_level values (PR4).
+var GeneralLogLevels = []string{"debug", "info", "warn", "error"}
 
 func DefaultGeneral() GeneralSettings {
 	return GeneralSettings{
-		Host:        "0.0.0.0",
-		Port:        8080,
-		BaseURL:     "http://localhost:8080",
-		AuthEnabled: true,
-		AuthPinning: true,
+		Host:           "0.0.0.0",
+		Port:           8080,
+		BaseURL:        "http://localhost:8080",
+		AuthEnabled:    true,
+		AuthPinning:    true,
+		AllowedHosts:   "",
+		CertValidation: true,
+		HTTPProxy:      "",
+		LogLevel:       "info",
+		Analytics:      false,
 	}
 }
 
@@ -106,6 +125,9 @@ func (g GeneralSettings) Validate() string {
 	}
 	if g.BaseURL != "" && !isHTTPURLValue(g.BaseURL) {
 		return "base_url must be an http/https URL"
+	}
+	if !containsString(GeneralLogLevels, g.LogLevel) {
+		return "log_level must be one of " + strings.Join(GeneralLogLevels, ", ")
 	}
 	return ""
 }
@@ -133,6 +155,8 @@ type UISettings struct {
 	// contrast for color-impaired users (L3).
 	Theme         string `json:"theme"`
 	ColorImpaired bool   `json:"color_impaired"`
+	// Language is the UI language (PR4): a BCP-47 tag, defaulting to "en".
+	Language string `json:"language"`
 }
 
 // UIDefaultsView enumerates the valid default_view values.
@@ -149,6 +173,7 @@ func DefaultUI() UISettings {
 		ItemsPerPage: 50,
 		ExpandAlbums: true,
 		Theme:        "auto",
+		Language:     "en",
 	}
 }
 
@@ -167,6 +192,9 @@ func (u UISettings) Validate() string {
 	}
 	if !containsString(UIThemes, u.Theme) {
 		return "theme must be one of " + strings.Join(UIThemes, ", ")
+	}
+	if u.Language == "" || len(u.Language) > 16 {
+		return "language is required (max 16 chars, BCP-47 tag)"
 	}
 	return ""
 }

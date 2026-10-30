@@ -6,7 +6,7 @@ import { E2E_PASSWORD, E2E_USER, signIn } from './login'
 // case the /settings/:section document routes 404 and each section surfaces
 // its error-gated state (the section's own SectionError card — the shell nav
 // keeps working, so a section failure never blanks the page). The spec is
-// build-agnostic: every section must render inside the 13-section shell and
+// build-agnostic: every section must render inside the 15-section shell and
 // settle into one of (loaded | error), with the expected settled state
 // asserted from a direct endpoint probe.
 //
@@ -57,9 +57,12 @@ const SECTIONS: { slug: string; card: string; error: string }[] = [
   { slug: 'metadata', card: 'metadata-card', error: 'metadata-error' },
   { slug: 'metadata-source', card: 'ms-card', error: 'metadata-source-error' },
   { slug: 'import-lists', card: 'import-lists-card', error: 'import-lists-error' },
+  // Prowlarr PR4: the saved-sinks section. The apps section is NOT probed:
+  // it is a read-only legacy note with no backend surface (always loads).
+  { slug: 'notifications', card: 'notif-card', error: 'notif-error' },
 ]
 
-test('settings shell renders the 13-section nav (the P5 IA contract)', async ({ page }) => {
+test('settings shell renders the 15-section nav (the P5 + PR4 IA contract)', async ({ page }) => {
   await page.goto('/settings/media-management')
   await signIn(page)
   await expect(page).toHaveURL(/\/settings\/media-management$/)
@@ -68,10 +71,13 @@ test('settings shell renders the 13-section nav (the P5 IA contract)', async ({ 
     'profiles',
     'quality',
     'custom-formats',
+    // Prowlarr PR4: the slug keeps its name; the label is now Indexer Proxies.
     'indexers',
     'download-clients',
     'import-lists',
     'connect',
+    'notifications',
+    'apps',
     'metadata',
     'metadata-source',
     'tags',

@@ -18,12 +18,25 @@ type fakeTagUsage struct {
 	episodes int
 	calls    int
 	lastTag  string
+	// Prowlarr PR4: indexer usage for IndexersByTag (count + a-to-z names).
+	indexerNames   []string
+	indexerCalls   int
+	lastIndexerTag string
 }
 
 func (f *fakeTagUsage) CountByTag(_ context.Context, label string) (int, int, error) {
 	f.calls++
 	f.lastTag = label
 	return f.series, f.episodes, nil
+}
+
+func (f *fakeTagUsage) IndexersByTag(_ context.Context, label string) (int, []string, error) {
+	f.indexerCalls++
+	f.lastIndexerTag = label
+	if f.indexerNames == nil {
+		return 0, []string{}, nil
+	}
+	return len(f.indexerNames), f.indexerNames, nil
 }
 
 // newSettingsSectionTestServer builds an authenticated server wired with the
@@ -256,19 +269,29 @@ func TestSettingsSections_TagUsage(t *testing.T) {
 		t.Fatalf("put tags: got %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 
+	// Prowlarr PR4: seed the fake's indexer usage so the response sub-object
+	// has content to assert against.
+	tagUsage.indexerNames = []string{"Crazycrawler", "Nyaa"}
 	rec = doReq(t, s.Handler(), http.MethodGet, "/api/v1/settings/tags/2/usage", token)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 	var usage TagUsage
 	if err := json.Unmarshal(rec.Body.Bytes(), &usage); err != nil {
-		t.Fatal(err)
+		t.Fatalf("unmarshal usage: %v", err)
 	}
 	if usage.ID != 2 || usage.Label != "anime" || usage.Series != 3 || usage.Episodes != 12 {
 		t.Errorf("usage wrong: %+v", usage)
 	}
+	if usage.Indexers.Count != 2 || len(usage.Indexers.Names) != 2 ||
+		usage.Indexers.Names[0] != "Crazycrawler" || usage.Indexers.Names[1] != "Nyaa" {
+		t.Errorf("usage indexers wrong: %+v", usage.Indexers)
+	}
 	if tagUsage.lastTag != "anime" {
 		t.Errorf("expected the repo to be called with the label, got %q", tagUsage.lastTag)
+	}
+	if tagUsage.lastIndexerTag != "anime" {
+		t.Errorf("expected IndexersByTag to be called with the label, got %q", tagUsage.lastIndexerTag)
 	}
 
 	rec = doReq(t, s.Handler(), http.MethodGet, "/api/v1/settings/tags/99/usage", token)

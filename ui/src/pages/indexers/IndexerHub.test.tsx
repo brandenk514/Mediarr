@@ -37,6 +37,9 @@ function indexer(over: Partial<Indexer> = {}): Indexer {
     sync_profile: 'standard',
     added: '2026-10-01T12:00:00Z',
     categories: ['Movies', 'TV'],
+    // Prowlarr PR4: tag routing + redirect (the fixture predates the fields).
+    tags: [],
+    redirect: false,
     ...over,
   }
 }
@@ -442,6 +445,27 @@ describe('IndexerHubPage — row actions + add/edit (existing endpoints)', () =>
       expect(client.updateIndexer).toHaveBeenCalledWith(
         1,
         expect.objectContaining({ name: 'nyaa', rss: false, auto_search: true, interactive_search: true }),
+      ),
+    )
+  })
+
+  it('saves tags + the redirect flag (Prowlarr PR4 routing)', async () => {
+    const user = userEvent.setup()
+    ;(client.updateIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      indexer({ tags: ['private', 'usenet'], redirect: true }),
+    )
+    renderHub()
+    await screen.findByTestId('idx-edit-1')
+    await user.click(screen.getByTestId('idx-edit-1'))
+    await waitFor(() => expect(screen.getByTestId('idx-form-modal')).toBeInTheDocument())
+    // Comma-separated tags + the redirect toggle round-trip through the form.
+    await user.type(screen.getByTestId('idx-tags'), 'private, usenet')
+    await user.click(screen.getByTestId('idx-redirect'))
+    await user.click(screen.getByTestId('idx-save'))
+    await waitFor(() =>
+      expect(client.updateIndexer).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ tags: ['private', 'usenet'], redirect: true }),
       ),
     )
   })

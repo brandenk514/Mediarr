@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/brandenk514/mediarr/internal/indexers"
@@ -31,7 +32,7 @@ func NewIndexersRepo(db *sql.DB, vault *secrets.Vault) *IndexersRepo {
 
 var _ indexers.IndexerRepo = (*IndexersRepo)(nil)
 
-const indexerColumns = `id, name, kind, base_url, api_key_encrypted, settings_json, enabled, last_test, privacy, priority, sync_profile, added, config_fields_json, definition_name`
+const indexerColumns = `id, name, kind, base_url, api_key_encrypted, settings_json, enabled, last_test, privacy, priority, sync_profile, added, config_fields_json, definition_name, tags, redirect`
 
 // encryptKey stores the ciphertext for a plaintext key, or NULL for an empty
 // key (keyless indexers). An empty plaintext never round-trips through the
@@ -69,10 +70,12 @@ func (r *IndexersRepo) scanIndexer(row interface {
 	var lastTest *time.Time
 	var cfgJSON *string
 	var defName *string
+	var tagsJSON string
+	var redirect bool
 	err := row.Scan(&def.ID, &def.Name, &def.Kind, &def.BaseURL, &key,
 		&def.SettingsJSON, &def.Enabled, &lastTest,
 		&def.Privacy, &def.Priority, &def.SyncProfile, &def.Added,
-		&cfgJSON, &defName)
+		&cfgJSON, &defName, &tagsJSON, &redirect)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +91,36 @@ func (r *IndexersRepo) scanIndexer(row interface {
 	if defName != nil {
 		def.DefinitionName = *defName
 	}
+	def.Tags = decodeTags(tagsJSON)
+	def.Redirect = redirect
 	return &def, nil
+}
+
+// encodeTags serializes the indexer's tags (PR4) for at-rest storage. A
+// nil/empty slice encodes to "[]" so the column always holds a valid JSON
+// array and a stale row (or an unset field) reads back as an empty set.
+func encodeTags(tags []string) (string, error) {
+	if tags == nil {
+		tags = []string{}
+	}
+	raw, err := json.Marshal(tags)
+	if err != nil {
+		return "", fmt.Errorf("indexers: marshal tags: %w", err)
+	}
+	return string(raw), nil
+}
+
+// decodeTags parses the stored tags JSON (PR4). An empty or unparseable value
+// yields an empty slice so a corrupt/legacy row can't break an indexer list.
+func decodeTags(s string) []string {
+	out := []string{}
+	if strings.TrimSpace(s) == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(s), &out); err != nil || out == nil {
+		return []string{}
+	}
+	return out
 }
 
 // encodeConfigFields serializes the definition's config-contract values for
@@ -196,16 +228,21 @@ func (r *IndexersRepo) Create(ctx context.Context, def indexers.Definition) (int
 	if added.IsZero() {
 		added = time.Now().UTC()
 	}
+	tagsJSON, err := encodeTags(def.Tags)
+	if err != nil {
+		return 0, err
+	}
 	var id int64
 	err = r.db.QueryRowContext(ctx, `
 		INSERT INTO indexers (name, kind, base_url, api_key_encrypted, settings_json, enabled,
 		                               privacy, priority, sync_profile, added,
-		                               config_fields_json, definition_name)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		                               config_fields_json, definition_name, tags, redirect)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)
 		RETURNING id`,
 		def.Name, def.Kind, def.BaseURL, enc, def.SettingsJSON, def.Enabled,
 		privacy, priority, syncProfile, added,
 		cfgJSON, defName,
+		tagsJSON, def.Redirect,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("indexers: create %q: %w", def.Name, err)
@@ -286,17 +323,23 @@ func (r *IndexersRepo) Update(ctx context.Context, def indexers.Definition) erro
 	if err != nil {
 		return err
 	}
+	tagsJSON, err := encodeTags(def.Tags)
+	if err != nil {
+		return err
+	}
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE indexers
 		SET name = $2, kind = $3, base_url = $4, api_key_encrypted = $5,
 		    settings_json = $6, enabled = $7,
 		    privacy = $8, priority = $9, sync_profile = $10,
 		    config_fields_json = $11, definition_name = $12,
+		    tags = $13::jsonb, redirect = $14,
 		    updated_at = now()
 		WHERE id = $1`,
 		def.ID, def.Name, def.Kind, def.BaseURL, enc, def.SettingsJSON, def.Enabled,
 		def.Privacy, def.Priority, def.SyncProfile,
-		cfgJSON, defName)
+		cfgJSON, defName,
+		tagsJSON, def.Redirect)
 	if err != nil {
 		return fmt.Errorf("indexers: update %d: %w", def.ID, err)
 	}

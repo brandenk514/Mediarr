@@ -175,6 +175,11 @@ type grabResultJSON struct {
 	OK       bool   `json:"ok"`
 	Indexer  string `json:"indexer"`
 	Protocol string `json:"protocol"`
+	// Redirected marks a redirected-indexer grab (Prowlarr PR4): the grab is
+	// recorded for stats parity but NOT sent to the download client. URL is
+	// the release URL, present (and meaningful) on redirected grabs.
+	Redirected bool   `json:"redirected"`
+	URL        string `json:"url,omitempty"`
 }
 
 // routeProtocol resolves a search-result protocol to the configured download
@@ -232,6 +237,26 @@ func (s *Server) GrabRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	// Prowlarr PR4: a redirected indexer records the grab (stats parity —
+	// Prowlarr counts redirected grabs) but does NOT send it to the download
+	// client. This is checked before the client-nil gate: a redirected grab
+	// needs no download backend at all.
+	if def, err := d.Indexers.GetByName(ctx, req.Indexer); err == nil && def.Redirect {
+		_ = d.Activity.RecordGrab(ctx, indexers.GrabLog{
+			Indexer:  req.Indexer,
+			Title:    req.Title,
+			Protocol: req.Protocol,
+			At:       time.Now().UTC(),
+		})
+		writeJSON(w, http.StatusOK, grabResultJSON{
+			OK:         true,
+			Indexer:    req.Indexer,
+			Protocol:   req.Protocol,
+			Redirected: true,
+			URL:        req.URL,
+		})
+		return
+	}
 	if d.Client == nil {
 		writeError(w, http.StatusServiceUnavailable, "no download client is configured")
 		return
@@ -260,7 +285,7 @@ func (s *Server) GrabRelease(w http.ResponseWriter, r *http.Request) {
 		Protocol: req.Protocol,
 		At:       time.Now().UTC(),
 	})
-	writeJSON(w, http.StatusOK, grabResultJSON{OK: true, Indexer: req.Indexer, Protocol: req.Protocol})
+	writeJSON(w, http.StatusOK, grabResultJSON{OK: true, Indexer: req.Indexer, Protocol: req.Protocol, Redirected: false})
 }
 
 // ---- GET /api/v1/search/history ----

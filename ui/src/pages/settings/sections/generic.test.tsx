@@ -301,6 +301,9 @@ describe('UISection', () => {
         expand_other: false,
         theme: 'auto',
         color_impaired: false,
+        // Prowlarr PR4: the doc predates the field, so the load boundary
+        // seeds the server default.
+        language: 'en',
       }),
     )
   })
@@ -661,6 +664,20 @@ describe('TagsSection', () => {
         }),
       ),
     )
+  })
+
+  it('shows the indexers carrying the tag (Prowlarr PR4 usage)', async () => {
+    ;(client.getTagUsage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 1,
+      label: 'family',
+      series: 3,
+      episodes: 42,
+      indexers: { count: 2, names: ['NZBs', 'Prowlarr'] },
+    })
+    renderSection(<TagsSection />)
+    await screen.findByTestId('tag-usage-1')
+    const idx = await screen.findByTestId('tag-usage-indexers-1')
+    expect(idx).toHaveTextContent('2 indexers (NZBs, Prowlarr)')
   })
 
   it('deletes a tag', async () => {
