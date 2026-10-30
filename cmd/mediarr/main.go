@@ -206,6 +206,20 @@ func run(logSvc *system.LogService) error {
 	}
 	indexerRepo := postgres.NewIndexersRepo(pg.DB(), vault)
 
+	// Prowlarr PR5: saved download clients (plural). Same vault-encrypted
+	// pattern as indexers; the plural store replaces the old single-client
+	// settings document.
+	dcRepo := postgres.NewDownloadClientsRepo(pg.DB(), vault)
+	// One-time migration of the legacy single download-client settings
+	// document into the table: idempotent (no-ops when the doc is empty or a
+	// same-named client already exists) and copies the ciphertext verbatim,
+	// so no plaintext materializes.
+	if n, seedErr := dcRepo.SeedLegacySingleClient(ctx); seedErr != nil {
+		return fmt.Errorf("seed legacy download client: %w", seedErr)
+	} else if n > 0 {
+		logger.Info("legacy download client seeded", "count", n)
+	}
+
 	// Prowlarr PR2: the built-in indexer definition library. Seed the table
 	// from the embedded Prowlarr community set on first boot (idempotent);
 	// every row records the seed revision so the definition-update task
@@ -367,6 +381,9 @@ func run(logSvc *system.LogService) error {
 	srv.SetIndexerProxies(&api.IndexerProxiesDeps{
 		Repo: postgres.NewIndexerProxiesRepo(pg.DB(), vault),
 	})
+	// Prowlarr PR5: plural saved download clients (replaces the old singular
+	// /settings/download-client surface) + their per-client /test probes.
+	srv.SetDownloadClients(&api.DownloadClientsDeps{Repo: dcRepo})
 	authRepo := auth.NewRepo(pg.DB())
 	srv.SetAuth(&api.AuthDeps{Repo: authRepo})
 	srv.SetEvents(&api.EventsDeps{Repo: authRepo, Events: events})
@@ -425,11 +442,13 @@ func run(logSvc *system.LogService) error {
 	// protocol to the configured download client (nil client → 503, unhandled
 	// protocol → 409).
 	srv.SetIndexerSearch(&api.IndexerSearchDeps{
-		Indexers:   indexerRepo,
-		Registry:   registry,
-		Activity:   postgres.NewSearchActivityRepo(pg.DB()),
-		Client:     dlClient,
-		ClientKind: downloads.ClientKind(cfg.ClientType),
+		Indexers:     indexerRepo,
+		Registry:     registry,
+		Activity:     postgres.NewSearchActivityRepo(pg.DB()),
+		Client:       dlClient,
+		ClientKind:   downloads.ClientKind(cfg.ClientType),
+		Clients:      dcRepo,
+		DownloadsDir: cfg.DownloadsDir,
 	})
 	tmdbClient := providers.NewTMDB(cfg.Providers.TMDBAPIKey)
 	movieSvc := moviesvc.New(moviesvc.Deps{
@@ -695,6 +714,7 @@ func run(logSvc *system.LogService) error {
 		migrationRadarrIndexers := &migrationRadarrIndexerStore{repo: indexerRepo}
 		migrationRadarrMovies := &migrationRadarrMovieStore{repo: postgres.NewMovieRepo(pg.DB())}
 		radarrTarget := system.NewRadarrPostgresTarget(settingsRepo, migrationRadarrMovies, migrationRadarrIndexers)
+		radarrTarget.DCRepo = dcRepo
 
 		// Lidarr L5: the Lidarr source of the drop-in migration. The target
 		// maps artists/albums/tracks onto the music domain, the music
@@ -706,6 +726,7 @@ func run(logSvc *system.LogService) error {
 		migrationLidarrMusic := &migrationLidarrMusicStore{repo: postgres.NewMusicRepo(pg.DB())}
 		migrationLidarrRoots := &migrationLidarrRootFolderStore{svc: rfSvc}
 		lidarrTarget := system.NewLidarrPostgresTarget(settingsRepo, migrationLidarrMusic, migrationLidarrRoots, migrationRadarrIndexers)
+		lidarrTarget.DCRepo = dcRepo
 
 		// P6 Wave 2: the System depth services. Backup exports/imports the
 		// configuration over the settings repo (queue / series snapshots are
@@ -716,6 +737,7 @@ func run(logSvc *system.LogService) error {
 		backupSvc := &system.BackupService{
 			Store:   settingsRepo,
 			Version: version,
+			DCRepo:  dcRepo,
 			QueueSnap: func(ctx context.Context) (json.RawMessage, error) {
 				items, err := queueRepo.List(ctx)
 				if err != nil {
@@ -765,7 +787,9 @@ func run(logSvc *system.LogService) error {
 		// domain; Lidarr: the live Lidarr v3 client into the music domain).
 		// All three are routed through MigrationService by the request's
 		// source.
-		migrator := system.NewMigrator(system.NewPostgresTarget(settingsRepo, migrationIndexers, migrationTV))
+		mediarrTarget := system.NewPostgresTarget(settingsRepo, migrationIndexers, migrationTV)
+		mediarrTarget.DCRepo = dcRepo
+		migrator := system.NewMigrator(mediarrTarget)
 		radarrMigrator := system.NewRadarrMigrator(radarrTarget)
 		lidarrMigrator := system.NewLidarrMigrator(lidarrTarget)
 		migrationSvc := system.NewMigrationService(migrator, radarrMigrator, lidarrMigrator)
