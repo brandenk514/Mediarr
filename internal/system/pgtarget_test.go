@@ -7,25 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/brandenk514/mediarr/internal/downloadclients"
 	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // ---- fake seams for the Postgres target ----
 
 type fakeSettings struct {
-	dc       *settings.DownloadClient
 	sections map[settings.Section][]byte
-	dcPut    int
 }
 
-func (f *fakeSettings) GetDownloadClient(context.Context) (*settings.DownloadClient, error) {
-	return f.dc, nil
-}
-func (f *fakeSettings) PutDownloadClient(_ context.Context, dc *settings.DownloadClient) error {
-	f.dc = dc
-	f.dcPut++
-	return nil
-}
 func (f *fakeSettings) GetSectionDocument(_ context.Context, s settings.Section) ([]byte, error) {
 	if b, ok := f.sections[s]; ok {
 		return b, nil
@@ -213,7 +204,9 @@ func TestPostgresTargetIndexerIdempotent(t *testing.T) {
 
 func TestPostgresTargetDownloadClientMapping(t *testing.T) {
 	st := &fakeSettings{}
+	dc := &fakeDCRepo{}
 	tgt := NewPostgresTarget(st, &fakeIndexers{}, newFakeTV())
+	tgt.DCRepo = dc
 	fields := map[string]json.RawMessage{
 		"host":     json.RawMessage(`"10.0.0.5"`),
 		"port":     json.RawMessage(`8080`),
@@ -228,17 +221,23 @@ func TestPostgresTargetDownloadClientMapping(t *testing.T) {
 	if act != ActionCreated {
 		t.Fatalf("action = %q, want created", act)
 	}
-	if st.dc == nil || st.dc.Kind != "qbittorrent" {
-		t.Fatalf("dc = %+v, want kind qbittorrent", st.dc)
+	if len(dc.recs) != 1 {
+		t.Fatalf("expected 1 saved client, got %d", len(dc.recs))
 	}
-	if st.dc.QBBase != "http://10.0.0.5:8080" {
-		t.Fatalf("QBBase = %q, want http://10.0.0.5:8080", st.dc.QBBase)
+	if dc.recs[0].Kind != downloadclients.KindQB {
+		t.Fatalf("kind = %q, want qbittorrent", dc.recs[0].Kind)
 	}
-	if st.dc.QBUsername != "admin" || st.dc.QBPassword != "s3cr3t" {
-		t.Fatalf("QB creds = %q/%q, want admin/s3cr3t", st.dc.QBUsername, st.dc.QBPassword)
+	if dc.recs[0].BaseURL != "http://10.0.0.5:8080" {
+		t.Fatalf("BaseURL = %q, want http://10.0.0.5:8080", dc.recs[0].BaseURL)
 	}
-	// Second run: existing -> updated.
-	if act, _ := tgt.SetDownloadClient(context.Background(), c); act != ActionUpdated {
-		t.Fatalf("second action = %q, want updated", act)
+	if dc.recs[0].Username != "admin" {
+		t.Fatalf("Username = %q, want admin", dc.recs[0].Username)
+	}
+	if dc.recs[0].APIKey != "" {
+		t.Fatalf("APIKey = %q, want empty (the source password is dropped)", dc.recs[0].APIKey)
+	}
+	// Second run with identical input: idempotent exists.
+	if act, _ := tgt.SetDownloadClient(context.Background(), c); act != ActionExists {
+		t.Fatalf("second action = %q, want exists", act)
 	}
 }
