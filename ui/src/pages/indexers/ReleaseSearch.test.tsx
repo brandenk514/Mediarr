@@ -43,6 +43,9 @@ function indexer(over: Partial<Indexer> = {}): Indexer {
     sync_profile: 'standard',
     added: '2026-10-01T12:00:00Z',
     categories: ['Anime', 'TV'],
+    // Prowlarr PR4: tag routing + redirect (the fixture predates the fields).
+    tags: [],
+    redirect: false,
     ...over,
   }
 }

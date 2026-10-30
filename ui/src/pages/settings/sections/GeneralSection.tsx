@@ -3,8 +3,13 @@ import { client } from '../../../api/client'
 import type { GeneralSettings } from '../../../api/types'
 import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 
+// Prowlarr PR4: the log verbosity levels the server accepts.
+const LOG_LEVELS: GeneralSettings['log_level'][] = ['debug', 'info', 'warn', 'error']
+
 // GeneralSection is the app-level section of the P5 settings shell: host /
-// port / base URL / SSL and the auth toggles. It is reconciled with the
+// port / base URL / SSL and the auth toggles, plus the Prowlarr PR4 security
+// + operations block (allowed hosts, certificate validation, outbound HTTP
+// proxy, log level, analytics opt-out). It is reconciled with the
 // env-based boot config — values apply at the next boot (the hint says so).
 export function GeneralSection() {
   const { doc, loading, error, authLost, refresh } = useSectionDoc<GeneralSettings>('general')
@@ -15,6 +20,15 @@ export function GeneralSection() {
   const [ssl, setSsl] = useState(false)
   const [authEnabled, setAuthEnabled] = useState(true)
   const [authPinning, setAuthPinning] = useState(true)
+  // Prowlarr PR4 fields. The ?? defaults mirror the server's Document
+  // fallbacks for documents that predate the fields (a stale saved doc
+  // arrives with the keys absent — a missing key must seed the default,
+  // or the shell's stale-fixture render would throw).
+  const [allowedHosts, setAllowedHosts] = useState('')
+  const [certValidation, setCertValidation] = useState(true)
+  const [httpProxy, setHttpProxy] = useState('')
+  const [logLevel, setLogLevel] = useState<GeneralSettings['log_level']>('info')
+  const [analytics, setAnalytics] = useState(false)
   const [saved, setSaved] = useState(false)
   const { busy, submit } = useSubmit()
 
@@ -26,6 +40,11 @@ export function GeneralSection() {
     setSsl(doc.ssl)
     setAuthEnabled(doc.auth_enabled)
     setAuthPinning(doc.auth_pinning)
+    setAllowedHosts(doc.allowed_hosts ?? '')
+    setCertValidation(doc.cert_validation ?? true)
+    setHttpProxy(doc.http_proxy ?? '')
+    setLogLevel(doc.log_level ?? 'info')
+    setAnalytics(doc.analytics ?? false)
   }, [doc])
 
   if (error) {
@@ -41,6 +60,11 @@ export function GeneralSection() {
         ssl,
         auth_enabled: authEnabled,
         auth_pinning: authPinning,
+        allowed_hosts: allowedHosts,
+        cert_validation: certValidation,
+        http_proxy: httpProxy,
+        log_level: logLevel,
+        analytics,
       }
       await client.putSettingsSection<GeneralSettings>('general', next)
       setSaved(true)
@@ -95,6 +119,62 @@ export function GeneralSection() {
           data-testid="gen-pin"
         />
         Auth pinning (require a token)
+      </label>
+
+      {/* Prowlarr PR4: security + operations. The restart-hinted fields apply
+          on the next start, like the rest of the boot-reconciled document. */}
+      <h4>Security</h4>
+      <label htmlFor="gen-allowed-hosts">Allowed hosts</label>
+      <p className="dim small">Comma-separated hostnames the server may be reached on; empty = no restriction.</p>
+      <input
+        id="gen-allowed-hosts"
+        value={allowedHosts}
+        onChange={(e) => setAllowedHosts(e.target.value)}
+        placeholder="media.local, 192.168.1.50"
+        data-testid="gen-allowed-hosts"
+      />
+      <label className="check" htmlFor="gen-cert-validation">
+        <input
+          id="gen-cert-validation"
+          type="checkbox"
+          checked={certValidation}
+          onChange={(e) => setCertValidation(e.target.checked)}
+          data-testid="gen-cert-validation"
+        />
+        Validate TLS certificates on outbound connections
+      </label>
+
+      <h4>Network &amp; logging</h4>
+      <label htmlFor="gen-http-proxy">Outbound HTTP proxy (requires restart)</label>
+      <input
+        id="gen-http-proxy"
+        value={httpProxy}
+        onChange={(e) => setHttpProxy(e.target.value)}
+        placeholder="http://proxy:3128"
+        data-testid="gen-http-proxy"
+      />
+      <label htmlFor="gen-log-level">Log level (requires restart)</label>
+      <select
+        id="gen-log-level"
+        value={logLevel}
+        onChange={(e) => setLogLevel(e.target.value as GeneralSettings['log_level'])}
+        data-testid="gen-log-level"
+      >
+        {LOG_LEVELS.map((l) => (
+          <option key={l} value={l}>
+            {l}
+          </option>
+        ))}
+      </select>
+      <label className="check" htmlFor="gen-analytics">
+        <input
+          id="gen-analytics"
+          type="checkbox"
+          checked={analytics}
+          onChange={(e) => setAnalytics(e.target.checked)}
+          data-testid="gen-analytics"
+        />
+        Send anonymous usage analytics (opt-in; off by default)
       </label>
       {saved && (
         <p className="pill pill-ok" data-testid="general-saved">

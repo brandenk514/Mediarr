@@ -184,6 +184,16 @@ export type ReleaseProfile = components["schemas"]["ReleaseProfile"]
 // Lidarr L3: the metadata profiles (Standard / Album / Studio item lists).
 export type MetadataProfile = components["schemas"]["MetadataProfile"]
 
+// ---- Prowlarr PR4: notifications (saved sinks) + indexer proxies (FlareSolverr) ----
+export type NotificationSink = components["schemas"]["NotificationSink"]
+export type NotificationSinkCreate = components["schemas"]["NotificationSinkCreate"]
+export type NotificationSinkUpdate = components["schemas"]["NotificationSinkUpdate"]
+export type NotificationSinkTestResult = components["schemas"]["NotificationSinkTestResult"]
+export type IndexerProxy = components["schemas"]["IndexerProxy"]
+export type IndexerProxyCreate = components["schemas"]["IndexerProxyCreate"]
+export type IndexerProxyUpdate = components["schemas"]["IndexerProxyUpdate"]
+export type IndexerProxyTestResult = components["schemas"]["IndexerProxyTestResult"]
+
 // ---- P6: System area (Status / Tasks / Backup / Updates / Events / Logs / migration) ----
 export type HealthCheck = components["schemas"]["HealthCheck"]
 export type SystemHealth = components["schemas"]["SystemHealth"]

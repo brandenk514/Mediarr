@@ -31,6 +31,8 @@ export function UISection() {
   const [expandOther, setExpandOther] = useState(false)
   const [theme, setTheme] = useState<UISettings['theme']>('auto')
   const [colorImpaired, setColorImpaired] = useState(false)
+  // Prowlarr PR4: the UI language (BCP-47; server default 'en').
+  const [language, setLanguage] = useState('en')
   const [saved, setSaved] = useState(false)
   const { busy, submit } = useSubmit()
 
@@ -47,6 +49,7 @@ export function UISection() {
     setExpandOther(doc.expand_other ?? false)
     setTheme(doc.theme ?? 'auto')
     setColorImpaired(doc.color_impaired ?? false)
+    setLanguage(doc.language ?? 'en')
   }, [doc])
 
   if (error) {
@@ -68,6 +71,7 @@ export function UISection() {
         expand_other: expandOther,
         theme,
         color_impaired: colorImpaired,
+        language,
       }
       await client.putSettingsSection<UISettings>('ui', next)
       setSaved(true)
@@ -185,6 +189,15 @@ export function UISection() {
         />
         Color-Impaired Mode
       </label>
+      {/* Prowlarr PR4: the UI language (BCP-47 tag). */}
+      <label htmlFor="ui-language">Language</label>
+      <input
+        id="ui-language"
+        value={language}
+        onChange={(e) => setLanguage(e.target.value)}
+        placeholder="en"
+        data-testid="ui-language"
+      />
       {saved && (
         <p className="pill pill-ok" data-testid="ui-saved">
           Saved

@@ -69,13 +69,14 @@ function kindFromDef(def: IndexerDefinition): string {
 }
 
 type RowStatus = 'enabled' | 'enabled-redirected' | 'disabled' | 'error'
-// PR1 derives row status from the enabled flag + the most recent on-demand test
-// result (a failed Test flips a row to Error until it is re-tested). "Enabled +
-// Redirected" is in the legend but not reachable in PR1 (no redirect field yet).
+// PR4 derives row status from the enabled flag, the redirect flag (Prowlarr
+// PR4 — a redirected indexer is recorded but not grabbed, so it gets its own
+// pill), and the most recent on-demand test result (a failed Test flips a row
+// to Error until it is re-tested).
 function statusOf(idx: Indexer, res: IndexerTestResult | undefined): RowStatus {
   if (!idx.enabled) return 'disabled'
   if (res && !res.ok) return 'error'
-  return 'enabled'
+  return idx.redirect ? 'enabled-redirected' : 'enabled'
 }
 const STATUS_META: Record<RowStatus, { cls: string; label: string }> = {
   enabled: { cls: 'st-enabled', label: 'Enabled' },
@@ -833,6 +834,22 @@ function IndexerRow({
   )
 }
 
+// parseTags parses the comma-separated tag input (Prowlarr PR4) into the
+// indexer's tag label set: trimmed, deduped, empties dropped. An indexer's
+// traffic is routed through any indexer proxy carrying a matching tag.
+function parseTags(input: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of input.split(',')) {
+    const t = raw.trim()
+    if (t && !seen.has(t)) {
+      seen.add(t)
+      out.push(t)
+    }
+  }
+  return out
+}
+
 // LegacyIndexerForm is the ORIGINAL single-stage add/edit form (Prowlarr PR1):
 // name, kind, base url, api key, enabled, search toggles, and privacy /
 // priority / sync profile. It is kept intact for the legacy path — editing a
@@ -857,7 +874,10 @@ function LegacyIndexerForm({
   const [interactiveSearch, setInteractiveSearch] = useState(editing?.interactive_search ?? true)
   const [privacy, setPrivacy] = useState<string>(editing?.privacy ?? 'public')
   const [priority, setPriority] = useState<string>(String(editing?.priority ?? 25))
-  const [syncProfile, setSyncProfile] = useState(editing?.sync_profile ?? 'standard')
+  const [syncProfile, setSyncProfile] = useState<string>(editing?.sync_profile ?? 'standard')
+  // Prowlarr PR4: tag-based proxy routing + the redirect flag.
+  const [tagsInput, setTagsInput] = useState((editing?.tags ?? []).join(', '))
+  const [redirect, setRedirect] = useState(editing?.redirect ?? false)
   const { busy, error, submit } = useSubmit()
 
   function handleSave() {
@@ -873,6 +893,9 @@ function LegacyIndexerForm({
         privacy,
         priority: Number(priority) || 25,
         sync_profile: syncProfile,
+        // Prowlarr PR4: tag-based proxy routing + the redirect flag.
+        tags: parseTags(tagsInput),
+        redirect,
         ...(editing ? {} : { enabled }),
       }
       const idx = editing
@@ -961,6 +984,25 @@ function LegacyIndexerForm({
           onChange={(e) => setSyncProfile(e.target.value)}
           data-testid="idx-sync"
         />
+        {/* Prowlarr PR4: tag-based proxy routing + the redirect flag. */}
+        <label htmlFor="idx-tags">Tags (comma-separated; routes via a proxy sharing a tag)</label>
+        <input
+          id="idx-tags"
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+          placeholder="private, usenet"
+          data-testid="idx-tags"
+        />
+        <label className="check" htmlFor="idx-redirect">
+          <input
+            id="idx-redirect"
+            type="checkbox"
+            checked={redirect}
+            onChange={(e) => setRedirect(e.target.checked)}
+            data-testid="idx-redirect"
+          />
+          Redirected (record grabs, skip the download client)
+        </label>
         {/* Per-indexer search toggles (Radarr R5a). */}
         <label className="check" htmlFor="idx-rss">
           <input id="idx-rss" type="checkbox" checked={rss} onChange={(e) => setRss(e.target.checked)} data-testid="idx-rss" />
@@ -1079,7 +1121,10 @@ function DefinitionIndexerForm({
   const [interactiveSearch, setInteractiveSearch] = useState(editing?.interactive_search ?? true)
   const [privacy, setPrivacy] = useState<string>(editing?.privacy ?? def.privacy ?? 'public')
   const [priority, setPriority] = useState<string>(String(editing?.priority ?? 25))
-  const [syncProfile, setSyncProfile] = useState(editing?.sync_profile ?? 'standard')
+  const [syncProfile, setSyncProfile] = useState<string>(editing?.sync_profile ?? 'standard')
+  // Prowlarr PR4: tag-based proxy routing + the redirect flag.
+  const [tagsInput, setTagsInput] = useState((editing?.tags ?? []).join(', '))
+  const [redirect, setRedirect] = useState(editing?.redirect ?? false)
   const [fieldValues, setFieldValues] = useState<Record<string, string | number | boolean>>(() =>
     initFieldValues(def, editing),
   )
@@ -1221,6 +1266,9 @@ function DefinitionIndexerForm({
         rss,
         auto_search: autoSearch,
         interactive_search: interactiveSearch,
+        // Prowlarr PR4: tag-based proxy routing + the redirect flag.
+        tags: parseTags(tagsInput),
+        redirect,
       }
       const idx = isEdit
         ? await client.updateIndexer(editing!.id, base as IndexerUpdate)
@@ -1282,6 +1330,25 @@ function DefinitionIndexerForm({
           onChange={(e) => setSyncProfile(e.target.value)}
           data-testid="idx-sync"
         />
+        {/* Prowlarr PR4: tag-based proxy routing + the redirect flag. */}
+        <label htmlFor="idx-tags">Tags (comma-separated; routes via a proxy sharing a tag)</label>
+        <input
+          id="idx-tags"
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+          placeholder="private, usenet"
+          data-testid="idx-tags"
+        />
+        <label className="check" htmlFor="idx-redirect">
+          <input
+            id="idx-redirect"
+            type="checkbox"
+            checked={redirect}
+            onChange={(e) => setRedirect(e.target.checked)}
+            data-testid="idx-redirect"
+          />
+          Redirected (record grabs, skip the download client)
+        </label>
         {/* Per-indexer search toggles (Radarr R5a). */}
         <label className="check" htmlFor="idx-rss">
           <input id="idx-rss" type="checkbox" checked={rss} onChange={(e) => setRss(e.target.checked)} data-testid="idx-rss" />

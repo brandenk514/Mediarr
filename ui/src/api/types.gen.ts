@@ -1180,6 +1180,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List saved notification sinks.
+         * @description The Prowlarr PR4 Notifications section: the saved notification sinks
+         *     (webhook / Plex / Jellyfin / Emby), in creation order. Secrets are
+         *     masked on read — `token` is always an empty string and `token_set`
+         *     reports its presence.
+         */
+        get: operations["listNotifications"];
+        put?: never;
+        /**
+         * Create a notification sink.
+         * @description Creates a notification sink. `kind` must be one of webhook, plex,
+         *     jellyfin, emby and `url` is required; either violation is a 400
+         *     carrying the sink-construction message. The `token` is stored
+         *     vault-encrypted and never echoed back (token_set reports presence).
+         */
+        post: operations["createNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/notifications/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update a notification sink.
+         * @description Full replace of the sink's fields. An empty `token` keeps the stored
+         *     token (masked-edit round-trip, same convention as indexer passwords).
+         *     An unknown id is a 404.
+         */
+        put: operations["updateNotification"];
+        post?: never;
+        /**
+         * Delete a notification sink.
+         * @description Removes the sink. An unknown id is a 404.
+         */
+        delete: operations["deleteNotification"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/notifications/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a notification sink.
+         * @description Builds the sink from the stored (vault-decrypted) config and delivers
+         *     a test event to it. A config error (missing url / unknown kind) is a
+         *     400; a delivery failure (unreachable or non-2xx target) is a 502;
+         *     success is 200 with {ok: true}.
+         */
+        post: operations["testNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/proxies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List saved indexer proxies (FlareSolverr instances).
+         * @description The Prowlarr PR4 Indexer Proxies section. Indexers whose tags
+         *     intersect a proxy's tags are routed through it. Secrets are masked on
+         *     read — `password` is always an empty string and `password_set`
+         *     reports its presence.
+         */
+        get: operations["listIndexerProxies"];
+        put?: never;
+        /**
+         * Create an indexer proxy.
+         * @description Creates a FlareSolverr proxy entry. `name` and `url` are required.
+         *     The `password` is stored vault-encrypted and never echoed back
+         *     (password_set reports presence).
+         */
+        post: operations["createIndexerProxy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/proxies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update an indexer proxy.
+         * @description Full replace of the proxy's fields. An empty `password` keeps the
+         *     stored password (masked-edit round-trip). An unknown id is a 404.
+         */
+        put: operations["updateIndexerProxy"];
+        post?: never;
+        /**
+         * Delete an indexer proxy.
+         * @description Removes the proxy. An unknown id is a 404.
+         */
+        delete: operations["deleteIndexerProxy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/proxies/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test an indexer proxy (FlareSolverr health).
+         * @description GETs the instance root with a short (~5s) timeout. The FlareSolverr
+         *     root serves JSON with a version field: a reachable instance is 200
+         *     with {ok: true, version}; an unreachable or non-2xx instance is a 502
+         *     with a clear message.
+         */
+        post: operations["testIndexerProxy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/custom-formats/score": {
         parameters: {
             query?: never;
@@ -1582,6 +1738,10 @@ export interface paths {
          *     configured client cannot handle the protocol, this is a 409. A missing
          *     or empty client is a 503. On success the grab is recorded and feeds the
          *     stats `total_grabs` and grab series.
+         *     Redirected indexers (Prowlarr PR4): when the source indexer has
+         *     `redirect: true`, the release is NOT sent to the download client —
+         *     the grab is still recorded (Prowlarr counts redirected grabs) and the
+         *     response is `{ok: true, redirected: true, url}`.
          */
         post: operations["grabSearchRelease"];
         delete?: never;
@@ -3338,6 +3498,10 @@ export interface components {
             added: string;
             /** @description Category badges from the indexer's settings (PR1 hub column; empty when none). */
             categories: string[];
+            /** @description Tag labels assigned to this indexer (Prowlarr PR4); the indexer's traffic is routed through any proxy carrying a matching tag. Always present (empty array when none). */
+            tags: string[];
+            /** @description Redirected indexer (Prowlarr PR4). When true, a grab against this indexer is recorded (stats parity) but NOT sent to the download client; the grab response carries redirected true and the release url. */
+            redirect: boolean;
             /**
              * @description Per-indexer config-contract values keyed by field name (Prowlarr
              *     PR2). Password fields are masked to "" (never echoed); empty
@@ -3375,6 +3539,10 @@ export interface components {
             priority?: number;
             /** @description Omitted = standard. */
             sync_profile?: string;
+            /** @description Tag labels (Prowlarr PR4). Omitted = []. */
+            tags?: string[];
+            /** @description Redirected indexer (Prowlarr PR4). Omitted = false. */
+            redirect?: boolean;
             /**
              * @description Per-indexer config-contract values keyed by field name (Prowlarr
              *     PR2). When present, they must validate against the named
@@ -3415,6 +3583,10 @@ export interface components {
             priority?: number;
             /** @description Omitted = keep the stored value. */
             sync_profile?: string;
+            /** @description Tag labels (Prowlarr PR4). Omitted = keep the stored value. */
+            tags?: string[];
+            /** @description Redirected indexer (Prowlarr PR4). Omitted = keep the stored value. */
+            redirect?: boolean;
             /**
              * @description Per-indexer config-contract values keyed by field name (Prowlarr
              *     PR2). An empty/absent password value keeps the stored secret
@@ -3552,6 +3724,10 @@ export interface components {
             ok: boolean;
             indexer: string;
             protocol: string;
+            /** @description True when the source indexer is a redirected indexer (Prowlarr PR4): the grab was recorded for stats but NOT sent to the download client. */
+            redirected: boolean;
+            /** @description The grabbed release URL (present on redirected grabs). */
+            url?: string;
         };
         /** @description A page of query history plus the total match count. */
         SearchHistory: {
@@ -3850,6 +4026,9 @@ export interface components {
          * @description App-level settings, reconciled with the env-based boot config.
          *     host/port/base_url/ssl are persisted here for display and for the
          *     next boot; auth_enabled/auth_pinning take effect at next boot.
+         *     The PR4 fields (allowed_hosts, cert_validation, http_proxy,
+         *     log_level, analytics) are savable now; applying log_level and
+         *     http_proxy live requires a restart.
          */
         GeneralSettings: {
             host: string;
@@ -3858,6 +4037,19 @@ export interface components {
             ssl: boolean;
             auth_enabled: boolean;
             auth_pinning: boolean;
+            /** @description Comma-separated hostnames the server is allowed to be reached on (Prowlarr PR4; empty = no restriction). */
+            allowed_hosts: string;
+            /** @description Validate TLS certificates on outbound connections (Prowlarr PR4; defaults to true). */
+            cert_validation: boolean;
+            /** @description Outbound HTTP proxy address (Prowlarr PR4; empty = none). Applying it requires a restart. */
+            http_proxy: string;
+            /**
+             * @description Application log verbosity (Prowlarr PR4; defaults to info). Applying it requires a restart.
+             * @enum {string}
+             */
+            log_level: "debug" | "info" | "warn" | "error";
+            /** @description Opt-in for anonymous analytics (Prowlarr PR4; defaults to false = analytics off — the Prowlarr default). */
+            analytics: boolean;
         };
         UISettings: {
             /** @enum {string} */
@@ -3883,6 +4075,8 @@ export interface components {
             theme: "auto" | "dark" | "light";
             /** @description Boost contrast for color-impaired users (L3; defaults to false). */
             color_impaired: boolean;
+            /** @description BCP-47 language tag of the UI (Prowlarr PR4; defaults to en). */
+            language: string;
         };
         QualityLevel: {
             id: number;
@@ -4008,6 +4202,105 @@ export interface components {
             series: number;
             /** @description Episodes of series carrying the tag. */
             episodes: number;
+            /** @description Indexers whose tags include this label (Prowlarr PR4 usage view). */
+            indexers: {
+                count: number;
+                /** @description Indexer names, sorted a-to-z. */
+                names: string[];
+            };
+        };
+        /** @description A saved notification sink (Prowlarr PR4 Notifications section). The token is vault-encrypted at rest and masked on read: the token field is always an empty string and token_set reports its presence. */
+        NotificationSink: {
+            /** Format: int64 */
+            id: number;
+            /** @description Display name of the sink (e.g. "ntfy home"). */
+            name: string;
+            /** @enum {string} */
+            kind: "webhook" | "plex" | "jellyfin" | "emby";
+            /** @description Omitted sinks are not delivered to. */
+            enabled: boolean;
+            /** @description The sink's target URL (webhook target, or the Plex/Jellyfin/Emby base URL). */
+            url: string;
+            /** @description Plex library-section id for a pinned Plex refresh; empty = root refresh. */
+            section_id: string;
+            /** @description Always empty on read (masked presence via token_set). */
+            token: string;
+            /** @description True when a token is stored for this sink. */
+            token_set: boolean;
+            /** @description Custom User-Agent for the sink's requests; empty = the mediarr default. */
+            user_agent: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        NotificationSinkCreate: {
+            name: string;
+            /**
+             * @description A kind outside this set (or a missing url) is a 400 carrying the BuildSink message.
+             * @enum {string}
+             */
+            kind: "webhook" | "plex" | "jellyfin" | "emby";
+            /** @description Omitted = true (enabled). */
+            enabled?: boolean;
+            url: string;
+            section_id?: string;
+            /** @description Plaintext in the request; stored vault-encrypted; never echoed back. */
+            token?: string;
+            user_agent?: string;
+        };
+        NotificationSinkUpdate: {
+            name: string;
+            /** @enum {string} */
+            kind: "webhook" | "plex" | "jellyfin" | "emby";
+            enabled?: boolean;
+            url: string;
+            section_id?: string;
+            /** @description Empty = keep the stored token (masked-edit round-trip). */
+            token?: string;
+            user_agent?: string;
+        };
+        NotificationSinkTestResult: {
+            ok: boolean;
+        };
+        /** @description A saved indexer proxy (Prowlarr PR4 "Indexer Proxies" — FlareSolverr instances). Indexers whose tags intersect the proxy's tags are routed through it. The password is vault-encrypted at rest and masked on read: the password field is always an empty string and password_set reports its presence. */
+        IndexerProxy: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            /** @description The FlareSolverr instance base URL (e.g. http://flaresolverr:8191). */
+            url: string;
+            /** @description Basic-auth username for the instance; empty = none. */
+            username: string;
+            /** @description Always empty on read (masked presence via password_set). */
+            password: string;
+            password_set: boolean;
+            /** @description The tag labels that route indexers to this proxy. */
+            tags: string[];
+            /** Format: date-time */
+            created_at: string;
+        };
+        IndexerProxyCreate: {
+            name: string;
+            url: string;
+            username?: string;
+            /** @description Plaintext in the request; stored vault-encrypted; never echoed back. */
+            password?: string;
+            /** @description Omitted = []. */
+            tags?: string[];
+        };
+        IndexerProxyUpdate: {
+            name: string;
+            url: string;
+            username?: string;
+            /** @description Empty = keep the stored password (masked-edit round-trip). */
+            password?: string;
+            /** @description Omitted = keep the stored tags. */
+            tags?: string[];
+        };
+        /** @description The outcome of a FlareSolverr reachability probe. */
+        IndexerProxyTestResult: {
+            ok: boolean;
+            /** @description The instance's reported version when the root JSON carries one. */
+            version?: string;
         };
         NamingTemplate: {
             series: string;
@@ -6818,6 +7111,263 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             500: components["responses"]["Internal"];
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The saved notification sinks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSink"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    createNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationSinkCreate"];
+            };
+        };
+        responses: {
+            /** @description The created notification sink (token masked). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSink"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    updateNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationSinkUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated sink (token masked). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSink"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    deleteNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sink was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    testNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The test event was delivered. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSinkTestResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+            502: components["responses"]["BadGateway"];
+        };
+    };
+    listIndexerProxies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The saved indexer proxies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexerProxy"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    createIndexerProxy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IndexerProxyCreate"];
+            };
+        };
+        responses: {
+            /** @description The created proxy (password masked). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexerProxy"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    updateIndexerProxy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IndexerProxyUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated proxy (password masked). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexerProxy"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    deleteIndexerProxy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The proxy was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    testIndexerProxy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The instance is reachable. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexerProxyTestResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+            502: components["responses"]["BadGateway"];
         };
     };
     scoreCustomFormats: {

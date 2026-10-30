@@ -92,6 +92,15 @@ import type {
   CalendarEntry,
   SettingsSection,
   TagUsage,
+  // Prowlarr PR4: notifications + indexer proxies
+  NotificationSink,
+  NotificationSinkCreate,
+  NotificationSinkUpdate,
+  NotificationSinkTestResult,
+  IndexerProxy,
+  IndexerProxyCreate,
+  IndexerProxyUpdate,
+  IndexerProxyTestResult,
   CustomFormatScoreRequest,
   CustomFormatScoreResult,
   ConnectTestRequest,
@@ -483,6 +492,29 @@ export const client = {
     request<MetadataSourceSearchResult>('POST', '/settings/metadata-source/search', req),
   runImportListImport: (req: ImportRunRequest) =>
     request<ImportRunResult>('POST', '/settings/import-lists/import', req),
+  // Prowlarr PR4: the Notifications section — saved sinks (webhook / Plex /
+  // Jellyfin / Emby). The token is vault-encrypted at rest and masked on read
+  // (empty string + token_set); an empty token in the update body keeps the
+  // stored value (same convention as indexer passwords).
+  listNotifications: () => request<NotificationSink[]>('GET', '/settings/notifications'),
+  createNotification: (req: NotificationSinkCreate) =>
+    request<NotificationSink>('POST', '/settings/notifications', req),
+  updateNotification: (id: number, req: NotificationSinkUpdate) =>
+    request<NotificationSink>('PUT', `/settings/notifications/${id}`, req),
+  deleteNotification: (id: number) => request<void>('DELETE', `/settings/notifications/${id}`),
+  testNotification: (id: number) =>
+    request<NotificationSinkTestResult>('POST', `/settings/notifications/${id}/test`),
+  // Prowlarr PR4: the Indexer Proxies section — saved FlareSolverr instances.
+  // Indexers whose tags intersect a proxy's tags are routed through it. The
+  // password is masked the same way (empty + password_set; empty keeps).
+  listIndexerProxies: () => request<IndexerProxy[]>('GET', '/settings/proxies'),
+  createIndexerProxy: (req: IndexerProxyCreate) =>
+    request<IndexerProxy>('POST', '/settings/proxies', req),
+  updateIndexerProxy: (id: number, req: IndexerProxyUpdate) =>
+    request<IndexerProxy>('PUT', `/settings/proxies/${id}`, req),
+  deleteIndexerProxy: (id: number) => request<void>('DELETE', `/settings/proxies/${id}`),
+  testIndexerProxy: (id: number) =>
+    request<IndexerProxyTestResult>('POST', `/settings/proxies/${id}/test`),
 
   // ---- P6: System area (Status / Tasks / Backup / Updates / Events / Logs / migration) ----
   getSystemHealth: () => request<SystemHealth>('GET', '/system/health'),

@@ -5,7 +5,9 @@ import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 
 // TagsSection is the tags section: tag CRUD plus the usage view (how many
 // series/episodes carry each tag, fetched per tag from the tags usage
-// endpoint).
+// endpoint). Prowlarr PR4 adds the indexer side of the usage view: which
+// indexers' tag sets include the label (their traffic routes through any
+// proxy carrying the tag).
 export function TagsSection() {
   const { doc, error, authLost, refresh } = useSectionDoc<TagsSettings>('tags')
 
@@ -81,7 +83,24 @@ export function TagsSection() {
               <td>{t.label}</td>
               <td>{t.description}</td>
               <td data-testid={`tag-usage-${t.id}`}>
-                {usage[t.id] ? `${usage[t.id].series} series, ${usage[t.id].episodes} episodes` : '—'}
+                {usage[t.id] ? (
+                  <>
+                    {usage[t.id].series} series, {usage[t.id].episodes} episodes
+                    {/* Prowlarr PR4: the indexers carrying the tag. Guard the
+                        sub-document — a stale usage response predating the
+                        field arrives without it. */}
+                    {usage[t.id].indexers && usage[t.id].indexers.count > 0 && (
+                      <span data-testid={`tag-usage-indexers-${t.id}`}>
+                        {' · '}
+                        {usage[t.id].indexers.count} indexer
+                        {usage[t.id].indexers.count === 1 ? '' : 's'} (
+                        {usage[t.id].indexers.names.join(', ')})
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  '—'
+                )}
               </td>
               <td>
                 <button onClick={() => handleDelete(t.id)} data-testid={`tag-del-${t.id}`}>
