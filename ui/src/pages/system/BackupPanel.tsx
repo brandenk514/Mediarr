@@ -107,7 +107,8 @@ export function BackupPanel() {
   }
 
   const sectionCount = doc.settings?.sections?.length ?? 0
-  const dlKind = doc.settings?.download_client?.kind ?? 'none'
+  // Prowlarr PR5: the backup now carries the PLURAL download-client list.
+  const dlCount = doc.settings?.download_clients?.length ?? 0
 
   return (
     <div data-testid="system-backup">
@@ -120,13 +121,13 @@ export function BackupPanel() {
         <div className="list-table" style={{ marginTop: '0.75rem' }} data-testid="backup-summary">
           <div className="lt-row">
             <span>Sections</span>
-            <span className="lt-dim">Download client</span>
+            <span className="lt-dim">Download clients</span>
             <span className="lt-dim">Document</span>
           </div>
           <div className="lt-row">
             <span>{sectionCount}</span>
-            <span>
-              <span className="pill">{dlKind}</span>
+            <span data-testid="backup-dl-count">
+              <span className="pill">{dlCount}</span>
             </span>
             <span className="lt-dim">{doc.exported_at ? `v${doc.version} · ${new Date(doc.exported_at).toLocaleString()}` : '—'}</span>
           </div>
@@ -182,7 +183,7 @@ export function BackupPanel() {
         <textarea
           data-testid="backup-import-text"
           rows={6}
-          placeholder='{"version": "0.6.0", "settings": {"download_client": …}}'
+          placeholder='{"version": "0.6.0", "settings": {"download_clients": [...]}}'
           value={importText}
           onChange={(e) => setImportText(e.target.value)}
         />

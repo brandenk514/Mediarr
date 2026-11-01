@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { client } from '../../api/client'
-import type { Indexer, IndexerCreate, IndexerDefinition, IndexerDefinitionField, IndexerTestResult, IndexerUpdate } from '../../api/types'
+import type { DownloadClient, Indexer, IndexerCreate, IndexerDefinition, IndexerDefinitionField, IndexerTestResult, IndexerUpdate } from '../../api/types'
 import { SaveError, useSubmit } from '../settings/sections/shared'
 import { EmptyState, Menu, Modal, Toolbar, TbButton } from '../../components/ui'
 
@@ -246,6 +246,22 @@ export function IndexerHubPage() {
   useEffect(() => {
     void loadDefinitions()
   }, [loadDefinitions])
+
+  // ---- Prowlarr PR5: the saved download clients (for the add/edit select) ----
+  const [downloadClients, setDownloadClients] = useState<DownloadClient[] | null>(null)
+  const loadDownloadClients = useCallback(async () => {
+    try {
+      setDownloadClients(await client.listDownloadClients())
+    } catch {
+      // A failed fetch must not block indexer management; the select then
+      // shows only the "Unbound (default routing)" option.
+      setDownloadClients((prev) => prev ?? [])
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadDownloadClients()
+  }, [loadDownloadClients])
 
   // ---- list state ---------------------------------------------------------
   const [sort, setSort] = useState<SortKey>('name-asc')
@@ -648,6 +664,7 @@ export function IndexerHubPage() {
         <IndexerForm
           def={selectedDef}
           editing={editing}
+          downloadClients={downloadClients ?? []}
           onCancel={closeForm}
           onSaved={(idx) => {
             setIndexers((prev) => {
@@ -857,10 +874,12 @@ function parseTags(input: string): string[] {
 // be resolved still uses this exact form.
 function LegacyIndexerForm({
   editing,
+  downloadClients,
   onSaved,
   onCancel,
 }: {
   editing: Indexer | null
+  downloadClients: DownloadClient[]
   onSaved: (idx: Indexer) => void
   onCancel: () => void
 }) {
@@ -878,6 +897,10 @@ function LegacyIndexerForm({
   // Prowlarr PR4: tag-based proxy routing + the redirect flag.
   const [tagsInput, setTagsInput] = useState((editing?.tags ?? []).join(', '))
   const [redirect, setRedirect] = useState(editing?.redirect ?? false)
+  // Prowlarr PR5: the bound download client ("" = unbound / default routing).
+  const [downloadClientId, setDownloadClientId] = useState<string>(
+    String(editing?.download_client_id ?? ''),
+  )
   const { busy, error, submit } = useSubmit()
 
   function handleSave() {
@@ -896,6 +919,8 @@ function LegacyIndexerForm({
         // Prowlarr PR4: tag-based proxy routing + the redirect flag.
         tags: parseTags(tagsInput),
         redirect,
+        // Prowlarr PR5: bound download client (null = default routing).
+        download_client_id: downloadClientId === '' ? null : Number(downloadClientId),
         ...(editing ? {} : { enabled }),
       }
       const idx = editing
@@ -941,6 +966,24 @@ function LegacyIndexerForm({
           placeholder="https://…/api"
           data-testid="idx-base"
         />
+        <label htmlFor="idx-download-client">Download Client</label>
+        <select
+          id="idx-download-client"
+          value={downloadClientId}
+          onChange={(e) => setDownloadClientId(e.target.value)}
+          data-testid="idx-download-client"
+        >
+          <option value="">Unbound (default routing)</option>
+          {downloadClients.map((dc) => (
+            <option key={dc.id} value={String(dc.id)}>
+              {dc.name} ({dc.kind})
+            </option>
+          ))}
+        </select>
+        <p className="dim small">
+          Routes this indexer&apos;s grabs to the client; unbound uses the first enabled
+          client that handles the protocol.
+        </p>
         <label htmlFor="idx-key">API key {editing ? '(blank to keep)' : ''}</label>
         <input
           id="idx-key"
@@ -1084,18 +1127,20 @@ function initFieldValues(
 function IndexerForm({
   def,
   editing,
+  downloadClients,
   onSaved,
   onCancel,
 }: {
   def: IndexerDefinition | null
   editing: Indexer | null
+  downloadClients: DownloadClient[]
   onSaved: (idx: Indexer) => void
   onCancel: () => void
 }) {
   if (!def) {
-    return <LegacyIndexerForm editing={editing} onSaved={onSaved} onCancel={onCancel} />
+    return <LegacyIndexerForm editing={editing} downloadClients={downloadClients} onSaved={onSaved} onCancel={onCancel} />
   }
-  return <DefinitionIndexerForm def={def} editing={editing} onSaved={onSaved} onCancel={onCancel} />
+  return <DefinitionIndexerForm def={def} editing={editing} downloadClients={downloadClients} onSaved={onSaved} onCancel={onCancel} />
 }
 
 // DefinitionIndexerForm renders the generic hub fields + the definition's
@@ -1104,11 +1149,13 @@ function IndexerForm({
 function DefinitionIndexerForm({
   def,
   editing,
+  downloadClients,
   onSaved,
   onCancel,
 }: {
   def: IndexerDefinition
   editing: Indexer | null
+  downloadClients: DownloadClient[]
   onSaved: (idx: Indexer) => void
   onCancel: () => void
 }) {
@@ -1125,6 +1172,10 @@ function DefinitionIndexerForm({
   // Prowlarr PR4: tag-based proxy routing + the redirect flag.
   const [tagsInput, setTagsInput] = useState((editing?.tags ?? []).join(', '))
   const [redirect, setRedirect] = useState(editing?.redirect ?? false)
+  // Prowlarr PR5: the bound download client ("" = unbound / default routing).
+  const [downloadClientId, setDownloadClientId] = useState<string>(
+    String(editing?.download_client_id ?? ''),
+  )
   const [fieldValues, setFieldValues] = useState<Record<string, string | number | boolean>>(() =>
     initFieldValues(def, editing),
   )
@@ -1269,6 +1320,8 @@ function DefinitionIndexerForm({
         // Prowlarr PR4: tag-based proxy routing + the redirect flag.
         tags: parseTags(tagsInput),
         redirect,
+        // Prowlarr PR5: bound download client (null = default routing).
+        download_client_id: downloadClientId === '' ? null : Number(downloadClientId),
       }
       const idx = isEdit
         ? await client.updateIndexer(editing!.id, base as IndexerUpdate)
@@ -1374,6 +1427,26 @@ function DefinitionIndexerForm({
           />
           Interactive search
         </label>
+
+        {/* Prowlarr PR5: bound download client (unbound = default routing). */}
+        <label htmlFor="idx-download-client">Download Client</label>
+        <select
+          id="idx-download-client"
+          value={downloadClientId}
+          onChange={(e) => setDownloadClientId(e.target.value)}
+          data-testid="idx-download-client"
+        >
+          <option value="">Unbound (default routing)</option>
+          {downloadClients.map((dc) => (
+            <option key={dc.id} value={String(dc.id)}>
+              {dc.name} ({dc.kind})
+            </option>
+          ))}
+        </select>
+        <p className="dim small">
+          Routes this indexer&apos;s grabs to the client; unbound uses the first enabled
+          client that handles the protocol.
+        </p>
 
         {/* Definition contract: Base Url (from the definition's candidate URLs)
             + the contract fields in order, advanced tucked behind a toggle. */}

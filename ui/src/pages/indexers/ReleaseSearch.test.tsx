@@ -46,6 +46,8 @@ function indexer(over: Partial<Indexer> = {}): Indexer {
     // Prowlarr PR4: tag routing + redirect (the fixture predates the fields).
     tags: [],
     redirect: false,
+    // Prowlarr PR5: required view field (null = unbound / default routing).
+    download_client_id: null,
     ...over,
   }
 }

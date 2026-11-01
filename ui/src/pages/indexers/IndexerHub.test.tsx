@@ -11,6 +11,7 @@ vi.mock('../../api/client', () => ({
   client: {
     listIndexers: vi.fn(),
     listIndexerDefinitions: vi.fn(),
+    listDownloadClients: vi.fn(),
     testIndexer: vi.fn(),
     testAllIndexers: vi.fn(),
     createIndexer: vi.fn(),
@@ -40,6 +41,8 @@ function indexer(over: Partial<Indexer> = {}): Indexer {
     // Prowlarr PR4: tag routing + redirect (the fixture predates the fields).
     tags: [],
     redirect: false,
+    // Prowlarr PR5: required view field (null = unbound / default routing).
+    download_client_id: null,
     ...over,
   }
 }
@@ -143,6 +146,22 @@ beforeEach(() => {
   ;(client.listIndexers as ReturnType<typeof vi.fn>).mockResolvedValue(SEED)
   ;(client.listIndexerDefinitions as ReturnType<typeof vi.fn>).mockResolvedValue(DEFS)
   ;(client.testAllIndexers as ReturnType<typeof vi.fn>).mockResolvedValue(SEED.map((i) => tResult(i.id, true)))
+  // Prowlarr PR5: one saved download client for the add/edit select.
+  ;(client.listDownloadClients as ReturnType<typeof vi.fn>).mockResolvedValue([
+    {
+      id: 41,
+      name: 'qBittorrent',
+      kind: 'qbittorrent',
+      enabled: true,
+      position: 1,
+      base_url: 'http://localhost:8080',
+      username: 'admin',
+      api_key: '',
+      api_key_set: true,
+      complete_dir: '/downloads',
+      created_at: '2026-01-01T00:00:00Z',
+    },
+  ])
 })
 afterEach(() => {
   vi.restoreAllMocks()
@@ -334,6 +353,28 @@ describe('IndexerHubPage — row actions + add/edit (existing endpoints)', () =>
           config_fields: expect.objectContaining({ username: 'myuser' }),
           base_url: 'https://torrent.example.org/api',
         }),
+      ),
+    )
+  })
+
+  it('binds a download client to a new indexer (Prowlarr PR5)', async () => {
+    const user = userEvent.setup()
+    ;(client.createIndexer as ReturnType<typeof vi.fn>).mockResolvedValue(
+      indexer({ id: 7, name: 'bound', kind: 'torrent-rss', base_url: 'https://torrent.example.org/api', download_client_id: 41 }),
+    )
+    renderHub()
+    await screen.findByTestId('idx-add')
+    await user.click(screen.getByTestId('idx-add'))
+    await user.click(screen.getByTestId('idx-def-test-torrent'))
+    await waitFor(() => expect(screen.getByTestId('idx-download-client')).toBeInTheDocument())
+    // Unbound (default routing) is the default; pick the saved qBittorrent.
+    await user.selectOptions(screen.getByTestId('idx-download-client'), '41')
+    await user.type(screen.getByTestId('idx-name'), 'bound')
+    await user.type(screen.getByTestId('idx-field-username'), 'myuser')
+    await user.click(screen.getByTestId('idx-save'))
+    await waitFor(() =>
+      expect(client.createIndexer).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'bound', download_client_id: 41 }),
       ),
     )
   })
