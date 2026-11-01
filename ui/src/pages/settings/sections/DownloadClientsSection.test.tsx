@@ -3,12 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, client } from '../../../api/client'
-import type { DownloadClientView, LibraryOverrides } from '../../../api/types'
+import type { DownloadClient, LibraryOverrides } from '../../../api/types'
 import { DownloadClientsSection } from './DownloadClientsSection'
 
-// Mock the typed client so the section talks to in-test fakes. The section is
-// a read-once + save-on-demand view (no live stream), so we only need to stub
-// the download-client and library-override methods it calls.
+// Mock the typed client so the section talks to in-test fakes. The section is a
+// read-once + save-on-demand view (no live stream), so we stub only the
+// plural download-client methods and the library-override methods it calls.
 vi.mock('../../../api/client', () => ({
   ApiError: class extends Error {
     status: number
@@ -20,22 +20,32 @@ vi.mock('../../../api/client', () => ({
     }
   },
   client: {
+    listDownloadClients: vi.fn(),
+    createDownloadClient: vi.fn(),
     getDownloadClient: vi.fn(),
-    putDownloadClient: vi.fn(),
+    updateDownloadClient: vi.fn(),
+    deleteDownloadClient: vi.fn(),
+    testDownloadClient: vi.fn(),
+    testAllDownloadClients: vi.fn(),
     getLibraryOverrides: vi.fn(),
     putLibraryOverride: vi.fn(),
   },
 }))
 
-const dcView: DownloadClientView = {
-  kind: 'mock',
-  qb_base: '',
-  qb_username: '',
-  qb_api_key_set: false,
-  qb_password_set: false,
-  sab_base: '',
-  sab_api_key_set: false,
-  sab_complete_dir: '',
+// A single seeded client: a qBittorrent with a stored API key (api_key is
+// always "" on read; api_key_set reports the stored key's presence).
+const dc1: DownloadClient = {
+  id: 1,
+  name: 'qBittorrent',
+  kind: 'qbittorrent',
+  enabled: true,
+  position: 1,
+  base_url: 'http://localhost:8080',
+  username: 'admin',
+  api_key: '',
+  api_key_set: true,
+  complete_dir: '/downloads',
+  created_at: '2026-01-01T00:00:00Z',
 }
 
 function libOverrides(): LibraryOverrides {
@@ -57,8 +67,15 @@ function renderSection() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  ;(client.getDownloadClient as ReturnType<typeof vi.fn>).mockResolvedValue(dcView)
+  ;(client.listDownloadClients as ReturnType<typeof vi.fn>).mockResolvedValue([dc1])
   ;(client.getLibraryOverrides as ReturnType<typeof vi.fn>).mockResolvedValue(libOverrides())
+  ;(client.updateDownloadClient as ReturnType<typeof vi.fn>).mockResolvedValue(dc1)
+  ;(client.createDownloadClient as ReturnType<typeof vi.fn>).mockResolvedValue(dc1)
+  ;(client.deleteDownloadClient as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+  ;(client.testDownloadClient as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, message: '' })
+  ;(client.testAllDownloadClients as ReturnType<typeof vi.fn>).mockResolvedValue([
+    { id: 1, ok: true, message: '' },
+  ])
 })
 
 afterEach(() => {
@@ -66,23 +83,34 @@ afterEach(() => {
 })
 
 describe('DownloadClientsSection', () => {
-  it('loads the download-client view and library overrides', async () => {
+  it('shows the empty state when there are no download clients', async () => {
+    ;(client.listDownloadClients as ReturnType<typeof vi.fn>).mockResolvedValue([])
     renderSection()
-    // Download client defaults to the loaded kind.
-    expect(await screen.findByTestId('dc-kind')).toHaveValue('mock')
+    expect(await screen.findByTestId('dc-empty')).toBeInTheDocument()
+    expect(screen.getByTestId('dcl-test-all')).toBeDisabled()
+  })
+
+  it('loads the client list and library overrides', async () => {
+    renderSection()
+    // The seeded client row renders with its name, kind, and enabled state.
+    const row = await screen.findByTestId('dcl-row-1')
+    expect(row).toBeVisible()
+    expect(screen.getByTestId('dcl-name-1')).toHaveTextContent('qBittorrent')
+    expect(screen.getByTestId('dcl-kind-1')).toHaveTextContent('qbittorrent')
+    expect(screen.getByTestId('dcl-enabled-1')).toHaveTextContent('Enabled')
     // Library columns render with their seeded values.
-    expect(await screen.findByTestId('lib-movie-path')).toHaveValue('/data/movies')
+    expect(screen.getByTestId('lib-movie-path')).toHaveValue('/data/movies')
     // The checksum select seeds from the override in a post-mount effect.
     await waitFor(() => expect(screen.getByTestId('lib-music-checksum')).toHaveValue('false'))
   })
 
   it('surfaces a fatal error with a retry on load failure', async () => {
-    ;(client.getDownloadClient as ReturnType<typeof vi.fn>).mockRejectedValue(
+    ;(client.listDownloadClients as ReturnType<typeof vi.fn>).mockRejectedValue(
       new ApiError(500, 'boom'),
     )
     renderSection()
     await waitFor(() =>
-      expect(screen.getByTestId('settings-error-message')).toHaveTextContent('boom'),
+      expect(screen.getByTestId('dc-error-message')).toHaveTextContent('boom'),
     )
     expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible()
   })
@@ -93,33 +121,84 @@ describe('DownloadClientsSection', () => {
     )
     renderSection()
     await waitFor(() =>
-      expect(screen.getByTestId('settings-error-message')).toHaveTextContent('unauthorized'),
+      expect(screen.getByTestId('dc-error-message')).toHaveTextContent('unauthorized'),
     )
     expect(screen.getByText('Sign in again')).toBeVisible()
   })
 
-  it('switches the download client to qbittorrent and saves', async () => {
+  it('adds a client (sabnzbd) with the base url', async () => {
     const user = userEvent.setup()
-    ;(client.putDownloadClient as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ...dcView,
-      kind: 'qbittorrent',
-      qb_base: 'http://localhost:8080',
-      qb_api_key_set: true,
-    })
     renderSection()
-    await waitFor(() => expect(screen.getByTestId('dc-kind')).toBeVisible())
+    await screen.findByTestId('dcl-add')
 
-    await user.selectOptions(screen.getByTestId('dc-kind'), 'qbittorrent')
-    await waitFor(() => expect(screen.getByTestId('dc-qb-base')).toBeVisible())
+    await user.click(screen.getByTestId('dcl-add'))
+    await user.type(await screen.findByTestId('dcl-f-name'), 'SAB')
+    await user.selectOptions(screen.getByTestId('dcl-f-kind'), 'sabnzbd')
+    await user.type(screen.getByTestId('dcl-f-base'), 'http://localhost:11111')
+    await user.click(screen.getByTestId('dcl-save'))
 
-    await user.type(screen.getByTestId('dc-qb-base'), 'http://localhost:8080')
-    // Leave the API key blank to keep the (not-yet-stored) key.
-    await user.click(screen.getByTestId('dc-save'))
     await waitFor(() =>
-      expect(client.putDownloadClient).toHaveBeenCalledWith(
-        expect.objectContaining({ kind: 'qbittorrent', qb_base: 'http://localhost:8080' }),
-      ),
+      expect(client.createDownloadClient).toHaveBeenCalledWith({
+        name: 'SAB',
+        kind: 'sabnzbd',
+        enabled: true,
+        base_url: 'http://localhost:11111',
+        username: '',
+        api_key: '',
+        complete_dir: '',
+      }),
     )
+  })
+
+  it('edits a client and keeps the stored key (masked round-trip)', async () => {
+    const user = userEvent.setup()
+    renderSection()
+    await screen.findByTestId('dcl-edit-1')
+
+    await user.click(screen.getByTestId('dcl-edit-1'))
+    // The form seeds from the client; a stored key shows the keep-blank hint.
+    await screen.findByTestId('dcl-f-key')
+    fireEvent.change(screen.getByTestId('dcl-f-name'), { target: { value: 'Renamed' } })
+    await user.click(screen.getByTestId('dcl-save'))
+
+    // api_key is "" (blank = keep the stored key); the rest round-trips.
+    await waitFor(() =>
+      expect(client.updateDownloadClient).toHaveBeenCalledWith(1, {
+        name: 'Renamed',
+        kind: 'qbittorrent',
+        enabled: true,
+        base_url: 'http://localhost:8080',
+        username: 'admin',
+        api_key: '',
+        complete_dir: '/downloads',
+      }),
+    )
+  })
+
+  it('tests a single client and shows the result', async () => {
+    const user = userEvent.setup()
+    renderSection()
+    await screen.findByTestId('dcl-test-1')
+    await user.click(screen.getByTestId('dcl-test-1'))
+    await waitFor(() => expect(screen.getByTestId('dcl-last-test-1')).toHaveTextContent('ok'))
+    expect(client.testDownloadClient).toHaveBeenCalledWith(1)
+  })
+
+  it('tests all clients from the toolbar', async () => {
+    const user = userEvent.setup()
+    renderSection()
+    await screen.findByTestId('dcl-test-all')
+    await user.click(screen.getByTestId('dcl-test-all'))
+    await waitFor(() => expect(screen.getByTestId('dcl-last-test-1')).toHaveTextContent('ok'))
+    expect(client.testAllDownloadClients).toHaveBeenCalled()
+  })
+
+  it('deletes a client', async () => {
+    const user = userEvent.setup()
+    renderSection()
+    await screen.findByTestId('dcl-del-1')
+    await user.click(screen.getByTestId('dcl-del-1'))
+    await waitFor(() => expect(client.deleteDownloadClient).toHaveBeenCalledWith(1))
   })
 
   it('saves a per-library override with checksum opt-out', async () => {
@@ -130,7 +209,7 @@ describe('DownloadClientsSection', () => {
       checksum_verify: null,
     })
     renderSection()
-    await waitFor(() => expect(screen.getByTestId('lib-movie-path')).toBeVisible())
+    await screen.findByTestId('lib-movie-path')
 
     // fireEvent.change is deterministic: userEvent's clear() intermittently
     // leaves the seeded value in place (then type appends to it).

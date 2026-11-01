@@ -9,16 +9,8 @@ import { SettingsShell, SETTINGS_SECTIONS } from './SettingsShell'
 // fresh-install response.
 vi.mock('../../api/client', () => ({
   client: {
-    getDownloadClient: vi.fn().mockResolvedValue({
-      kind: 'mock',
-      qb_base: '',
-      qb_username: '',
-      qb_api_key_set: false,
-      qb_password_set: false,
-      sab_base: '',
-      sab_api_key_set: false,
-      sab_complete_dir: '',
-    }),
+    // Prowlarr PR5: the PLURAL download-client list (one row per saved client).
+    listDownloadClients: vi.fn().mockResolvedValue([]),
     getLibraryOverrides: vi.fn().mockResolvedValue({
       movie: { path: '', quality_profile: '', checksum_verify: null },
       tv: { path: '', quality_profile: '', checksum_verify: null },
