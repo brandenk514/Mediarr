@@ -31,6 +31,11 @@ test('Add Indexer: picker -> Generic Torznab -> create -> row appears', async ({
   // Stage 2: picking the definition opens the contract form.
   await expect(page.getByTestId('idx-form-modal')).toBeVisible()
 
+  // Prowlarr PR5: the form now carries a Download Client select (defaults to
+  // "Unbound — default routing"). We only assert its presence here and leave
+  // it unbound, so the spec stays DB-state-independent (no seeded clients).
+  await expect(page.getByTestId('idx-download-client')).toBeVisible()
+
   // generic-torznab has no candidate URLs (baseurl is a required contract
   // field) -> the Base Url field starts empty; fill Name + Base Url.
   await page.getByTestId('idx-name').fill(name)
