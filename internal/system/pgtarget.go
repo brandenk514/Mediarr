@@ -2,12 +2,15 @@ package system
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/brandenk514/mediarr/internal/downloadclients"
 	"github.com/brandenk514/mediarr/internal/settings"
 )
 
@@ -29,10 +32,10 @@ import (
 // ---------------------------------------------------------------------------
 
 // SettingsStore is the settings-store surface the Postgres target uses. The
-// Postgres settings repo (settings.Store) satisfies it directly.
+// Postgres settings repo (settings.Store) satisfies it directly. (Download
+// clients are not settings documents any more — since Prowlarr PR5 the target
+// upserts them through the DCRepo field on each target struct.)
 type SettingsStore interface {
-	GetDownloadClient(ctx context.Context) (*settings.DownloadClient, error)
-	PutDownloadClient(ctx context.Context, dc *settings.DownloadClient) error
 	GetSectionDocument(ctx context.Context, s settings.Section) ([]byte, error)
 	PutSectionDocument(ctx context.Context, s settings.Section, doc []byte) error
 }
@@ -75,6 +78,9 @@ type PostgresTarget struct {
 	Settings SettingsStore
 	Indexers IndexerStore
 	TV       TVStore
+	// DCRepo is the plural saved download-client store (Prowlarr PR5) that
+	// SetDownloadClient upserts into. Nil -> SetDownloadClient errors.
+	DCRepo downloadclients.Repo
 }
 
 // NewPostgresTarget builds the drop-in import sink.
@@ -241,41 +247,83 @@ func (t *PostgresTarget) EnsureIndexer(ctx context.Context, ix SonarrIndexer) (i
 	return id, ActionCreated, nil
 }
 
-// SetDownloadClient maps a Sonarr download client onto the Mediarr
-// download-client config (best-effort: qBittorrent and SABnzbd field names).
-func (t *PostgresTarget) SetDownloadClient(ctx context.Context, c SonarrDownloadClient) (TargetAction, error) {
-	existing, err := t.Settings.GetDownloadClient(ctx)
-	if err != nil {
-		return "", err
-	}
-	prevSet := existing != nil && existing.Kind != "" && existing.Kind != "mock"
-	dc := &settings.DownloadClient{Kind: "mock"}
+// seedDownloadClientRecord maps a source *arr download client's identity +
+// fields onto a Mediarr saved-client record (the best-effort mapping since
+// #36: qBittorrent and SABnzbd field names). It returns nil for a client kind
+// Mediarr does not import (skipped, not stored) — the legacy "kind=mock"
+// placeholder is gone with the single-client config. A disabled mapped client
+// is still recorded, with Enabled=false (the plural model has a real enable
+// flag). The source password field is dropped: the saved model authenticates
+// qBittorrent via its API key.
+func seedDownloadClientRecord(clientKey string, fields map[string]json.RawMessage, enable bool) *downloadclients.Record {
+	name := ""
+	var kind downloadclients.Kind
+	var base, username, apiKey, completeDir string
 	switch {
-	case strings.Contains(strings.ToLower(c.ClientKey), "qbit"):
-		dc.Kind = "qbittorrent"
-		dc.QBBase = sonarrURLField(c.Fields, "host", "port", "url", "baseUrl")
-		dc.QBUsername = sonarrStringField(c.Fields, "username")
-		dc.QBPassword = sonarrStringField(c.Fields, "password")
-		dc.QBAPIKey = sonarrStringField(c.Fields, "apikey", "api_key")
-	case strings.Contains(strings.ToLower(c.ClientKey), "sab"):
-		dc.Kind = "sabnzbd"
-		dc.SABBase = sonarrStringField(c.Fields, "host", "serverhost", "url", "baseUrl")
-		dc.SABAPIKey = sonarrStringField(c.Fields, "apikey", "api_key")
-		dc.SABCompleteDir = sonarrStringField(c.Fields, "completeDir", "complete_dir")
-		dc.QBPassword = sonarrStringField(c.Fields, "password") // unused for sab; keep zero
+	case strings.Contains(strings.ToLower(clientKey), "qbit"):
+		name, kind = "qBittorrent", downloadclients.KindQB
+		base = sonarrURLField(fields, "host", "port", "url", "baseUrl")
+		username = sonarrStringField(fields, "username")
+		apiKey = sonarrStringField(fields, "apikey", "api_key")
+	case strings.Contains(strings.ToLower(clientKey), "sab"):
+		name, kind = "SABnzbd", downloadclients.KindSAB
+		base = sonarrStringField(fields, "host", "serverhost", "url", "baseUrl")
+		apiKey = sonarrStringField(fields, "apikey", "api_key")
+		completeDir = sonarrStringField(fields, "completeDir", "complete_dir")
 	}
-	if !c.Enable {
-		// A disabled client is stored as the mock kind (Mediarr has no
-		// per-client enable flag); the mapping report records the intent.
-		dc.Kind = "mock"
+	if name == "" {
+		return nil
 	}
-	if err := t.Settings.PutDownloadClient(ctx, dc); err != nil {
+	return &downloadclients.Record{
+		Name:        name,
+		Kind:        kind,
+		Enabled:     enable,
+		Position:    1,
+		BaseURL:     base,
+		Username:    username,
+		APIKey:      apiKey,
+		CompleteDir: completeDir,
+	}
+}
+
+// upsertDownloadClient inserts or updates a named saved client, returning
+// ActionCreated / ActionUpdated, or ActionExists for an unmapped client (nil
+// rec) or an identical re-apply (idempotency, like every other Ensure*).
+func upsertDownloadClient(ctx context.Context, repo downloadclients.Repo, rec *downloadclients.Record) (TargetAction, error) {
+	if rec == nil {
+		return ActionExists, nil
+	}
+	if repo == nil {
+		return "", fmt.Errorf("migration: download client store not wired")
+	}
+	existing, err := repo.GetByName(ctx, rec.Name)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+		if _, _, err := repo.Create(ctx, *rec); err != nil {
+			return "", err
+		}
+		return ActionCreated, nil
+	}
+	if existing.Kind == rec.Kind && existing.BaseURL == rec.BaseURL && existing.Username == rec.Username &&
+		existing.APIKey == rec.APIKey && existing.CompleteDir == rec.CompleteDir && existing.Enabled == rec.Enabled {
+		return ActionExists, nil
+	}
+	rec.ID = existing.ID
+	rec.CreatedAt = existing.CreatedAt
+	rec.UpdatedAt = existing.UpdatedAt
+	if err := repo.Update(ctx, *rec); err != nil {
 		return "", err
 	}
-	if prevSet {
-		return ActionUpdated, nil
-	}
-	return ActionCreated, nil
+	return ActionUpdated, nil
+}
+
+// SetDownloadClient maps a Sonarr download client into the Mediarr saved
+// download-client list (Prowlarr PR5: a named row upserted by name, best-
+// effort qBittorrent / SABnzbd field mapping).
+func (t *PostgresTarget) SetDownloadClient(ctx context.Context, c SonarrDownloadClient) (TargetAction, error) {
+	return upsertDownloadClient(ctx, t.DCRepo, seedDownloadClientRecord(c.ClientKey, c.Fields, c.Enable))
 }
 
 // EnsureSeries imports a Sonarr series into the TV library. It is idempotent:

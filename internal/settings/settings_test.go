@@ -49,25 +49,3 @@ func TestLibraryOverride_IsZero(t *testing.T) {
 		t.Error("an override with an explicit checksum opt-in should not be zero")
 	}
 }
-
-// TestClientKinds is the #44 contract: the download-client kinds are the fixed
-// set {mock, qbittorrent, sabnzbd}, mirroring the downloads factory.
-func TestClientKinds(t *testing.T) {
-	want := []string{"mock", "qbittorrent", "sabnzbd"}
-	if len(ClientKinds) != len(want) {
-		t.Fatalf("len(ClientKinds) = %d, want %d", len(ClientKinds), len(want))
-	}
-	for i, k := range ClientKinds {
-		if k != want[i] {
-			t.Errorf("ClientKinds[%d] = %q, want %q", i, k, want[i])
-		}
-		if !IsValidClientKind(k) {
-			t.Errorf("IsValidClientKind(%q) should be true", k)
-		}
-	}
-	for _, bad := range []string{"", "aria2", "QBITTORRENT", "sabcord"} {
-		if IsValidClientKind(bad) {
-			t.Errorf("IsValidClientKind(%q) should be false", bad)
-		}
-	}
-}

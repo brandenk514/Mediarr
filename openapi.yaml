@@ -1918,50 +1918,173 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/Internal"
-  /api/v1/settings/download-client:
+  /api/v1/settings/download-clients:
     get:
       tags: [settings]
-      summary: Get the download-client config (masked).
-      operationId: getDownloadClient
-      description: Secrets are never returned — only the *_set presence booleans.
+      summary: List saved download clients.
+      operationId: listDownloadClients
+      description: |
+        The Prowlarr PR5 Download Clients section: the saved download clients
+        (qBittorrent / SABnzbd / Transmission), in `position` order (ties by
+        id). Secrets are masked on read — `api_key` is always an empty string
+        and `api_key_set` reports its presence.
       responses:
         "200":
-          description: The masked config.
+          description: The saved download clients.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DownloadClientView"
+                type: array
+                items:
+                  $ref: "#/components/schemas/DownloadClient"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/Internal"
-    put:
+    post:
       tags: [settings]
-      summary: Save the download-client config.
-      operationId: putDownloadClient
+      summary: Create a download client.
+      operationId: createDownloadClient
       description: |
-        An empty secret means keep the existing value (masked-password
-        round-trip). kind defaults to mock and must be one of mock,
-        qbittorrent, sabnzbd. Per-client required fields are validated
-        server-side — qbittorrent needs a base URL plus an API key or a
-        username+password; sabnzbd needs a base URL plus an API key.
+        Creates a download client. `name` is required and `kind` must be one
+        of qbittorrent, sabnzbd, transmission (an invalid or missing kind is
+        a 400). `position` omitted = append after the last client; `enabled`
+        omitted = enabled. The `api_key` is stored vault-encrypted and never
+        echoed back (api_key_set reports presence).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/DownloadClientRequest"
+              $ref: "#/components/schemas/DownloadClientCreate"
       responses:
-        "200":
-          description: The saved (masked) config.
+        "201":
+          description: The created download client (api_key masked).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DownloadClientView"
+                $ref: "#/components/schemas/DownloadClient"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/download-clients/test-all:
+    post:
+      tags: [settings]
+      summary: Test every saved download client.
+      operationId: testAllDownloadClients
+      description: |
+        Runs each saved client's per-type connectivity probe (qBittorrent
+        HTTP auth, SABnzbd API-key ping, Transmission RPC session.get) and
+        reports the outcome per client in `position` order. A failed probe is
+        reported in-band — {ok: false, message} for that client — never an
+        error status.
+      responses:
+        "200":
+          description: One result per saved client.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DownloadClientTestAllItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/download-clients/{id}:
+    put:
+      tags: [settings]
+      summary: Update a download client.
+      operationId: updateDownloadClient
+      description: |
+        Updates a download client's fields. Omitted/empty fields keep the
+        stored value (an empty `api_key` keeps the stored key — the masked-edit
+        round-trip). A provided `kind` must be one of qbittorrent, sabnzbd,
+        transmission. An unknown id is a 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownloadClientUpdate"
+      responses:
+        "200":
+          description: The updated download client (api_key masked).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadClient"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    delete:
+      tags: [settings]
+      summary: Delete a download client.
+      operationId: deleteDownloadClient
+      description: |
+        Removes the client. Indexers bound to it (download_client_id) fall
+        back to default routing. An unknown id is a 404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "204":
+          description: The client was deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/settings/download-clients/{id}/test:
+    post:
+      tags: [settings]
+      summary: Test a download client.
+      operationId: testDownloadClient
+      description: |
+        Builds the client from the stored (vault-decrypted) config and runs
+        its per-type connectivity probe: qBittorrent does an HTTP auth check,
+        SABnzbd an API-key ping, Transmission an RPC session.get. A failed
+        probe is 200 with {ok: false, message} (the client is configured but
+        unreachable or wrongly configured) — not a 5xx. An unknown id is a
+        404.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: The probe outcome (ok true when reachable).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadClientTestResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/settings/library:
@@ -3013,12 +3136,13 @@ paths:
       summary: Grab a search result (send it to the download client).
       operationId: grabSearchRelease
       description: |
-        Routes a search result to the configured download client by protocol.
-        `torrent` and `torrent-file` go to the qBittorrent client and `nzb` to
-        the SABnzbd client. The mock client accepts any protocol. If the
-        configured client cannot handle the protocol, this is a 409. A missing
-        or empty client is a 503. On success the grab is recorded and feeds the
-        stats `total_grabs` and grab series.
+        Prowlarr PR5 multi-client routing: the release goes to the indexer's
+        bound download client (download_client_id) when that client exists, is
+        enabled, and its kind handles the protocol; otherwise to the first
+        enabled client whose kind handles the protocol — qBittorrent /
+        Transmission for `torrent` and `torrent-file`, SABnzbd for `nzb`. When
+        no client can handle the release this is a 503. On success the grab is
+        recorded and feeds the stats `total_grabs` and grab series.
         Redirected indexers (Prowlarr PR4): when the source indexer has
         `redirect: true`, the release is NOT sent to the download client —
         the grab is still recorded (Prowlarr counts redirected grabs) and the
@@ -3040,8 +3164,6 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "409":
-          $ref: "#/components/responses/Conflict"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
         "500":
@@ -5799,7 +5921,7 @@ components:
           description: How many queue jobs were removed.
     Indexer:
       type: object
-      required: [id, name, kind, base_url, enabled, has_api_key, last_test, rss, auto_search, interactive_search, privacy, priority, sync_profile, added, categories, tags, redirect]
+      required: [id, name, kind, base_url, enabled, has_api_key, last_test, rss, auto_search, interactive_search, privacy, priority, sync_profile, added, categories, tags, redirect, download_client_id]
       properties:
         id:
           type: integer
@@ -5875,6 +5997,14 @@ components:
           type: string
           nullable: true
           description: The definition this indexer was added from (null for the legacy path).
+        download_client_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            The download client this indexer's grabs route to (Prowlarr PR5).
+            Null = default routing: the first enabled client whose kind
+            handles the release protocol.
     IndexerCreate:
       type: object
       required: [name, kind]
@@ -5940,6 +6070,11 @@ components:
           description: |
             Definition id (or display name) the config_fields belong to.
             Required when config_fields is present.
+        download_client_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Omitted/null = no binding (default routing).
     IndexerUpdate:
       type: object
       required: [name, kind]
@@ -6002,6 +6137,11 @@ components:
           description: |
             Definition id (or display name) the config_fields belong to.
             Omitted = keep the stored definition name.
+        download_client_id:
+          type: integer
+          format: int64
+          nullable: true
+          description: Omitted = keep the stored binding; explicit null = clear it (default routing).
     IndexerDefinition:
       type: object
       required: [id, name, protocol, privacy, language, categories, urls, legacyUrls, fields, presets]
@@ -6337,50 +6477,143 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/StatsDayBucket"
-    DownloadClientView:
+    DownloadClient:
       type: object
-      required: [kind, qb_base, qb_username, qb_api_key_set, qb_password_set, sab_base, sab_api_key_set, sab_complete_dir]
+      required: [id, name, kind, enabled, position, base_url, username, api_key, api_key_set, complete_dir, created_at]
       properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          description: Display name (e.g. "qBittorrent").
         kind:
           type: string
-          description: Download-client kind (mock, qbittorrent, sabnzbd).
-        qb_base:
-          type: string
-        qb_username:
-          type: string
-        qb_api_key_set:
+          enum: [qbittorrent, sabnzbd, transmission]
+          description: Client type; selects the per-type field set and test probe.
+        enabled:
           type: boolean
-        qb_password_set:
-          type: boolean
-        sab_base:
+          description: Disabled clients are skipped by grab routing.
+        position:
+          type: integer
+          description: Ordering among clients (1-based); ties order by id.
+        base_url:
           type: string
-        sab_api_key_set:
-          type: boolean
-        sab_complete_dir:
+          description: The client's web endpoint (e.g. http://qbittorrent:8080).
+        username:
           type: string
-    DownloadClientRequest:
+          description: Username for basic-auth clients (qBittorrent, Transmission); empty for key-only kinds.
+        api_key:
+          type: string
+          description: Masked on read — always "" (api_key_set reports presence).
+        api_key_set:
+          type: boolean
+          description: Presence flag only — the key itself is never returned.
+        complete_dir:
+          type: string
+          description: Where finished downloads land (the client's save/complete directory); empty = the server downloads dir.
+        created_at:
+          type: string
+          format: date-time
+    DownloadClientCreate:
       type: object
-      required: [kind]
+      required: [name, kind]
       properties:
+        name:
+          type: string
         kind:
           type: string
-          description: Download-client kind (mock, qbittorrent, sabnzbd); omitted means mock.
-        qb_base:
+          enum: [qbittorrent, sabnzbd, transmission]
+          description: Client type.
+        base_url:
           type: string
-        qb_username:
+        username:
           type: string
-        qb_api_key:
+        api_key:
+          type: string
+          description: Plaintext in the request; never echoed back. Empty = keyless.
+        complete_dir:
+          type: string
+        position:
+          type: integer
+          description: Omitted = append after the last client.
+        enabled:
+          type: boolean
+          description: Omitted = enabled.
+    DownloadClientUpdate:
+      type: object
+      properties:
+        name:
           type: string
           description: Empty = keep the stored value.
-        qb_password:
+        kind:
+          type: string
+          enum: [qbittorrent, sabnzbd, transmission]
+          description: Empty = keep the stored kind.
+        base_url:
           type: string
           description: Empty = keep the stored value.
-        sab_base:
-          type: string
-        sab_api_key:
+        username:
           type: string
           description: Empty = keep the stored value.
-        sab_complete_dir:
+        api_key:
+          type: string
+          description: Empty = keep the stored value (masked-edit round-trip).
+        complete_dir:
+          type: string
+          description: Empty = keep the stored value.
+        position:
+          type: integer
+          nullable: true
+          description: Omitted/null = keep the stored value.
+        enabled:
+          type: boolean
+          nullable: true
+          description: Omitted/null = keep the stored value.
+    DownloadClientTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          description: true when the probe reached the client and it accepted the connection.
+        message:
+          type: string
+          description: Human-readable probe outcome (the failure reason when ok is false).
+    DownloadClientTestAllItem:
+      type: object
+      required: [id, ok]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The download client the result is for.
+        ok:
+          type: boolean
+        message:
+          type: string
+          description: Human-readable probe outcome (the failure reason when ok is false).
+    BackupDownloadClient:
+      type: object
+      required: [name, kind, enabled, position, base_url, username, api_key_set, complete_dir]
+      description: A saved download client in a backup document (masked — the api key is a presence flag only and is never carried).
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [qbittorrent, sabnzbd, transmission]
+        enabled:
+          type: boolean
+        position:
+          type: integer
+        base_url:
+          type: string
+        username:
+          type: string
+        api_key_set:
+          type: boolean
+        complete_dir:
           type: string
     LibraryOverride:
       type: object
@@ -7804,10 +8037,13 @@ components:
           description: The raw section JSON, encoded as a JSON string.
     BackupSettings:
       type: object
-      required: [download_client, libraries, sections]
+      required: [download_clients, libraries, sections]
       properties:
-        download_client:
-          $ref: "#/components/schemas/DownloadClientView"
+        download_clients:
+          type: array
+          items:
+            $ref: "#/components/schemas/BackupDownloadClient"
+          description: The saved download clients (masked; the api key is a presence flag only); import matches by name.
         libraries:
           $ref: "#/components/schemas/LibraryOverrides"
         sections:

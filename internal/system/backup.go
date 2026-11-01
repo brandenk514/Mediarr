@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/brandenk514/mediarr/internal/downloadclients"
 	"github.com/brandenk514/mediarr/internal/settings"
 )
 
@@ -22,17 +23,20 @@ import (
 // snapshot/import providers, so the export/import round-trip is unit-testable
 // without a live database.
 
-// DownloadClientView is the masked read shape of the download-client config
-// (the OpenAPI DownloadClientView). Secrets are presence booleans only.
-type DownloadClientView struct {
-	Kind           string `json:"kind"`
-	QBBase         string `json:"qb_base"`
-	QBUsername     string `json:"qb_username"`
-	QBAPIKeySet    bool   `json:"qb_api_key_set"`
-	QBPasswordSet  bool   `json:"qb_password_set"`
-	SABBase        string `json:"sab_base"`
-	SABAPIKeySet   bool   `json:"sab_api_key_set"`
-	SABCompleteDir string `json:"sab_complete_dir"`
+// BackupDownloadClient is a saved download client in a backup document (the
+// OpenAPI BackupDownloadClient). Masked: the API key is a presence flag only
+// and is never carried in the document — a restore recreates each client with
+// an empty key, which the user re-enters (and the test endpoint re-validates)
+// after import, like the legacy backup's behavior for the single client.
+type BackupDownloadClient struct {
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Enabled     bool   `json:"enabled"`
+	Position    int    `json:"position"`
+	BaseURL     string `json:"base_url"`
+	Username    string `json:"username"`
+	APIKeySet   bool   `json:"api_key_set"`
+	CompleteDir string `json:"complete_dir"`
 }
 
 // BackupLibraryOverride mirrors settings.LibraryOverride in the backup wire
@@ -52,9 +56,9 @@ type BackupSection struct {
 
 // BackupSettings is the settings block of a backup document.
 type BackupSettings struct {
-	DownloadClient DownloadClientView               `json:"download_client"`
-	Libraries      map[string]BackupLibraryOverride `json:"libraries"`
-	Sections       []BackupSection                  `json:"sections"`
+	DownloadClients []BackupDownloadClient           `json:"download_clients"`
+	Libraries       map[string]BackupLibraryOverride `json:"libraries"`
+	Sections        []BackupSection                  `json:"sections"`
 }
 
 // BackupDocument is a self-contained configuration backup (OpenAPI
@@ -80,10 +84,10 @@ type BackupImportResult struct {
 
 // BackupStore is the persistence surface the backup service programs against.
 // It is the subset of settings.Store the backup needs, so a settings.Store
-// (the Postgres adapter) satisfies it directly.
+// (the Postgres adapter) satisfies it directly. Download clients live in
+// their own table (Prowlarr PR5) and are reached through the BackupService's
+// DCRepo field instead.
 type BackupStore interface {
-	GetDownloadClient(ctx context.Context) (*settings.DownloadClient, error)
-	PutDownloadClient(ctx context.Context, dc *settings.DownloadClient) error
 	GetLibrary(ctx context.Context, k settings.LibraryKind) (*settings.LibraryOverride, error)
 	PutLibrary(ctx context.Context, k settings.LibraryKind, o *settings.LibraryOverride) error
 	GetSectionDocument(ctx context.Context, s settings.Section) ([]byte, error)
@@ -94,6 +98,12 @@ type BackupStore interface {
 type BackupService struct {
 	Store   BackupStore
 	Version string
+
+	// DCRepo is the saved download-client store (Prowlarr PR5). Export masks
+	// each client into BackupDownloadClient; import replaces the stored list
+	// (keys are never carried, so imported clients come back with no key). A
+	// nil DCRepo exports an empty list and import skips the clients.
+	DCRepo downloadclients.Repo
 
 	// Optional snapshot providers for the queue / series attachments. A nil
 	// provider means "not available" — the export omits that snapshot.
@@ -116,27 +126,76 @@ func (s *BackupService) now() time.Time {
 	return time.Now()
 }
 
-// toDCView masks a DownloadClient into its presence-only wire view.
-func toDCView(dc *settings.DownloadClient) DownloadClientView {
-	if dc == nil {
-		dc = &settings.DownloadClient{}
+// backupClients masks every saved download client into the backup wire shape.
+func (s *BackupService) backupClients(ctx context.Context) ([]BackupDownloadClient, error) {
+	if s.DCRepo == nil {
+		return []BackupDownloadClient{}, nil
 	}
-	return DownloadClientView{
-		Kind:           dc.Kind,
-		QBBase:         dc.QBBase,
-		QBUsername:     dc.QBUsername,
-		QBAPIKeySet:    dc.QBAPIKey != "",
-		QBPasswordSet:  dc.QBPassword != "",
-		SABBase:        dc.SABBase,
-		SABAPIKeySet:   dc.SABAPIKey != "",
-		SABCompleteDir: dc.SABCompleteDir,
+	recs, err := s.DCRepo.List(ctx)
+	if err != nil {
+		return nil, err
 	}
+	out := make([]BackupDownloadClient, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, BackupDownloadClient{
+			Name:        rec.Name,
+			Kind:        string(rec.Kind),
+			Enabled:     rec.Enabled,
+			Position:    rec.Position,
+			BaseURL:     rec.BaseURL,
+			Username:    rec.Username,
+			APIKeySet:   rec.APIKey != "",
+			CompleteDir: rec.CompleteDir,
+		})
+	}
+	return out, nil
+}
+
+// importClients replaces the stored download-client list with the document's
+// (delete-all, then re-create in document order). Unknown kinds are skipped
+// (forward/back-compat, like unknown sections); keys are never carried, so
+// recreated clients start with an empty key.
+func (s *BackupService) importClients(ctx context.Context, in []BackupDownloadClient) error {
+	if s.DCRepo == nil || len(in) == 0 {
+		return nil
+	}
+	existing, err := s.DCRepo.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, rec := range existing {
+		if err := s.DCRepo.Delete(ctx, rec.ID); err != nil {
+			return err
+		}
+	}
+	position := 0
+	for _, b := range in {
+		if !downloadclients.Kind(b.Kind).Valid() {
+			continue
+		}
+		position++
+		if b.Position > 0 {
+			position = b.Position
+		}
+		if _, _, err := s.DCRepo.Create(ctx, downloadclients.Record{
+			Name:        b.Name,
+			Kind:        downloadclients.Kind(b.Kind),
+			Enabled:     b.Enabled,
+			Position:    position,
+			BaseURL:     b.BaseURL,
+			Username:    b.Username,
+			CompleteDir: b.CompleteDir,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Export builds the backup document. includeQueue / includeSeries attach the
 // optional snapshots when a provider is available.
 func (s *BackupService) Export(ctx context.Context, includeQueue, includeSeries bool) (*BackupDocument, error) {
-	dc, err := s.Store.GetDownloadClient(ctx)
+	clients, err := s.backupClients(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +242,7 @@ func (s *BackupService) Export(ctx context.Context, includeQueue, includeSeries 
 	out := &BackupDocument{
 		Version:    s.Version,
 		ExportedAt: s.now(),
-		Settings:   BackupSettings{DownloadClient: toDCView(dc), Libraries: libs, Sections: sections},
+		Settings:   BackupSettings{DownloadClients: clients, Libraries: libs, Sections: sections},
 	}
 	if includeQueue && s.QueueSnap != nil {
 		q, err := s.QueueSnap(ctx)
@@ -211,15 +270,9 @@ func (s *BackupService) Import(ctx context.Context, d *BackupDocument, includeQu
 		return nil, ErrInvalidBackup
 	}
 
-	// Download client (non-secret fields; secrets are not carried in the view).
-	dc := &settings.DownloadClient{
-		Kind:           d.Settings.DownloadClient.Kind,
-		QBBase:         d.Settings.DownloadClient.QBBase,
-		QBUsername:     d.Settings.DownloadClient.QBUsername,
-		SABBase:        d.Settings.DownloadClient.SABBase,
-		SABCompleteDir: d.Settings.DownloadClient.SABCompleteDir,
-	}
-	if err := s.Store.PutDownloadClient(ctx, dc); err != nil {
+	// Download clients (Prowlarr PR5: the plural list, masked — keys are
+	// never carried, imported clients come back with an empty key).
+	if err := s.importClients(ctx, d.Settings.DownloadClients); err != nil {
 		return nil, err
 	}
 

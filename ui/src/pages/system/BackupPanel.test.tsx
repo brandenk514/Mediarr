@@ -17,16 +17,20 @@ const DOC: BackupDocument = {
   version: '0.6.0',
   exported_at: '2026-10-25T00:00:00Z',
   settings: {
-    download_client: {
-      kind: 'qbittorrent',
-      qb_base: 'http://localhost:8080',
-      qb_username: 'admin',
-      qb_api_key_set: true,
-      qb_password_set: false,
-      sab_base: '',
-      sab_api_key_set: false,
-      sab_complete_dir: '',
-    },
+    // Prowlarr PR5: the PLURAL download-client list (the old singular
+    // download_client snapshot is gone from the spec).
+    download_clients: [
+      {
+        name: 'QBit',
+        kind: 'qbittorrent',
+        enabled: true,
+        position: 1,
+        base_url: 'http://localhost:8080',
+        username: 'admin',
+        api_key_set: true,
+        complete_dir: '',
+      },
+    ],
     libraries: {},
     sections: [
       { section: 'general', document: '{"instance_name":"x"}' },
@@ -51,11 +55,11 @@ beforeEach(() => {
 })
 
 describe('BackupPanel', () => {
-  it('renders the current-document summary (sections + download client)', async () => {
+  it('renders the current-document summary (sections + download clients)', async () => {
     render(<BackupPanel />)
     const summary = await screen.findByTestId('backup-summary')
-    expect(summary).toHaveTextContent('2')
-    expect(summary).toHaveTextContent('qbittorrent')
+    expect(summary).toHaveTextContent('Download clients')
+    expect(screen.getByTestId('backup-dl-count')).toHaveTextContent('1')
     expect(screen.getByTestId('system-backup')).toBeInTheDocument()
   })
 

@@ -22,8 +22,11 @@ import type {
   ArtistSearchResult,
   Author,
   Dashboard,
-  DownloadClientRequest,
-  DownloadClientView,
+  DownloadClient,
+  DownloadClientCreate,
+  DownloadClientTestAllItem,
+  DownloadClientTestResult,
+  DownloadClientUpdate,
   Edition,
   Episode,
   EventFrame,
@@ -459,11 +462,22 @@ export const client = {
   },
 
   // ---- settings (#44) ----
-  // Download-client config: the read is a *masked* view (secrets are presence
-  // booleans, never values); the write's empty secret means "keep existing".
-  getDownloadClient: () => request<DownloadClientView>('GET', '/settings/download-client'),
-  putDownloadClient: (req: DownloadClientRequest) =>
-    request<DownloadClientView>('PUT', '/settings/download-client', req),
+  // Prowlarr PR5: the PLURAL download-client list. Reads are a *masked* view
+  // (api_key is always ""; api_key_set reports presence); on update an empty
+  // api_key keeps the stored key (the masked-edit round-trip).
+  listDownloadClients: () => request<DownloadClient[]>('GET', '/settings/download-clients'),
+  createDownloadClient: (req: DownloadClientCreate) =>
+    request<DownloadClient>('POST', '/settings/download-clients', req),
+  getDownloadClient: (id: number) =>
+    request<DownloadClient>('GET', `/settings/download-clients/${id}`),
+  updateDownloadClient: (id: number, req: DownloadClientUpdate) =>
+    request<DownloadClient>('PUT', `/settings/download-clients/${id}`, req),
+  deleteDownloadClient: (id: number) =>
+    request<void>('DELETE', `/settings/download-clients/${id}`),
+  testDownloadClient: (id: number) =>
+    request<DownloadClientTestResult>('POST', `/settings/download-clients/${id}/test`),
+  testAllDownloadClients: () =>
+    request<DownloadClientTestAllItem[]>('POST', '/settings/download-clients/test-all'),
   // Per-library overrides: one document for all four libraries.
   getLibraryOverrides: () => request<LibraryOverrides>('GET', '/settings/library'),
   putLibraryOverride: (kind: MediaKind, o: LibraryOverride) =>

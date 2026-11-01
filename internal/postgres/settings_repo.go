@@ -11,16 +11,16 @@ import (
 )
 
 // SettingsRepo is the Postgres-backed implementation of settings.Store (#44).
-// It backs the settings table (migration 0001: key/value_json) with two
-// documents: the download-client config (key "download_client") and one
-// per-library override (key "library.<kind>").
+// It backs the settings table (migration 0001: key/value_json) with the
+// per-library override documents (key "library.<kind>") and, read-only since
+// Prowlarr PR5, the legacy single download-client document (key
+// "download_client"), which SeedLegacySingleClient in
+// download_clients_repo.go migrates into the plural download_clients table.
 //
 // Like IndexersRepo, it is the single layer responsible for at-rest
-// encryption of download-client credentials (PLAN §7): the API key / password
-// are sealed with the app vault before they touch the settings table and
-// opened on the way out. The non-secret fields (host, username, save path) are
-// stored as-is in the JSONB so they stay inspectable in a dump. Nothing above
-// this layer sees ciphertext, and the REST layer never echoes a secret back.
+// encryption of secrets: values are sealed with the app vault before they
+// touch the settings table and opened on the way out. Nothing above this
+// layer sees ciphertext, and the REST layer never echoes a secret back.
 type SettingsRepo struct {
 	db    *sql.DB
 	vault *secrets.Vault
@@ -116,78 +116,6 @@ func (r *SettingsRepo) deleteKey(ctx context.Context, key string) error {
 		return fmt.Errorf("settings: delete %q: %w", key, err)
 	}
 	return nil
-}
-
-// GetDownloadClient returns the saved download-client config, or a default
-// (kind "mock", all fields empty) when none has been saved.
-func (r *SettingsRepo) GetDownloadClient(ctx context.Context) (*settings.DownloadClient, error) {
-	raw, ok, err := r.getJSON(ctx, dcStorageKey)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return &settings.DownloadClient{Kind: "mock"}, nil
-	}
-	var st dcStored
-	if err := json.Unmarshal([]byte(raw), &st); err != nil {
-		return nil, fmt.Errorf("settings: parse download_client: %w", err)
-	}
-	dc := &settings.DownloadClient{
-		Kind:           st.Kind,
-		QBBase:         st.QBBase,
-		QBUsername:     st.QBUsername,
-		SABBase:        st.SABBase,
-		SABCompleteDir: st.SABCompleteDir,
-	}
-	dc.QBAPIKey, err = r.decryptField(st.QBAPIKey)
-	if err != nil {
-		return nil, err
-	}
-	dc.QBPassword, err = r.decryptField(st.QBPassword)
-	if err != nil {
-		return nil, err
-	}
-	dc.SABAPIKey, err = r.decryptField(st.SABAPIKey)
-	if err != nil {
-		return nil, err
-	}
-	if dc.Kind == "" {
-		dc.Kind = "mock"
-	}
-	return dc, nil
-}
-
-// PutDownloadClient upserts the download-client config, encrypting its
-// credentials at rest.
-func (r *SettingsRepo) PutDownloadClient(ctx context.Context, dc *settings.DownloadClient) error {
-	if dc == nil {
-		dc = &settings.DownloadClient{Kind: "mock"}
-	}
-	if !settings.IsValidClientKind(dc.Kind) {
-		return fmt.Errorf("%w: %q", settings.ErrInvalidClientKind, dc.Kind)
-	}
-	st := dcStored{
-		Kind:           dc.Kind,
-		QBBase:         dc.QBBase,
-		QBUsername:     dc.QBUsername,
-		SABBase:        dc.SABBase,
-		SABCompleteDir: dc.SABCompleteDir,
-	}
-	var err error
-	if st.QBAPIKey, err = r.encryptField(dc.QBAPIKey); err != nil {
-		return err
-	}
-	if st.QBPassword, err = r.encryptField(dc.QBPassword); err != nil {
-		return err
-	}
-	if st.SABAPIKey, err = r.encryptField(dc.SABAPIKey); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(st)
-	if err != nil {
-		return fmt.Errorf("settings: marshal download_client: %w", err)
-	}
-	return r.putJSON(ctx, dcStorageKey, string(raw))
 }
 
 // GetLibrary returns the saved override for k, or a zero override when none

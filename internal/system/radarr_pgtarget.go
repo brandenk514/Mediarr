@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/brandenk514/mediarr/internal/downloadclients"
 	"github.com/brandenk514/mediarr/internal/settings"
 )
 
@@ -33,6 +34,9 @@ type RadarrPostgresTarget struct {
 	Settings SettingsStore
 	Movies   RadarrMovieStore
 	Indexers RadarrIndexerStore
+	// DCRepo is the plural saved download-client store (Prowlarr PR5) that
+	// SetDownloadClient upserts into. Nil -> SetDownloadClient errors.
+	DCRepo downloadclients.Repo
 }
 
 // NewRadarrPostgresTarget builds the Radarr drop-in import sink.
@@ -327,42 +331,11 @@ func (t *RadarrPostgresTarget) EnsureIndexer(ctx context.Context, ix RadarrIndex
 	return id, ActionCreated, nil
 }
 
-// SetDownloadClient maps a Radarr download client onto the Mediarr
-// download-client config (best-effort: qBittorrent and SABnzbd field names,
-// the same mapping as the Sonarr run).
+// SetDownloadClient maps a Radarr download client into the Mediarr saved
+// download-client list (Prowlarr PR5: a named row upserted by name; the same
+// best-effort qBittorrent / SABnzbd field mapping as the Sonarr run).
 func (t *RadarrPostgresTarget) SetDownloadClient(ctx context.Context, c RadarrDownloadClient) (TargetAction, error) {
-	existing, err := t.Settings.GetDownloadClient(ctx)
-	if err != nil {
-		return "", err
-	}
-	prevSet := existing != nil && existing.Kind != "" && existing.Kind != "mock"
-	dc := &settings.DownloadClient{Kind: "mock"}
-	switch {
-	case strings.Contains(strings.ToLower(c.ClientKey), "qbit"):
-		dc.Kind = "qbittorrent"
-		dc.QBBase = sonarrURLField(c.Fields, "host", "port", "url", "baseUrl")
-		dc.QBUsername = sonarrStringField(c.Fields, "username")
-		dc.QBPassword = sonarrStringField(c.Fields, "password")
-		dc.QBAPIKey = sonarrStringField(c.Fields, "apikey", "api_key")
-	case strings.Contains(strings.ToLower(c.ClientKey), "sab"):
-		dc.Kind = "sabnzbd"
-		dc.SABBase = sonarrStringField(c.Fields, "host", "serverhost", "url", "baseUrl")
-		dc.SABAPIKey = sonarrStringField(c.Fields, "apikey", "api_key")
-		dc.SABCompleteDir = sonarrStringField(c.Fields, "completeDir", "complete_dir")
-		dc.QBPassword = sonarrStringField(c.Fields, "password") // unused for sab; keep zero
-	}
-	if !c.Enable {
-		// A disabled client is stored as the mock kind (Mediarr has no
-		// per-client enable flag); the mapping report records the intent.
-		dc.Kind = "mock"
-	}
-	if err := t.Settings.PutDownloadClient(ctx, dc); err != nil {
-		return "", err
-	}
-	if prevSet {
-		return ActionUpdated, nil
-	}
-	return ActionCreated, nil
+	return upsertDownloadClient(ctx, t.DCRepo, seedDownloadClientRecord(c.ClientKey, c.Fields, c.Enable))
 }
 
 // ApplyMediaManagement maps the Radarr media-management config onto the
