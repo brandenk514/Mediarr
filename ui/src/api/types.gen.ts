@@ -1055,7 +1055,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/settings/download-client": {
+    "/api/v1/settings/download-clients": {
         parameters: {
             query?: never;
             header?: never;
@@ -1063,20 +1063,100 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get the download-client config (masked).
-         * @description Secrets are never returned — only the *_set presence booleans.
+         * List saved download clients.
+         * @description The Prowlarr PR5 Download Clients section: the saved download clients
+         *     (qBittorrent / SABnzbd / Transmission), in `position` order (ties by
+         *     id). Secrets are masked on read — `api_key` is always an empty string
+         *     and `api_key_set` reports its presence.
          */
-        get: operations["getDownloadClient"];
+        get: operations["listDownloadClients"];
+        put?: never;
         /**
-         * Save the download-client config.
-         * @description An empty secret means keep the existing value (masked-password
-         *     round-trip). kind defaults to mock and must be one of mock,
-         *     qbittorrent, sabnzbd. Per-client required fields are validated
-         *     server-side — qbittorrent needs a base URL plus an API key or a
-         *     username+password; sabnzbd needs a base URL plus an API key.
+         * Create a download client.
+         * @description Creates a download client. `name` is required and `kind` must be one
+         *     of qbittorrent, sabnzbd, transmission (an invalid or missing kind is
+         *     a 400). `position` omitted = append after the last client; `enabled`
+         *     omitted = enabled. The `api_key` is stored vault-encrypted and never
+         *     echoed back (api_key_set reports presence).
          */
-        put: operations["putDownloadClient"];
+        post: operations["createDownloadClient"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/download-clients/test-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test every saved download client.
+         * @description Runs each saved client's per-type connectivity probe (qBittorrent
+         *     HTTP auth, SABnzbd API-key ping, Transmission RPC session.get) and
+         *     reports the outcome per client in `position` order. A failed probe is
+         *     reported in-band — {ok: false, message} for that client — never an
+         *     error status.
+         */
+        post: operations["testAllDownloadClients"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/download-clients/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update a download client.
+         * @description Updates a download client's fields. Omitted/empty fields keep the
+         *     stored value (an empty `api_key` keeps the stored key — the masked-edit
+         *     round-trip). A provided `kind` must be one of qbittorrent, sabnzbd,
+         *     transmission. An unknown id is a 404.
+         */
+        put: operations["updateDownloadClient"];
         post?: never;
+        /**
+         * Delete a download client.
+         * @description Removes the client. Indexers bound to it (download_client_id) fall
+         *     back to default routing. An unknown id is a 404.
+         */
+        delete: operations["deleteDownloadClient"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/download-clients/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a download client.
+         * @description Builds the client from the stored (vault-decrypted) config and runs
+         *     its per-type connectivity probe: qBittorrent does an HTTP auth check,
+         *     SABnzbd an API-key ping, Transmission an RPC session.get. A failed
+         *     probe is 200 with {ok: false, message} (the client is configured but
+         *     unreachable or wrongly configured) — not a 5xx. An unknown id is a
+         *     404.
+         */
+        post: operations["testDownloadClient"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1732,12 +1812,13 @@ export interface paths {
         put?: never;
         /**
          * Grab a search result (send it to the download client).
-         * @description Routes a search result to the configured download client by protocol.
-         *     `torrent` and `torrent-file` go to the qBittorrent client and `nzb` to
-         *     the SABnzbd client. The mock client accepts any protocol. If the
-         *     configured client cannot handle the protocol, this is a 409. A missing
-         *     or empty client is a 503. On success the grab is recorded and feeds the
-         *     stats `total_grabs` and grab series.
+         * @description Prowlarr PR5 multi-client routing: the release goes to the indexer's
+         *     bound download client (download_client_id) when that client exists, is
+         *     enabled, and its kind handles the protocol; otherwise to the first
+         *     enabled client whose kind handles the protocol — qBittorrent /
+         *     Transmission for `torrent` and `torrent-file`, SABnzbd for `nzb`. When
+         *     no client can handle the release this is a 503. On success the grab is
+         *     recorded and feeds the stats `total_grabs` and grab series.
          *     Redirected indexers (Prowlarr PR4): when the source indexer has
          *     `redirect: true`, the release is NOT sent to the download client —
          *     the grab is still recorded (Prowlarr counts redirected grabs) and the
@@ -3512,6 +3593,13 @@ export interface components {
             };
             /** @description The definition this indexer was added from (null for the legacy path). */
             definition_name?: string | null;
+            /**
+             * Format: int64
+             * @description The download client this indexer's grabs route to (Prowlarr PR5).
+             *     Null = default routing: the first enabled client whose kind
+             *     handles the release protocol.
+             */
+            download_client_id: number | null;
         };
         IndexerCreate: {
             name: string;
@@ -3558,6 +3646,11 @@ export interface components {
              *     Required when config_fields is present.
              */
             definition_name?: string;
+            /**
+             * Format: int64
+             * @description Omitted/null = no binding (default routing).
+             */
+            download_client_id?: number | null;
         };
         IndexerUpdate: {
             name: string;
@@ -3602,6 +3695,11 @@ export interface components {
              *     Omitted = keep the stored definition name.
              */
             definition_name?: string;
+            /**
+             * Format: int64
+             * @description Omitted = keep the stored binding; explicit null = clear it (default routing).
+             */
+            download_client_id?: number | null;
         };
         IndexerDefinition: {
             /** @description Stable definition id (Cardigann id, or the built-in id for built-ins). */
@@ -3777,30 +3875,98 @@ export interface components {
             queries: components["schemas"]["StatsDayBucket"][];
             grabs: components["schemas"]["StatsDayBucket"][];
         };
-        DownloadClientView: {
-            /** @description Download-client kind (mock, qbittorrent, sabnzbd). */
-            kind: string;
-            qb_base: string;
-            qb_username: string;
-            qb_api_key_set: boolean;
-            qb_password_set: boolean;
-            sab_base: string;
-            sab_api_key_set: boolean;
-            sab_complete_dir: string;
+        DownloadClient: {
+            /** Format: int64 */
+            id: number;
+            /** @description Display name (e.g. "qBittorrent"). */
+            name: string;
+            /**
+             * @description Client type; selects the per-type field set and test probe.
+             * @enum {string}
+             */
+            kind: "qbittorrent" | "sabnzbd" | "transmission";
+            /** @description Disabled clients are skipped by grab routing. */
+            enabled: boolean;
+            /** @description Ordering among clients (1-based); ties order by id. */
+            position: number;
+            /** @description The client's web endpoint (e.g. http://qbittorrent:8080). */
+            base_url: string;
+            /** @description Username for basic-auth clients (qBittorrent, Transmission); empty for key-only kinds. */
+            username: string;
+            /** @description Masked on read — always "" (api_key_set reports presence). */
+            api_key: string;
+            /** @description Presence flag only — the key itself is never returned. */
+            api_key_set: boolean;
+            /** @description Where finished downloads land (the client's save/complete directory); empty = the server downloads dir. */
+            complete_dir: string;
+            /** Format: date-time */
+            created_at: string;
         };
-        DownloadClientRequest: {
-            /** @description Download-client kind (mock, qbittorrent, sabnzbd); omitted means mock. */
-            kind: string;
-            qb_base?: string;
-            qb_username?: string;
+        DownloadClientCreate: {
+            name: string;
+            /**
+             * @description Client type.
+             * @enum {string}
+             */
+            kind: "qbittorrent" | "sabnzbd" | "transmission";
+            base_url?: string;
+            username?: string;
+            /** @description Plaintext in the request; never echoed back. Empty = keyless. */
+            api_key?: string;
+            complete_dir?: string;
+            /** @description Omitted = append after the last client. */
+            position?: number;
+            /** @description Omitted = enabled. */
+            enabled?: boolean;
+        };
+        DownloadClientUpdate: {
             /** @description Empty = keep the stored value. */
-            qb_api_key?: string;
+            name?: string;
+            /**
+             * @description Empty = keep the stored kind.
+             * @enum {string}
+             */
+            kind?: "qbittorrent" | "sabnzbd" | "transmission";
             /** @description Empty = keep the stored value. */
-            qb_password?: string;
-            sab_base?: string;
+            base_url?: string;
             /** @description Empty = keep the stored value. */
-            sab_api_key?: string;
-            sab_complete_dir?: string;
+            username?: string;
+            /** @description Empty = keep the stored value (masked-edit round-trip). */
+            api_key?: string;
+            /** @description Empty = keep the stored value. */
+            complete_dir?: string;
+            /** @description Omitted/null = keep the stored value. */
+            position?: number | null;
+            /** @description Omitted/null = keep the stored value. */
+            enabled?: boolean | null;
+        };
+        DownloadClientTestResult: {
+            /** @description true when the probe reached the client and it accepted the connection. */
+            ok: boolean;
+            /** @description Human-readable probe outcome (the failure reason when ok is false). */
+            message?: string;
+        };
+        DownloadClientTestAllItem: {
+            /**
+             * Format: int64
+             * @description The download client the result is for.
+             */
+            id: number;
+            ok: boolean;
+            /** @description Human-readable probe outcome (the failure reason when ok is false). */
+            message?: string;
+        };
+        /** @description A saved download client in a backup document (masked — the api key is a presence flag only and is never carried). */
+        BackupDownloadClient: {
+            name: string;
+            /** @enum {string} */
+            kind: "qbittorrent" | "sabnzbd" | "transmission";
+            enabled: boolean;
+            position: number;
+            base_url: string;
+            username: string;
+            api_key_set: boolean;
+            complete_dir: string;
         };
         LibraryOverride: {
             path: string;
@@ -4626,7 +4792,8 @@ export interface components {
             document: string;
         };
         BackupSettings: {
-            download_client: components["schemas"]["DownloadClientView"];
+            /** @description The saved download clients (masked; the api key is a presence flag only); import matches by name. */
+            download_clients: components["schemas"]["BackupDownloadClient"][];
             libraries: components["schemas"]["LibraryOverrides"];
             sections: components["schemas"]["BackupSection"][];
         };
@@ -6933,7 +7100,7 @@ export interface operations {
             500: components["responses"]["Internal"];
         };
     };
-    getDownloadClient: {
+    listDownloadClients: {
         parameters: {
             query?: never;
             header?: never;
@@ -6942,20 +7109,20 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The masked config. */
+            /** @description The saved download clients. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DownloadClientView"];
+                    "application/json": components["schemas"]["DownloadClient"][];
                 };
             };
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
         };
     };
-    putDownloadClient: {
+    createDownloadClient: {
         parameters: {
             query?: never;
             header?: never;
@@ -6964,21 +7131,121 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DownloadClientRequest"];
+                "application/json": components["schemas"]["DownloadClientCreate"];
             };
         };
         responses: {
-            /** @description The saved (masked) config. */
+            /** @description The created download client (api_key masked). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadClient"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    testAllDownloadClients: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One result per saved client. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DownloadClientView"];
+                    "application/json": components["schemas"]["DownloadClientTestAllItem"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    updateDownloadClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DownloadClientUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated download client (api_key masked). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadClient"];
                 };
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    deleteDownloadClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The client was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    testDownloadClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The probe outcome (ok true when reachable). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadClientTestResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["Internal"];
         };
     };
@@ -7920,7 +8187,6 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
-            409: components["responses"]["Conflict"];
             500: components["responses"]["Internal"];
             503: components["responses"]["ServiceUnavailable"];
         };
