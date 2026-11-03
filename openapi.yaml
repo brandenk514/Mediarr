@@ -1454,6 +1454,51 @@ paths:
           $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/books/authors/{id}/history:
+    get:
+      tags: [books]
+      summary: List an author's history (Readarr B1; books analogue of TV series history).
+      operationId: listAuthorHistory
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+        - $ref: "#/components/parameters/HistoryLimit"
+      responses:
+        "200":
+          description: The author's history entries, newest first (empty array when none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookHistoryEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/authors/{id}/series:
+    get:
+      tags: [books]
+      summary: List the series the author's books belong to (Readarr B1).
+      operationId: listAuthorSeries
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The author's series, with the member titles by this author (empty array when none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookAuthorSeries"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/books/authors/{id}/pipeline:
     post:
       tags: [books]
@@ -1623,6 +1668,77 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/books/titles/{id}/files:
+    get:
+      tags: [books]
+      summary: List a title's imported book files with media info (Readarr B1).
+      operationId: listBookFiles
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The title's book files (pages, size, format, language, added date), oldest first (empty array when none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookFile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/titles/{id}/series:
+    get:
+      tags: [books]
+      summary: List the series a book belongs to (Readarr B1).
+      operationId: listTitleSeries
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The series, or an empty array when the book is not in any.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookSeries"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [books]
+      summary: Link a book to a series (Readarr B1; idempotent, manual entry until MT1 id-lookup).
+      operationId: linkTitleToSeries
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkTitleToSeriesRequest"
+      responses:
+        "200":
+          description: Linked (idempotent — linking twice succeeds).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedSeriesResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/books/titles/{id}/wanted:
     get:
       tags: [books]
@@ -1642,6 +1758,108 @@ paths:
                   $ref: "#/components/schemas/TitleWanted"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books:
+    get:
+      tags: [books]
+      summary: List every book across all authors — the flat Books index (Readarr B1).
+      operationId: listBooks
+      responses:
+        "200":
+          description: Every book (a title joined with its author's name), sorted by author name then title name (empty array when none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Book"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/series:
+    get:
+      tags: [books]
+      summary: List all series (Readarr B1).
+      operationId: listBookSeries
+      responses:
+        "200":
+          description: All series, alphabetically (empty array when none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookSeries"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [books]
+      summary: Add a series (Readarr B1; idempotent by name).
+      operationId: addBookSeries
+      description: Creating a series by name is idempotent — an existing series returns its existing id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddBookSeriesRequest"
+      responses:
+        "201":
+          description: Created (or already existed).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/series/{id}:
+    get:
+      tags: [books]
+      summary: Get one series (Readarr B1).
+      operationId: getBookSeries
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookSeries"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/books/series/{id}/books:
+    get:
+      tags: [books]
+      summary: List the books in a series (Readarr B1).
+      operationId: listSeriesBooks
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: The series' books (with author names), sorted by author name then title name (empty array when none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookSeriesBook"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
   /api/v1/indexers:
@@ -5345,7 +5563,7 @@ components:
           description: Omitted = monitored (default).
     Edition:
       type: object
-      required: [ID, TitleID, Format, Publisher, ISBN, Year, Pages, Monitored, AddedAt]
+      required: [ID, TitleID, Format, Language, Publisher, ISBN, Year, Pages, Monitored, AddedAt]
       properties:
         ID:
           type: integer
@@ -5356,6 +5574,9 @@ components:
         Format:
           type: string
           description: epub / mobi / azw3
+        Language:
+          type: string
+          description: Edition language code (e.g. "en"); empty = unknown. The edition is the (format, language, monitored) triple.
         Publisher:
           type: string
         ISBN:
@@ -5376,6 +5597,9 @@ components:
         format:
           type: string
           enum: [epub, mobi, azw3]
+        language:
+          type: string
+          description: Edition language code (e.g. "en"); omitted/empty = unknown.
         isbn:
           type: string
         publisher:
@@ -5409,6 +5633,151 @@ components:
           type: string
           format: date-time
           nullable: true
+    Book:
+      type: object
+      description: One row of the flat Books index — a title joined with its author's name.
+      required: [ID, AuthorID, Name, Monitored, AddedAt, AuthorName]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        AuthorID:
+          type: integer
+          format: int64
+        Name:
+          type: string
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+        AuthorName:
+          type: string
+    BookFile:
+      type: object
+      description: An imported e-book file and its media info (Readarr B1).
+      required: [ID, TitleID, EditionID, Path, Format, Size, Pages, Language, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        TitleID:
+          type: integer
+          format: int64
+        EditionID:
+          type: integer
+          format: int64
+          description: 0 = not tied to a specific edition.
+        Path:
+          type: string
+        Format:
+          type: string
+          description: One of the e-book format codes (epub / mobi / azw3).
+        Size:
+          type: integer
+          format: int64
+          description: File size in bytes; 0 = unknown.
+        Pages:
+          type: integer
+          description: Page count; 0 = unknown.
+        Language:
+          type: string
+          description: Edition language code; empty = unknown.
+        AddedAt:
+          type: string
+          format: date-time
+    BookSeries:
+      type: object
+      description: A named collection of books (a book can belong to many series).
+      required: [ID, Name, AddedAt]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        Name:
+          type: string
+        AddedAt:
+          type: string
+          format: date-time
+    BookSeriesBook:
+      type: object
+      description: A book in a series, with its author's name.
+      required: [ID, AuthorID, Name, Monitored, AddedAt, AuthorName]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        AuthorID:
+          type: integer
+          format: int64
+        Name:
+          type: string
+        Monitored:
+          type: boolean
+        AddedAt:
+          type: string
+          format: date-time
+        AuthorName:
+          type: string
+    BookAuthorSeries:
+      type: object
+      description: A series the author's books belong to, with the member titles by this author.
+      required: [ID, Name, AddedAt, Titles]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        Name:
+          type: string
+        AddedAt:
+          type: string
+          format: date-time
+        Titles:
+          type: array
+          items:
+            type: string
+    BookHistoryEntry:
+      type: object
+      description: An auditable event in an author's library lifecycle.
+      required: [ID, AuthorID, Event, Detail, At]
+      properties:
+        ID:
+          type: integer
+          format: int64
+        AuthorID:
+          type: integer
+          format: int64
+        Event:
+          type: string
+          description: "e.g. added, monitored, searched, imported, book-file-added"
+        Detail:
+          type: string
+        At:
+          type: string
+          format: date-time
+    AddBookSeriesRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+    LinkTitleToSeriesRequest:
+      type: object
+      required: [series_id]
+      properties:
+        series_id:
+          type: integer
+          format: int64
+    LinkedSeriesResult:
+      type: object
+      required: [title_id, series_id]
+      properties:
+        title_id:
+          type: integer
+          format: int64
+        series_id:
+          type: integer
+          format: int64
     MediaKind:
       type: string
       enum: [movie, tv, music, book]

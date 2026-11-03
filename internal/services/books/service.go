@@ -36,13 +36,14 @@ var ErrNoMatch = fmt.Errorf("books: no release matched the format profile")
 // to service (nothing to do).
 var ErrNoWanted = fmt.Errorf("books: no pending wanted titles or editions")
 
-// ErrAuthorNotFound, ErrTitleNotFound, and ErrEditionNotFound are re-exported
-// from the pure domain so API/transport layers can map them to 404 without
-// importing the domain directly.
+// ErrAuthorNotFound, ErrTitleNotFound, ErrEditionNotFound, and
+// ErrSeriesNotFound are re-exported from the pure domain so API/transport
+// layers can map them to 404 without importing the domain directly.
 var (
 	ErrAuthorNotFound  = dom.ErrAuthorNotFound
 	ErrTitleNotFound   = dom.ErrTitleNotFound
 	ErrEditionNotFound = dom.ErrEditionNotFound
+	ErrSeriesNotFound  = dom.ErrSeriesNotFound
 )
 
 // Deps bundles the Service's collaborators. Everything is an interface (or the
@@ -128,14 +129,16 @@ func (s *Service) AddTitle(ctx context.Context, authorID int64, name string, mon
 
 // AddEdition creates a known edition within a title (if new) and, when the
 // edition is monitored, ensures a pending edition-level wanted row for it.
-// Returns the edition id.
-func (s *Service) AddEdition(ctx context.Context, titleID int64, format, isbn, publisher string, year, pages int, monitored bool) (int64, error) {
+// The edition is the (format, language, monitored) triple (Readarr B1);
+// language may be "" (unknown). Returns the edition id.
+func (s *Service) AddEdition(ctx context.Context, titleID int64, format, language, isbn, publisher string, year, pages int, monitored bool) (int64, error) {
 	if err := dom.ValidateFormat(format); err != nil {
 		return 0, err
 	}
 	e := dom.Edition{
 		TitleID:   titleID,
 		Format:    strings.ToLower(strings.TrimSpace(format)),
+		Language:  strings.ToLower(strings.TrimSpace(language)),
 		ISBN:      isbn,
 		Publisher: publisher,
 		Year:      year,
@@ -203,6 +206,98 @@ func (s *Service) GetEdition(ctx context.Context, id int64) (*dom.Edition, error
 // with their status (used by GET /api/v1/books/titles/{id}/wanted).
 func (s *Service) ListWanted(ctx context.Context, titleID int64) ([]dom.Wanted, error) {
 	return s.deps.Repo.ListWanted(ctx, titleID)
+}
+
+// GetAuthorHistory returns the author's recent history (newest first) — the
+// books analogue of music's per-artist history (shared P3 surface).
+func (s *Service) GetAuthorHistory(ctx context.Context, authorID int64, limit int) ([]dom.HistoryEntry, error) {
+	if _, err := s.GetAuthor(ctx, authorID); err != nil {
+		return nil, err
+	}
+	return s.deps.Repo.ListHistory(ctx, authorID, limit)
+}
+
+// ListBooks returns every book across all authors (the flat Books index) with
+// each book's author name, sorted by author name then title name.
+func (s *Service) ListBooks(ctx context.Context) ([]dom.Book, error) {
+	return s.deps.Repo.ListBooks(ctx)
+}
+
+// GetBookFiles returns a title's imported e-book files with their media info
+// (pages, size, format, language, added date), oldest first (used by
+// GET /api/v1/books/titles/{id}/files).
+func (s *Service) GetBookFiles(ctx context.Context, titleID int64) ([]dom.BookFile, error) {
+	if _, err := s.GetTitle(ctx, titleID); err != nil {
+		return nil, err
+	}
+	return s.deps.Repo.ListBookFilesByTitle(ctx, titleID)
+}
+
+// ListSeries returns all series (used by GET /api/v1/books/series).
+func (s *Service) ListSeries(ctx context.Context) ([]dom.Series, error) {
+	return s.deps.Repo.ListSeries(ctx)
+}
+
+// AddSeries creates a series by name (idempotent: an existing series returns
+// its existing id). Returns the series id.
+func (s *Service) AddSeries(ctx context.Context, name string) (int64, error) {
+	id, err := s.deps.Repo.CreateSeries(ctx, dom.Series{Name: strings.TrimSpace(name)})
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// GetSeries loads a series (used by GET /api/v1/books/series/{id}).
+func (s *Service) GetSeries(ctx context.Context, id int64) (*dom.Series, error) {
+	return s.deps.Repo.GetSeries(ctx, id)
+}
+
+// ListSeriesBooks returns the books in a series (used by
+// GET /api/v1/books/series/{id}/books).
+func (s *Service) ListSeriesBooks(ctx context.Context, seriesID int64) ([]dom.SeriesBook, error) {
+	return s.deps.Repo.ListSeriesBooks(ctx, seriesID)
+}
+
+// ListTitleSeries returns the series a book belongs to (used by
+// GET /api/v1/books/titles/{id}/series).
+func (s *Service) ListTitleSeries(ctx context.Context, titleID int64) ([]dom.Series, error) {
+	if _, err := s.GetTitle(ctx, titleID); err != nil {
+		return nil, err
+	}
+	return s.deps.Repo.ListTitleSeries(ctx, titleID)
+}
+
+// ListAuthorSeries returns the series the author's books belong to, with the
+// member titles by this author (the author detail's series links).
+func (s *Service) ListAuthorSeries(ctx context.Context, authorID int64) ([]dom.AuthorSeries, error) {
+	if _, err := s.GetAuthor(ctx, authorID); err != nil {
+		return nil, err
+	}
+	return s.deps.Repo.ListAuthorSeries(ctx, authorID)
+}
+
+// LinkTitleToSeries links a book to a series (idempotent). Both entities must
+// exist. Used by the manual data entry until MT1's id-lookup joins them from
+// OpenLibrary.
+func (s *Service) LinkTitleToSeries(ctx context.Context, titleID, seriesID int64) error {
+	if _, err := s.GetTitle(ctx, titleID); err != nil {
+		return err
+	}
+	if err := s.deps.Repo.LinkTitleToSeries(ctx, titleID, seriesID); err != nil {
+		return err
+	}
+	series, err := s.GetSeries(ctx, seriesID)
+	if err != nil {
+		return err
+	}
+	title, err := s.GetTitle(ctx, titleID)
+	if err != nil {
+		return err
+	}
+	s.record(ctx, title.AuthorID, "series-linked",
+		fmt.Sprintf("%q linked to %q", title.Name, series.Name))
+	return nil
 }
 
 // SetAuthorMonitored toggles the author-level monitor (PLAN §4) and propagates
@@ -371,9 +466,9 @@ func (s *Service) buildCandidates(author *dom.Author, title dom.Title, profile s
 }
 
 // serviceTitle downloads the best release once, imports it under the media
-// root, and satisfies every pending wanted entry the release delivers (the
-// title level plus any edition-level wanted within the title). Returns the
-// number of wanted entries satisfied.
+// root, records the imported book file, and satisfies every pending wanted
+// entry the release delivers (the title level plus any edition-level wanted
+// within the title). Returns the number of wanted entries satisfied.
 func (s *Service) serviceTitle(ctx context.Context, author *dom.Author, title dom.Title, rel dom.CandidateRelease, pending []dom.Wanted) (int, error) {
 	// Download once.
 	queueID, err := s.sendToClient(ctx, author, title, rel)
@@ -382,9 +477,15 @@ func (s *Service) serviceTitle(ctx context.Context, author *dom.Author, title do
 	}
 
 	// Import the e-book file.
-	if err := s.importTitle(ctx, author, title, rel, queueID); err != nil {
+	destPath, err := s.importTitle(ctx, author, title, rel, queueID)
+	if err != nil {
 		return 0, err
 	}
+
+	// Record the imported file and its media info (Readarr B1 book files).
+	// A failure here does not fail the import: the file is in place; only the
+	// read surface is degraded.
+	s.recordBookFile(ctx, author, title, rel, destPath)
 
 	// Satisfy every pending wanted the release delivers.
 	satisfied := 0
@@ -436,25 +537,26 @@ func (s *Service) sendToClient(ctx context.Context, author *dom.Author, title do
 }
 
 // importTitle polls the client until the release is complete and imports the
-// e-book file under the media root, marking the queue complete.
-func (s *Service) importTitle(ctx context.Context, author *dom.Author, title dom.Title, rel dom.CandidateRelease, queueID int64) error {
+// e-book file under the media root, marking the queue complete. Returns the
+// destination path of the imported file (for book-file recording).
+func (s *Service) importTitle(ctx context.Context, author *dom.Author, title dom.Title, rel dom.CandidateRelease, queueID int64) (string, error) {
 	file, err := s.waitComplete(ctx, rel.Title)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if file == "" {
-		return fmt.Errorf("books: download did not produce a file for %q", rel.Title)
+		return "", fmt.Errorf("books: download did not produce a file for %q", rel.Title)
 	}
 
 	plan, err := dom.PlanImport(s.deps.MediaRoot, author.Name, title.Name, file)
 	if err != nil {
 		if !errors.Is(err, dom.ErrCollision) {
-			return err
+			return "", err
 		}
 		// The file already exists; reuse its destination in place.
 		dest, derr := dom.DestPath(s.deps.MediaRoot, author.Name, title.Name, file)
 		if derr != nil {
-			return derr
+			return "", derr
 		}
 		plan = &dom.Import{DestPath: dest}
 	}
@@ -462,7 +564,7 @@ func (s *Service) importTitle(ctx context.Context, author *dom.Author, title dom
 	// Copy the file into place unless it is already there.
 	if _, statErr := os.Stat(plan.DestPath); os.IsNotExist(statErr) {
 		if err := copyFile(plan.SourcePath, plan.DestPath); err != nil {
-			return err
+			return "", err
 		}
 	}
 
@@ -471,10 +573,50 @@ func (s *Service) importTitle(ctx context.Context, author *dom.Author, title dom
 
 	qe := dom.QueueEntry{ID: queueID, State: dom.QueueComplete, Progress: 100}
 	if err := s.deps.Repo.UpdateQueue(ctx, qe); err != nil {
-		return err
+		return "", err
 	}
 	s.emitQueue(ctx, qe)
-	return nil
+	return plan.DestPath, nil
+}
+
+// recordBookFile records the imported file as a book file with its media info
+// (Readarr B1). The file is tied to the edition whose format matches the
+// release when one exists (edition_id 0 otherwise); the file's size comes
+// from disk and its page count falls back to the matching edition's known
+// page count. CreateBookFile is idempotent on (title_id, path), so a
+// re-import updates the row in place.
+func (s *Service) recordBookFile(ctx context.Context, author *dom.Author, title dom.Title, rel dom.CandidateRelease, destPath string) {
+	size := int64(0)
+	if st, err := os.Stat(destPath); err == nil {
+		size = st.Size()
+	}
+	var editionID int64
+	var pages int
+	var lang string
+	if editions, err := s.deps.Repo.ListEditions(ctx, title.ID); err == nil {
+		for _, e := range editions {
+			if strings.EqualFold(e.Format, rel.Format.Format) {
+				editionID = e.ID
+				pages = e.Pages
+				lang = e.Language
+				break
+			}
+		}
+	}
+	bf := dom.BookFile{
+		TitleID:   title.ID,
+		EditionID: editionID,
+		Path:      filepath.Base(destPath),
+		Format:    strings.ToLower(rel.Format.Format),
+		Size:      size,
+		Pages:     pages,
+		Language:  lang,
+	}
+	if _, err := s.deps.Repo.CreateBookFile(ctx, bf); err != nil {
+		s.record(ctx, author.ID, "book-file-failed", err.Error())
+		return
+	}
+	s.record(ctx, author.ID, "book-file-added", bf.Path)
 }
 
 // waitComplete polls the download client until the release reports complete

@@ -39,16 +39,70 @@ type Title struct {
 // Edition is a specific variant of a title, identified by its ISBN within the
 // title. ISBN, Publisher, Year, and Pages are optional (""/0) because a title
 // may have editions without all metadata.
+//
+// Readarr B1: the edition is the (format, language, monitored) triple — the
+// Books analogue of Radarr's edition model. Language is the edition's
+// language code (e.g. "en"); "" = unknown. Data entry stays manual in B1
+// (the user adds editions); the model and API are ready to hold provider-fed
+// editions once the MT2 resolution subtask lands.
 type Edition struct {
 	ID        int64
 	TitleID   int64
 	Format    string // epub / mobi / azw3 (see format.go)
+	Language  string // edition language code (e.g. "en"); "" = unknown
 	ISBN      string // "" = unset
 	Publisher string // "" = unset
 	Year      int    // 0 = unset
 	Pages     int    // 0 = unset
 	Monitored bool   // edition-level monitor toggle
 	AddedAt   time.Time
+}
+
+// BookFile is an imported e-book file and its media info (Readarr B1). A file
+// belongs to a title; EditionID optionally ties it to the edition it matches
+// (0 = no known edition match). The import pipeline records the file after a
+// successful import; there is no manual file entry in B1 (unmapped-file
+// import is B3).
+type BookFile struct {
+	ID        int64
+	TitleID   int64
+	EditionID int64 // 0 = not tied to a specific edition
+	Path      string
+	Format    string // one of the e-book format codes (e.g. "epub")
+	Size      int64  // bytes; 0 = unknown
+	Pages     int    // 0 = unknown
+	Language  string // edition language; "" = unknown
+	AddedAt   time.Time
+}
+
+// Series is a named collection of books (a book can belong to many series; a
+// series can contain many books — Readarr's "Series", the basis of B4's
+// bookshelves). Membership is entered manually in B1.
+type Series struct {
+	ID      int64
+	Name    string
+	AddedAt time.Time
+}
+
+// Book is one row of the flat Books index: a title joined with its author's
+// name (GET /api/v1/books).
+type Book struct {
+	Title
+	AuthorName string
+}
+
+// SeriesBook is a book in a series, with its author's name (the series read
+// surface: list the books in a series).
+type SeriesBook struct {
+	Title
+	AuthorName string
+}
+
+// AuthorSeries is a series the author's books belong to, with the names of
+// the member titles by this author (the author detail's series links).
+type AuthorSeries struct {
+	Series
+	Titles []string
 }
 
 // WantedStatus is the lifecycle of a wanted request.
@@ -112,6 +166,9 @@ var ErrTitleNotFound = errors.New("books: title not found")
 // ErrEditionNotFound is returned when an edition does not exist.
 var ErrEditionNotFound = errors.New("books: edition not found")
 
+// ErrSeriesNotFound is returned when a series id does not exist.
+var ErrSeriesNotFound = errors.New("books: series not found")
+
 // ErrCollision is returned when an import target file already exists on disk;
 // the existing file is never overwritten (PLAN §6/§8).
 var ErrCollision = errors.New("books: import: destination file already exists")
@@ -137,6 +194,23 @@ type Repo interface {
 	GetEdition(ctx context.Context, id int64) (*Edition, error)
 	ListEditions(ctx context.Context, titleID int64) ([]Edition, error)
 	SetEditionMonitored(ctx context.Context, id int64, monitored bool) error
+
+	// Book files (imported e-book files and their media info)
+	CreateBookFile(ctx context.Context, f BookFile) (int64, error)
+	ListBookFilesByTitle(ctx context.Context, titleID int64) ([]BookFile, error)
+	ListBookFilesByEdition(ctx context.Context, editionID int64) ([]BookFile, error)
+
+	// Flat Books index (every book across all authors, with author names)
+	ListBooks(ctx context.Context) ([]Book, error)
+
+	// Series (books <-> series links)
+	CreateSeries(ctx context.Context, s Series) (int64, error) // idempotent by name
+	GetSeries(ctx context.Context, id int64) (*Series, error)
+	ListSeries(ctx context.Context) ([]Series, error)
+	ListSeriesBooks(ctx context.Context, seriesID int64) ([]SeriesBook, error)
+	ListTitleSeries(ctx context.Context, titleID int64) ([]Series, error)
+	ListAuthorSeries(ctx context.Context, authorID int64) ([]AuthorSeries, error)
+	LinkTitleToSeries(ctx context.Context, titleID, seriesID int64) error // idempotent
 
 	// Wanted (title or edition granularity)
 	EnsureWantedTitle(ctx context.Context, titleID int64) error

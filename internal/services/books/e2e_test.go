@@ -29,6 +29,12 @@ type memRepo struct {
 	nextQueue   int64
 	history     []dom.HistoryEntry
 	nextHist    int64
+	// Readarr B1: book files + series.
+	bookFiles     map[int64]dom.BookFile // id -> file
+	nextBookFile  int64
+	series        map[int64]dom.Series // id -> series
+	nextSeries    int64
+	seriesMembers map[seriesMemberKey]struct{}
 }
 
 // wantedKey identifies a wanted row by its title/edition specifier.
@@ -37,18 +43,29 @@ type wantedKey struct {
 	edition int64
 }
 
+// seriesMemberKey identifies a series-membership row.
+type seriesMemberKey struct {
+	series int64
+	title  int64
+}
+
 func newMemRepo() *memRepo {
 	return &memRepo{
-		authors:     map[int64]dom.Author{},
-		titles:      map[int64]dom.Title{},
-		editions:    map[int64][]dom.Edition{},
-		wanted:      map[wantedKey]dom.Wanted{},
-		queue:       map[int64]dom.QueueEntry{},
-		nextAuthor:  1,
-		nextTitle:   1,
-		nextEdition: 1,
-		nextQueue:   1,
-		nextHist:    1,
+		authors:       map[int64]dom.Author{},
+		titles:        map[int64]dom.Title{},
+		editions:      map[int64][]dom.Edition{},
+		wanted:        map[wantedKey]dom.Wanted{},
+		queue:         map[int64]dom.QueueEntry{},
+		bookFiles:     map[int64]dom.BookFile{},
+		series:        map[int64]dom.Series{},
+		seriesMembers: map[seriesMemberKey]struct{}{},
+		nextAuthor:    1,
+		nextTitle:     1,
+		nextEdition:   1,
+		nextQueue:     1,
+		nextHist:      1,
+		nextBookFile:  1,
+		nextSeries:    1,
 	}
 }
 
@@ -287,6 +304,178 @@ func (r *memRepo) ListHistory(ctx context.Context, authorID int64, limit int) ([
 	return out, nil
 }
 
+// --- Readarr B1: book files + series (in-memory) ---
+
+func (r *memRepo) CreateBookFile(ctx context.Context, f dom.BookFile) (int64, error) {
+	for _, v := range r.bookFiles {
+		if v.TitleID == f.TitleID && v.Path == f.Path {
+			// Re-import of the same file: update in place, keep the id.
+			f.ID = v.ID
+			f.AddedAt = v.AddedAt
+			r.bookFiles[f.ID] = f
+			return f.ID, nil
+		}
+	}
+	f.ID = r.nextBookFile
+	r.nextBookFile++
+	f.AddedAt = time.Now()
+	r.bookFiles[f.ID] = f
+	return f.ID, nil
+}
+
+func (r *memRepo) ListBookFilesByTitle(ctx context.Context, titleID int64) ([]dom.BookFile, error) {
+	var out []dom.BookFile
+	for _, f := range r.bookFiles {
+		if f.TitleID == titleID {
+			out = append(out, f)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func (r *memRepo) ListBookFilesByEdition(ctx context.Context, editionID int64) ([]dom.BookFile, error) {
+	var out []dom.BookFile
+	for _, f := range r.bookFiles {
+		if f.EditionID == editionID {
+			out = append(out, f)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+
+func (r *memRepo) ListBooks(ctx context.Context) ([]dom.Book, error) {
+	var out []dom.Book
+	for _, t := range r.titles {
+		a, ok := r.authors[t.AuthorID]
+		if !ok {
+			continue
+		}
+		out = append(out, dom.Book{
+			ID: t.ID, AuthorID: t.AuthorID, Name: t.Name,
+			Monitored: t.Monitored, AddedAt: t.AddedAt, AuthorName: a.Name,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].AuthorName != out[j].AuthorName {
+			return out[i].AuthorName < out[j].AuthorName
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+func (r *memRepo) CreateSeries(ctx context.Context, s dom.Series) (int64, error) {
+	for _, v := range r.series {
+		if v.Name == s.Name {
+			return v.ID, nil
+		}
+	}
+	s.ID = r.nextSeries
+	r.nextSeries++
+	s.AddedAt = time.Now()
+	r.series[s.ID] = s
+	return s.ID, nil
+}
+
+func (r *memRepo) GetSeries(ctx context.Context, id int64) (*dom.Series, error) {
+	s, ok := r.series[id]
+	if !ok {
+		return nil, dom.ErrSeriesNotFound
+	}
+	return &s, nil
+}
+
+func (r *memRepo) ListSeries(ctx context.Context) ([]dom.Series, error) {
+	var out []dom.Series
+	for _, s := range r.series {
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (r *memRepo) ListSeriesBooks(ctx context.Context, seriesID int64) ([]dom.SeriesBook, error) {
+	if _, err := r.GetSeries(ctx, seriesID); err != nil {
+		return nil, err
+	}
+	var out []dom.SeriesBook
+	for k := range r.seriesMembers {
+		if k.series != seriesID {
+			continue
+		}
+		t, ok := r.titles[k.title]
+		if !ok {
+			continue
+		}
+		a, ok := r.authors[t.AuthorID]
+		if !ok {
+			continue
+		}
+		out = append(out, dom.SeriesBook{
+			ID: t.ID, AuthorID: t.AuthorID, Name: t.Name,
+			Monitored: t.Monitored, AddedAt: t.AddedAt, AuthorName: a.Name,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].AuthorName != out[j].AuthorName {
+			return out[i].AuthorName < out[j].AuthorName
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+func (r *memRepo) ListTitleSeries(ctx context.Context, titleID int64) ([]dom.Series, error) {
+	var out []dom.Series
+	for k, s := range r.series {
+		if _, ok := r.seriesMembers[seriesMemberKey{series: k, title: titleID}]; ok {
+			out = append(out, s)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (r *memRepo) ListAuthorSeries(ctx context.Context, authorID int64) ([]dom.AuthorSeries, error) {
+	if _, ok := r.authors[authorID]; !ok {
+		return nil, dom.ErrAuthorNotFound
+	}
+	var out []dom.AuthorSeries
+	for s := range r.series {
+		var titles []string
+		for k := range r.seriesMembers {
+			if k.series != s {
+				continue
+			}
+			t, ok := r.titles[k.title]
+			if !ok || t.AuthorID != authorID {
+				continue
+			}
+			titles = append(titles, t.Name)
+		}
+		if len(titles) == 0 {
+			continue
+		}
+		sort.Strings(titles)
+		out = append(out, dom.AuthorSeries{Series: r.series[s], Titles: titles})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (r *memRepo) LinkTitleToSeries(ctx context.Context, titleID, seriesID int64) error {
+	if _, err := r.GetTitle(ctx, titleID); err != nil {
+		return err
+	}
+	if _, err := r.GetSeries(ctx, seriesID); err != nil {
+		return err
+	}
+	r.seriesMembers[seriesMemberKey{series: seriesID, title: titleID}] = struct{}{}
+	return nil
+}
+
 var _ dom.Repo = (*memRepo)(nil)
 
 // bookDestPath builds the documented import destination so the tests can assert
@@ -357,6 +546,27 @@ func TestPipeline_EndToEnd(t *testing.T) {
 		t.Fatalf("imported file not on disk: %v", err)
 	}
 
+	// 3b. The import must record a book file with media info (Readarr B1):
+	// size from the file on disk, epub format, no edition tie (none added).
+	bfs, err := repo.ListBookFilesByTitle(ctx, titleID)
+	if err != nil {
+		t.Fatalf("list book files: %v", err)
+	}
+	if len(bfs) != 1 {
+		t.Fatalf("book files = %d, want 1", len(bfs))
+	}
+	if bfs[0].Path != filepath.Base(wantPath) || bfs[0].Format != "epub" {
+		t.Errorf("book file = %q %q, want %q epub", bfs[0].Path, bfs[0].Format, filepath.Base(wantPath))
+	}
+	if fi, err := os.Stat(wantPath); err == nil {
+		if bfs[0].Size != fi.Size() {
+			t.Errorf("book file size = %d, want %d (on disk)", bfs[0].Size, fi.Size())
+		}
+	}
+	if bfs[0].EditionID != 0 {
+		t.Errorf("book file edition = %d, want 0 (no editions)", bfs[0].EditionID)
+	}
+
 	// 4. The whole-title wanted is satisfied by the EPUB release.
 	w, _ = repo.GetWanted(ctx, titleID, 0)
 	if w.Status != dom.WantedSatisfied {
@@ -403,7 +613,7 @@ func TestPipeline_EditionWanted_SatisfiedByTitle(t *testing.T) {
 	authorID, _ := svc.AddAuthor(ctx, "Ursula K. Le Guin", true)
 	titleID, _ := svc.AddTitle(ctx, authorID, "The Dispossessed", false)
 	// Add a known edition and monitor it (edition-level wanted, not title-level).
-	editionID, err := svc.AddEdition(ctx, titleID, dom.FormatEPUB, "9780805079181", "Astounding", 1974, 505, true)
+	editionID, err := svc.AddEdition(ctx, titleID, dom.FormatEPUB, "en", "9780805079181", "Astounding", 1974, 505, true)
 	if err != nil {
 		t.Fatalf("add edition: %v", err)
 	}

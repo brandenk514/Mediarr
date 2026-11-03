@@ -334,6 +334,39 @@ func (stubBooksRepo) AddHistory(context.Context, booksdom.HistoryEntry) error {
 func (stubBooksRepo) ListHistory(context.Context, int64, int) ([]booksdom.HistoryEntry, error) {
 	panic("stubBooksRepo.ListHistory should not be called")
 }
+func (stubBooksRepo) CreateBookFile(context.Context, booksdom.BookFile) (int64, error) {
+	panic("stubBooksRepo.CreateBookFile should not be called")
+}
+func (stubBooksRepo) ListBookFilesByTitle(context.Context, int64) ([]booksdom.BookFile, error) {
+	panic("stubBooksRepo.ListBookFilesByTitle should not be called")
+}
+func (stubBooksRepo) ListBookFilesByEdition(context.Context, int64) ([]booksdom.BookFile, error) {
+	panic("stubBooksRepo.ListBookFilesByEdition should not be called")
+}
+func (stubBooksRepo) ListBooks(context.Context) ([]booksdom.Book, error) {
+	panic("stubBooksRepo.ListBooks should not be called")
+}
+func (stubBooksRepo) CreateSeries(context.Context, booksdom.Series) (int64, error) {
+	panic("stubBooksRepo.CreateSeries should not be called")
+}
+func (stubBooksRepo) GetSeries(context.Context, int64) (*booksdom.Series, error) {
+	panic("stubBooksRepo.GetSeries should not be called")
+}
+func (stubBooksRepo) ListSeries(context.Context) ([]booksdom.Series, error) {
+	panic("stubBooksRepo.ListSeries should not be called")
+}
+func (stubBooksRepo) ListSeriesBooks(context.Context, int64) ([]booksdom.SeriesBook, error) {
+	panic("stubBooksRepo.ListSeriesBooks should not be called")
+}
+func (stubBooksRepo) ListTitleSeries(context.Context, int64) ([]booksdom.Series, error) {
+	panic("stubBooksRepo.ListTitleSeries should not be called")
+}
+func (stubBooksRepo) ListAuthorSeries(context.Context, int64) ([]booksdom.AuthorSeries, error) {
+	panic("stubBooksRepo.ListAuthorSeries should not be called")
+}
+func (stubBooksRepo) LinkTitleToSeries(context.Context, int64, int64) error {
+	panic("stubBooksRepo.LinkTitleToSeries should not be called")
+}
 
 // Ensure the server can be built and the handler chain works end-to-end.
 func TestServe_Smoke(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	books "github.com/brandenk514/mediarr/internal/domains/books"
 )
@@ -169,16 +170,16 @@ func (r *BooksRepo) SetTitleMonitored(ctx context.Context, id int64, monitored b
 
 // --- Editions ---
 
-// CreateEdition inserts an edition and returns its id. The optional ISBN /
-// publisher / year / pages are stored as NULL when empty so the (title, isbn)
-// uniqueness constraint treats them as distinct.
+// CreateEdition inserts an edition and returns its id. The optional language
+// / ISBN / publisher / year / pages are stored as NULL/” when empty so the
+// (title, isbn) uniqueness constraint treats them as distinct.
 func (r *BooksRepo) CreateEdition(ctx context.Context, e books.Edition) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
-		INSERT INTO book_editions (title_id, format, publisher, isbn, year, pages, monitored)
-		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, 0), NULLIF($6, 0), $7)
+		INSERT INTO book_editions (title_id, format, language, publisher, isbn, year, pages, monitored)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, 0), NULLIF($7, 0), $8)
 		RETURNING id`,
-		e.TitleID, e.Format, e.Publisher, e.ISBN, e.Year, e.Pages, e.Monitored,
+		e.TitleID, e.Format, e.Language, e.Publisher, e.ISBN, e.Year, e.Pages, e.Monitored,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("books: create edition: %w", err)
@@ -189,13 +190,13 @@ func (r *BooksRepo) CreateEdition(ctx context.Context, e books.Edition) (int64, 
 // GetEdition loads an edition by id.
 func (r *BooksRepo) GetEdition(ctx context.Context, id int64) (*books.Edition, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, title_id, format,
+		SELECT id, title_id, format, COALESCE(language, ''),
 		       COALESCE(publisher, ''), COALESCE(isbn, ''),
 		       COALESCE(year, 0), COALESCE(pages, 0),
 		       monitored, added_at
 		FROM book_editions WHERE id = $1`, id)
 	e := &books.Edition{}
-	err := row.Scan(&e.ID, &e.TitleID, &e.Format, &e.Publisher, &e.ISBN,
+	err := row.Scan(&e.ID, &e.TitleID, &e.Format, &e.Language, &e.Publisher, &e.ISBN,
 		&e.Year, &e.Pages, &e.Monitored, &e.AddedAt)
 	if err == sql.ErrNoRows {
 		return nil, books.ErrEditionNotFound
@@ -209,7 +210,7 @@ func (r *BooksRepo) GetEdition(ctx context.Context, id int64) (*books.Edition, e
 // ListEditions returns all editions for a title, oldest first.
 func (r *BooksRepo) ListEditions(ctx context.Context, titleID int64) ([]books.Edition, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, title_id, format,
+		SELECT id, title_id, format, COALESCE(language, ''),
 		       COALESCE(publisher, ''), COALESCE(isbn, ''),
 		       COALESCE(year, 0), COALESCE(pages, 0),
 		       monitored, added_at
@@ -222,7 +223,7 @@ func (r *BooksRepo) ListEditions(ctx context.Context, titleID int64) ([]books.Ed
 	var out []books.Edition
 	for rows.Next() {
 		var e books.Edition
-		if err := rows.Scan(&e.ID, &e.TitleID, &e.Format, &e.Publisher, &e.ISBN,
+		if err := rows.Scan(&e.ID, &e.TitleID, &e.Format, &e.Language, &e.Publisher, &e.ISBN,
 			&e.Year, &e.Pages, &e.Monitored, &e.AddedAt); err != nil {
 			return nil, fmt.Errorf("books: scan edition: %w", err)
 		}
@@ -446,4 +447,258 @@ func (r *BooksRepo) ListHistory(ctx context.Context, authorID int64, limit int) 
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// --- Book files (Readarr B1) ---
+
+// CreateBookFile records an imported e-book file. (title_id, path) is the
+// file's identity: a re-import of the same file is a no-op (the existing id is
+// returned), so the pipeline can call it unconditionally after each import.
+func (r *BooksRepo) CreateBookFile(ctx context.Context, f books.BookFile) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO book_files (title_id, edition_id, path, format, size, pages, language)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (title_id, path) DO UPDATE SET
+			edition_id = EXCLUDED.edition_id,
+			format     = EXCLUDED.format,
+			size       = EXCLUDED.size,
+			pages      = EXCLUDED.pages,
+			language   = EXCLUDED.language
+		RETURNING id`,
+		f.TitleID, f.EditionID, f.Path, f.Format, f.Size, f.Pages, f.Language,
+	).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("books: create book file: %w", err)
+	}
+	return id, nil
+}
+
+// ListBookFilesByTitle returns a title's imported files, oldest first.
+func (r *BooksRepo) ListBookFilesByTitle(ctx context.Context, titleID int64) ([]books.BookFile, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, title_id, edition_id, path, format, size, pages, language, added_at
+		FROM book_files WHERE title_id = $1
+		ORDER BY added_at, id`, titleID)
+	if err != nil {
+		return nil, fmt.Errorf("books: list book files: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []books.BookFile
+	for rows.Next() {
+		var f books.BookFile
+		if err := rows.Scan(&f.ID, &f.TitleID, &f.EditionID, &f.Path, &f.Format,
+			&f.Size, &f.Pages, &f.Language, &f.AddedAt); err != nil {
+			return nil, fmt.Errorf("books: scan book file: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// ListBookFilesByEdition returns the files tied to one edition, oldest first.
+func (r *BooksRepo) ListBookFilesByEdition(ctx context.Context, editionID int64) ([]books.BookFile, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, title_id, edition_id, path, format, size, pages, language, added_at
+		FROM book_files WHERE edition_id = $1
+		ORDER BY added_at, id`, editionID)
+	if err != nil {
+		return nil, fmt.Errorf("books: list book files by edition: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []books.BookFile
+	for rows.Next() {
+		var f books.BookFile
+		if err := rows.Scan(&f.ID, &f.TitleID, &f.EditionID, &f.Path, &f.Format,
+			&f.Size, &f.Pages, &f.Language, &f.AddedAt); err != nil {
+			return nil, fmt.Errorf("books: scan book file: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// --- Flat Books index (Readarr B1) ---
+
+// ListBooks returns every book across all authors, joined with its author's
+// name, sorted by author name then title name (the flat Books index).
+func (r *BooksRepo) ListBooks(ctx context.Context) ([]books.Book, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT t.id, t.author_id, t.name, t.monitored, t.added_at, a.name
+		FROM book_titles t
+		JOIN book_authors a ON a.id = t.author_id
+		ORDER BY a.name, t.name, t.id`)
+	if err != nil {
+		return nil, fmt.Errorf("books: list books: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []books.Book
+	for rows.Next() {
+		var b books.Book
+		if err := rows.Scan(&b.ID, &b.AuthorID, &b.Name, &b.Monitored, &b.AddedAt, &b.AuthorName); err != nil {
+			return nil, fmt.Errorf("books: scan book: %w", err)
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// --- Series (Readarr B1) ---
+
+// CreateSeries inserts a series by name and returns its id. Creating the same
+// name again is idempotent: the existing id is returned (M6 #42 pattern).
+func (r *BooksRepo) CreateSeries(ctx context.Context, s books.Series) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO book_series (name) VALUES ($1)
+		ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+		RETURNING id`, s.Name).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("books: create series: %w", err)
+	}
+	return id, nil
+}
+
+// GetSeries loads a series by id.
+func (r *BooksRepo) GetSeries(ctx context.Context, id int64) (*books.Series, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, name, added_at FROM book_series WHERE id = $1`, id)
+	s := &books.Series{}
+	if err := row.Scan(&s.ID, &s.Name, &s.AddedAt); err == sql.ErrNoRows {
+		return nil, books.ErrSeriesNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("books: get series: %w", err)
+	}
+	return s, nil
+}
+
+// ListSeries returns all series, alphabetically.
+func (r *BooksRepo) ListSeries(ctx context.Context) ([]books.Series, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, name, added_at FROM book_series ORDER BY name, id`)
+	if err != nil {
+		return nil, fmt.Errorf("books: list series: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []books.Series
+	for rows.Next() {
+		var s books.Series
+		if err := rows.Scan(&s.ID, &s.Name, &s.AddedAt); err != nil {
+			return nil, fmt.Errorf("books: scan series: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// ListSeriesBooks returns the books (titles + author names) in a series,
+// sorted by author name then title name. An unknown series is
+// ErrSeriesNotFound.
+func (r *BooksRepo) ListSeriesBooks(ctx context.Context, seriesID int64) ([]books.SeriesBook, error) {
+	if _, err := r.GetSeries(ctx, seriesID); err != nil {
+		return nil, err
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT t.id, t.author_id, t.name, t.monitored, t.added_at, a.name
+		FROM book_series_members m
+		JOIN book_titles t ON t.id = m.title_id
+		JOIN book_authors a ON a.id = t.author_id
+		WHERE m.series_id = $1
+		ORDER BY a.name, t.name, t.id`, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("books: list series books: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []books.SeriesBook
+	for rows.Next() {
+		var b books.SeriesBook
+		if err := rows.Scan(&b.ID, &b.AuthorID, &b.Name, &b.Monitored, &b.AddedAt, &b.AuthorName); err != nil {
+			return nil, fmt.Errorf("books: scan series book: %w", err)
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// ListTitleSeries returns the series a book (title) belongs to, alphabetically.
+func (r *BooksRepo) ListTitleSeries(ctx context.Context, titleID int64) ([]books.Series, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT s.id, s.name, s.added_at
+		FROM book_series s
+		JOIN book_series_members m ON m.series_id = s.id
+		WHERE m.title_id = $1
+		ORDER BY s.name, s.id`, titleID)
+	if err != nil {
+		return nil, fmt.Errorf("books: list title series: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	var out []books.Series
+	for rows.Next() {
+		var s books.Series
+		if err := rows.Scan(&s.ID, &s.Name, &s.AddedAt); err != nil {
+			return nil, fmt.Errorf("books: scan title series: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// ListAuthorSeries returns the series the author's books belong to, with the
+// names of the member titles by this author (the author detail's series
+// links). A series whose only member books are by other authors is omitted.
+func (r *BooksRepo) ListAuthorSeries(ctx context.Context, authorID int64) ([]books.AuthorSeries, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT s.id, s.name, s.added_at, t.name
+		FROM book_series s
+		JOIN book_series_members m ON m.series_id = s.id
+		JOIN book_titles t ON t.id = m.title_id AND t.author_id = $1
+		ORDER BY s.name, s.id, t.name, t.id`, authorID)
+	if err != nil {
+		return nil, fmt.Errorf("books: list author series: %w", err)
+	}
+	defer func() { _ = rows.Close() }() // rows consumed by the loop above
+	bySeries := map[int64]*books.AuthorSeries{}
+	var order []int64
+	for rows.Next() {
+		var id int64
+		var name, title string
+		var addedAt time.Time
+		if err := rows.Scan(&id, &name, &addedAt, &title); err != nil {
+			return nil, fmt.Errorf("books: scan author series: %w", err)
+		}
+		as, ok := bySeries[id]
+		if !ok {
+			as = &books.AuthorSeries{Series: books.Series{ID: id, Name: name, AddedAt: addedAt}, Titles: []string{}}
+			bySeries[id] = as
+			order = append(order, id)
+		}
+		as.Titles = append(as.Titles, title)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("books: list author series: %w", err)
+	}
+	out := make([]books.AuthorSeries, 0, len(order))
+	for _, id := range order {
+		out = append(out, *bySeries[id])
+	}
+	return out, nil
+}
+
+// LinkTitleToSeries links a book to a series. Both entities must exist
+// (ErrTitleNotFound / ErrSeriesNotFound); linking twice is a no-op.
+func (r *BooksRepo) LinkTitleToSeries(ctx context.Context, titleID, seriesID int64) error {
+	if _, err := r.GetTitle(ctx, titleID); err != nil {
+		return err
+	}
+	if _, err := r.GetSeries(ctx, seriesID); err != nil {
+		return err
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO book_series_members (series_id, title_id)
+		VALUES ($1, $2)
+		ON CONFLICT (series_id, title_id) DO NOTHING`, seriesID, titleID)
+	if err != nil {
+		return fmt.Errorf("books: link title to series: %w", err)
+	}
+	return nil
 }
