@@ -257,6 +257,10 @@ type MigrationInclude struct {
 	// RootFolders (Lidarr L5): import the source's root folders (with their
 	// derived per-root default profiles). Omitted = true.
 	RootFolders *bool `json:"root_folders,omitempty"`
+	// IndexerProxies (Prowlarr PR6): import the source's indexer proxies
+	// (FlareSolverr endpoints) into the Mediarr proxy store. Prowlarr-specific;
+	// the Sonarr/Radarr/Lidarr migrators ignore it. Omitted = true.
+	IndexerProxies *bool `json:"indexer_proxies,omitempty"`
 }
 
 func (i *MigrationInclude) wantSeries() bool         { return boolOrTrue(i.Series) }
@@ -266,6 +270,7 @@ func (i *MigrationInclude) wantTags() bool           { return boolOrTrue(i.Tags)
 func (i *MigrationInclude) wantIndexers() bool       { return boolOrTrue(i.Indexers) }
 func (i *MigrationInclude) wantDownloadClient() bool { return boolOrTrue(i.DownloadClient) }
 func (i *MigrationInclude) wantRootFolders() bool    { return boolOrTrue(i.RootFolders) }
+func (i *MigrationInclude) wantIndexerProxies() bool { return boolOrTrue(i.IndexerProxies) }
 
 func boolOrTrue(b *bool) bool { return b == nil || *b }
 
