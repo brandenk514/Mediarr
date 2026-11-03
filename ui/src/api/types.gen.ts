@@ -4881,16 +4881,18 @@ export interface components {
             indexers?: boolean;
             download_client?: boolean;
             root_folders?: boolean;
+            /** @description Prowlarr PR6: migrate the indexer proxies (FlareSolverr endpoints). */
+            indexer_proxies?: boolean;
         };
         MigrationRequest: {
-            /** @description Base URL of the source instance (e.g. http://sonarr.local:8989 or https://radarr.local:7878). */
+            /** @description Base URL of the source instance (e.g. http://sonarr.local:8989, https://radarr.local:7878, or https://prowlarr.local:9696). */
             source_url: string;
             /**
-             * @description The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance; Lidarr L5: 'lidarr' pulls artists + albums from a live Lidarr v6 instance).
+             * @description The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance; Lidarr L5: 'lidarr' pulls artists + albums from a live Lidarr v6 instance; Prowlarr PR6: 'prowlarr' pulls indexers + download clients + tags + indexer proxies from a live Prowlarr v1 instance — the Prowlarr Apps section is NOT imported; Mediarr replaces it with per-kind settings).
              * @default sonarr
              * @enum {string}
              */
-            source: "sonarr" | "radarr" | "lidarr";
+            source: "sonarr" | "radarr" | "lidarr" | "prowlarr";
             /** @description Source API key (sent as X-Api-Key). */
             api_key?: string;
             /** @description Report only; add nothing. */

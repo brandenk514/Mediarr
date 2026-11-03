@@ -378,8 +378,9 @@ func run(logSvc *system.LogService) error {
 	srv.SetNotifications(&api.NotificationsDeps{
 		Repo: postgres.NewNotificationsRepo(pg.DB(), vault),
 	})
+	proxyRepo := postgres.NewIndexerProxiesRepo(pg.DB(), vault)
 	srv.SetIndexerProxies(&api.IndexerProxiesDeps{
-		Repo: postgres.NewIndexerProxiesRepo(pg.DB(), vault),
+		Repo: proxyRepo,
 	})
 	// Prowlarr PR5: plural saved download clients (replaces the old singular
 	// /settings/download-client surface) + their per-client /test probes.
@@ -728,6 +729,18 @@ func run(logSvc *system.LogService) error {
 		lidarrTarget := system.NewLidarrPostgresTarget(settingsRepo, migrationLidarrMusic, migrationLidarrRoots, migrationRadarrIndexers)
 		lidarrTarget.DCRepo = dcRepo
 
+		// Prowlarr PR6: the Prowlarr (indexer manager) source of the drop-in
+		// migration. The target maps indexers (with re-encrypted credentials
+		// and the definition-name fallback) onto the indexer store, the
+		// download clients onto the saved-client store, tags onto the tags
+		// section, and the indexer proxies (FlareSolverr endpoints) onto the
+		// proxy store. The source is the live Prowlarr v1 API
+		// (admin-configured URL + API key).
+		migrationProwlarrIndexers := &migrationProwlarrIndexerStore{repo: indexerRepo}
+		migrationProwlarrProxies := &migrationProwlarrProxyStore{repo: proxyRepo}
+		prowlarrTarget := system.NewProwlarrPostgresTarget(settingsRepo, migrationProwlarrIndexers, migrationProwlarrProxies)
+		prowlarrTarget.DCRepo = dcRepo
+
 		// P6 Wave 2: the System depth services. Backup exports/imports the
 		// configuration over the settings repo (queue / series snapshots are
 		// optional attachments; the series snapshot can be imported back
@@ -781,18 +794,20 @@ func run(logSvc *system.LogService) error {
 				return n, nil
 			},
 		}
-		// P6 Wave 3 / Radarr R6 / Lidarr L5: the migrators (Sonarr: source
-		// factory = the live Sonarr v3 client, target = the real Mediarr
-		// import sink; Radarr: the live Radarr v3 client into the movie
-		// domain; Lidarr: the live Lidarr v3 client into the music domain).
-		// All three are routed through MigrationService by the request's
-		// source.
+		// P6 Wave 3 / Radarr R6 / Lidarr L5 / Prowlarr PR6: the migrators
+		// (Sonarr: source factory = the live Sonarr v3 client, target = the
+		// real Mediarr import sink; Radarr: the live Radarr v3 client into
+		// the movie domain; Lidarr: the live Lidarr v3 client into the music
+		// domain; Prowlarr: the live Prowlarr v1 client into the indexer /
+		// download-client / tag / proxy stores). All four are routed through
+		// MigrationService by the request's source.
 		mediarrTarget := system.NewPostgresTarget(settingsRepo, migrationIndexers, migrationTV)
 		mediarrTarget.DCRepo = dcRepo
 		migrator := system.NewMigrator(mediarrTarget)
 		radarrMigrator := system.NewRadarrMigrator(radarrTarget)
 		lidarrMigrator := system.NewLidarrMigrator(lidarrTarget)
-		migrationSvc := system.NewMigrationService(migrator, radarrMigrator, lidarrMigrator)
+		prowlarrMigrator := system.NewProwlarrMigrator(prowlarrTarget)
+		migrationSvc := system.NewMigrationService(migrator, radarrMigrator, lidarrMigrator, prowlarrMigrator)
 
 		srv.SetSystem(&api.SystemDeps{
 			Health:       system.NewHealth(probes),
@@ -888,6 +903,51 @@ func (s *migrationRadarrIndexerStore) CreateIndexer(ctx context.Context, name, k
 		}),
 	}
 	return s.repo.Create(ctx, def)
+}
+
+// migrationProwlarrIndexerStore adapts the Postgres indexer repo to the
+// Prowlarr migration target's indexer seam (system.ProwlarrIndexerStore). It
+// writes the full definition — kind, base URL, credentials, per-indexer
+// toggles — through the repo, whose vault re-encrypts the secret fields.
+type migrationProwlarrIndexerStore struct {
+	repo *postgres.IndexersRepo
+}
+
+func (s *migrationProwlarrIndexerStore) FindIndexer(ctx context.Context, name string) (int64, bool) {
+	def, err := s.repo.GetByName(ctx, name)
+	if err != nil {
+		return 0, false
+	}
+	return def.ID, true
+}
+
+func (s *migrationProwlarrIndexerStore) CreateIndexer(ctx context.Context, def indexers.Definition) (int64, error) {
+	return s.repo.Create(ctx, def)
+}
+
+// migrationProwlarrProxyStore adapts the Postgres proxy repo to the Prowlarr
+// migration target's proxy seam (system.ProwlarrProxyStore); the repo
+// re-encrypts the FlareSolverr password with the deployment vault.
+type migrationProwlarrProxyStore struct {
+	repo *postgres.IndexerProxiesRepo
+}
+
+func (s *migrationProwlarrProxyStore) FindProxy(ctx context.Context, name string) (int64, bool) {
+	proxies, err := s.repo.List(ctx)
+	if err != nil {
+		return 0, false
+	}
+	for _, p := range proxies {
+		if p.Name == name {
+			return p.ID, true
+		}
+	}
+	return 0, false
+}
+
+func (s *migrationProwlarrProxyStore) CreateProxy(ctx context.Context, p indexers.Proxy) (int64, error) {
+	id, _, err := s.repo.Create(ctx, p)
+	return id, err
 }
 
 // migrationRadarrMovieStore adapts the Postgres movie repo to the Radarr
