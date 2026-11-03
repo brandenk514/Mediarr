@@ -17,6 +17,9 @@ const ENTITIES: { key: keyof MigrationInclude; label: string }[] = [
   // Lidarr-only: import the source's root folders with their derived
   // per-root default profiles (L5). Ignored by the Sonarr/Radarr migrators.
   { key: 'root_folders', label: 'root folders' },
+  // Prowlarr-only: the indexer proxies (FlareSolverr endpoints, PR6).
+  // Ignored by the Sonarr/Radarr/Lidarr migrators.
+  { key: 'indexer_proxies', label: 'indexer proxies' },
 ]
 
 type MigrationAction = MigrationResult['items'][number]['action']
@@ -55,6 +58,7 @@ export function MigrationPanel() {
     indexers: true,
     download_client: true,
     root_folders: true,
+    indexer_proxies: true,
   })
 
   const [running, setRunning] = useState(false)
@@ -125,7 +129,9 @@ export function MigrationPanel() {
             ? 'Drop-in migration from a Lidarr instance: artists + albums (type, monitoring, tracks), quality profiles + definitions, metadata profiles, tags, root folders (with default profiles), indexers, and the download client.'
             : source === 'radarr'
               ? 'Drop-in migration from a Radarr instance: movies + editions, quality profiles, tags, indexers, the download client, and a best-effort settings subset.'
-              : 'Drop-in migration from a Sonarr instance: series + episodes, quality profiles, tags, indexers, and the download client.'}{' '}
+              : source === 'prowlarr'
+                ? 'Drop-in migration from a Prowlarr instance: indexers (credentials are re-encrypted at rest), download clients, tags, and indexer proxies. The Prowlarr Apps section is not imported — Mediarr replaces it with per-kind settings.'
+                : 'Drop-in migration from a Sonarr instance: series + episodes, quality profiles, tags, indexers, and the download client.'}{' '}
           Idempotent and resumable — a dry run changes nothing.
         </p>
         <div className="list-table" data-testid="migration-status">
@@ -134,7 +140,7 @@ export function MigrationPanel() {
               <span className={`pill ${STATUS_PILL[status.status]}`}>{status.status}</span>
             </span>
             <span className="lt-dim">
-              {status.done}/{status.total} {source === 'lidarr' ? 'artists' : source === 'radarr' ? 'movies' : 'series'}
+              {status.done}/{status.total} {source === 'lidarr' ? 'artists' : source === 'radarr' ? 'movies' : source === 'prowlarr' ? 'entities' : 'series'}
             </span>
             <span className="lt-dim">
               {status.started_at ? `started ${new Date(status.started_at).toLocaleString()}` : ''}
@@ -156,6 +162,7 @@ export function MigrationPanel() {
             <option value="sonarr">Sonarr</option>
             <option value="radarr">Radarr</option>
             <option value="lidarr">Lidarr</option>
+            <option value="prowlarr">Prowlarr</option>
           </select>
         </label>
         <p className="dim" data-testid="migration-source-help" style={{ marginTop: 0 }}>
@@ -163,20 +170,42 @@ export function MigrationPanel() {
             ? 'Base URL of the Lidarr instance.'
             : source === 'radarr'
               ? 'Base URL of the Radarr instance.'
-              : 'Base URL of the Sonarr instance.'}
+              : source === 'prowlarr'
+                ? 'Base URL of the Prowlarr instance.'
+                : 'Base URL of the Sonarr instance.'}
         </p>
         <label>
-          {source === 'lidarr' ? 'Lidarr base URL' : source === 'radarr' ? 'Radarr base URL' : 'Sonarr base URL'}
+          {source === 'lidarr'
+            ? 'Lidarr base URL'
+            : source === 'radarr'
+              ? 'Radarr base URL'
+              : source === 'prowlarr'
+                ? 'Prowlarr base URL'
+                : 'Sonarr base URL'}
           <input
             data-testid="migration-source-url"
             type="url"
-            placeholder={source === 'lidarr' ? 'https://lidarr.local:8666' : source === 'radarr' ? 'https://radarr.local:7878' : 'http://sonarr.local:8989'}
+            placeholder={
+              source === 'lidarr'
+                ? 'https://lidarr.local:8666'
+                : source === 'radarr'
+                  ? 'https://radarr.local:7878'
+                  : source === 'prowlarr'
+                    ? 'https://prowlarr.local:9696'
+                    : 'http://sonarr.local:8989'
+            }
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
           />
         </label>
         <label>
-          {source === 'lidarr' ? 'Lidarr API key' : source === 'radarr' ? 'Radarr API key' : 'Sonarr API key'}
+          {source === 'lidarr'
+            ? 'Lidarr API key'
+            : source === 'radarr'
+              ? 'Radarr API key'
+              : source === 'prowlarr'
+                ? 'Prowlarr API key'
+                : 'Sonarr API key'}
           <input
             data-testid="migration-api-key"
             type="password"
@@ -207,7 +236,16 @@ export function MigrationPanel() {
           Include
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1.25rem' }}>
-          {ENTITIES.filter((e) => e.key !== 'root_folders' || source === 'lidarr').map(({ key, label }) => (
+          {ENTITIES.filter((e) => {
+            // Prowlarr (PR6) migrates exactly four entity classes — indexers,
+            // download clients, tags, indexer proxies. No root folders, no
+            // apps (replaced by per-kind settings).
+            if (source === 'prowlarr') {
+              return e.key === 'indexers' || e.key === 'download_client' || e.key === 'tags' || e.key === 'indexer_proxies'
+            }
+            // root_folders is Lidarr-only (L5).
+            return e.key !== 'root_folders' || source === 'lidarr'
+          }).map(({ key, label }) => (
             <label key={key} className="dim" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginTop: 0 }}>
               <input
                 type="checkbox"

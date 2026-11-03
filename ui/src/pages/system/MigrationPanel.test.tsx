@@ -30,6 +30,7 @@ const ALL_INCLUDE = {
   indexers: true,
   download_client: true,
   root_folders: true,
+  indexer_proxies: true,
 }
 
 const RESULT = {
@@ -165,6 +166,45 @@ describe('MigrationPanel', () => {
       expect(client.runMigration).toHaveBeenCalledWith({
         source_url: 'https://radarr.local:7878',
         source: 'radarr',
+        dry_run: true,
+        include: ALL_INCLUDE,
+      }),
+    )
+  })
+
+  it('switching the source to Prowlarr shows its labels and only its four entity classes (PR6)', async () => {
+    const user = userEvent.setup()
+    render(<MigrationPanel />)
+    await screen.findByTestId('migration-source-url')
+
+    await user.selectOptions(screen.getByTestId('migration-source'), 'prowlarr')
+    expect(screen.getByTestId('migration-source-help')).toHaveTextContent('Base URL of the Prowlarr instance.')
+    // The base-URL placeholder and API-key label follow the source.
+    expect(screen.getByTestId('migration-source-url')).toHaveAttribute('placeholder', 'https://prowlarr.local:9696')
+    expect(screen.getByText('Prowlarr base URL')).toBeInTheDocument()
+    expect(screen.getByText('Prowlarr API key')).toBeInTheDocument()
+    // Exactly four include checkboxes: indexers, download clients, tags,
+    // indexer proxies. No root folders, no series/episodes/profiles, no apps.
+    for (const key of ['indexers', 'download_client', 'tags', 'indexer_proxies']) {
+      expect(screen.getByTestId(`migration-include-${key}`)).toBeInTheDocument()
+    }
+    for (const key of ['series', 'episodes', 'quality_profiles', 'root_folders']) {
+      expect(screen.queryByTestId(`migration-include-${key}`)).not.toBeInTheDocument()
+    }
+    // The summary text states the Prowlarr Apps section is not imported.
+    expect(
+      screen.getByText((t) => t.includes('Prowlarr Apps section is not imported')),
+    ).toBeInTheDocument()
+
+    await user.type(screen.getByTestId('migration-source-url'), 'https://prowlarr.local:9696')
+    await user.type(screen.getByTestId('migration-api-key'), 'prowlarr-key')
+    await user.click(screen.getByTestId('migration-run-btn'))
+
+    await vi.waitFor(() =>
+      expect(client.runMigration).toHaveBeenCalledWith({
+        source_url: 'https://prowlarr.local:9696',
+        source: 'prowlarr',
+        api_key: 'prowlarr-key',
         dry_run: true,
         include: ALL_INCLUDE,
       }),
