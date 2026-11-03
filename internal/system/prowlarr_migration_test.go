@@ -438,7 +438,7 @@ func TestProwlarrClientParsesFieldsArray(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/indexer":
-			w.Write([]byte(`[{
+			_, _ = w.Write([]byte(`[{
 				"id": 10, "name": "1337x", "enable": true, "indexerId": 111,
 				"definitionName": "1337x", "priority": 25, "tags": [1],
 				"baseUrl": "https://1337x.to",
@@ -448,9 +448,9 @@ func TestProwlarrClientParsesFieldsArray(t *testing.T) {
 				]
 			}]`))
 		case "/api/v1/tag":
-			w.Write([]byte(`[{"id": 1, "label": "prowlarr"}]`))
+			_, _ = w.Write([]byte(`[{"id": 1, "label": "prowlarr"}]`))
 		case "/api/v1/downloadclient":
-			w.Write([]byte(`[{
+			_, _ = w.Write([]byte(`[{
 				"id": 1, "name": "QB", "enable": true, "clientType": "qBittorrent",
 				"fields": [
 					{"name": "host", "value": "qb.local"},
@@ -459,7 +459,7 @@ func TestProwlarrClientParsesFieldsArray(t *testing.T) {
 				]
 			}]`))
 		case "/api/v1/indexerproxy":
-			w.Write([]byte(`[{
+			_, _ = w.Write([]byte(`[{
 				"id": 1, "name": "FlareSolverr", "enable": true,
 				"baseUrl": "http://localhost:8191",
 				"fields": [{"name": "username", "value": "fs"}, {"name": "password", "value": "fspot"}]
@@ -510,7 +510,7 @@ func TestProwlarrClientErrorDoesNotLeakBody(t *testing.T) {
 			t.Errorf("X-Api-Key header not sent")
 		}
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("Unauthorized: leaked-secret-token"))
+		_, _ = w.Write([]byte("Unauthorized: leaked-secret-token"))
 	}))
 	defer srv.Close()
 

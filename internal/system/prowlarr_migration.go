@@ -270,7 +270,7 @@ func (c *httpProwlarrClient) getJSON(ctx context.Context, path string, out any) 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		// Read and discard the body: it can contain PLAINTEXT credentials
 		// (indexer config fields) and must never surface in an error or log.
