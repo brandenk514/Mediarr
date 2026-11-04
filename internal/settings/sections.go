@@ -226,11 +226,14 @@ type QualitySettings struct {
 	Levels      []QualityLevel `json:"levels"`
 	MovieLevels []QualityLevel `json:"movie_levels"`
 	MusicLevels []QualityLevel `json:"music_levels"`
+	BookLevels  []QualityLevel `json:"book_levels"`
 }
 
 // DefaultQuality returns the TV-parity default matrix (Sonarr's standard
 // levels, with size limits in MB; 0 = unlimited) plus the seeded Radarr
-// movie levels (R5a) and the seeded Lidarr music levels (L3).
+// movie levels (R5a), the seeded Lidarr music levels (L3) and the seeded
+// Readarr book levels (B3: e-book format entries + the a-book ladder
+// shared 1:1 with the music ladder).
 func DefaultQuality() QualitySettings {
 	return QualitySettings{
 		Levels: []QualityLevel{
@@ -247,6 +250,7 @@ func DefaultQuality() QualitySettings {
 		},
 		MovieLevels: DefaultMovieLevels(),
 		MusicLevels: DefaultMusicLevels(),
+		BookLevels:  DefaultBookLevels(),
 	}
 }
 
@@ -281,7 +285,11 @@ func (q QualitySettings) Validate() string {
 		return msg
 	}
 	// Music levels: the same rules, scoped to their own array (L3).
-	return validateQualityLevels("music_levels", q.MusicLevels)
+	if msg := validateQualityLevels("music_levels", q.MusicLevels); msg != "" {
+		return msg
+	}
+	// Book levels: the same rules, scoped to their own array (B3).
+	return validateQualityLevels("book_levels", q.BookLevels)
 }
 
 // ---------------------------------------------------------------------------
@@ -307,12 +315,14 @@ type QualityProfile struct {
 
 // ProfilesSettings is the quality-profiles document. Profiles is the TV
 // document (P5); the Radarr movie/delay/release arrays are additive (R5a);
-// the music + metadata arrays are the additive Lidarr set (L3).
+// the music + metadata arrays are the additive Lidarr set (L3); the book
+// quality array is the additive Readarr set (B3).
 type ProfilesSettings struct {
 	Profiles         []QualityProfile  `json:"profiles"`
 	MovieProfiles    []QualityProfile  `json:"movie_profiles"`
 	MusicProfiles    []QualityProfile  `json:"music_profiles"`
 	MetadataProfiles []MetadataProfile `json:"metadata_profiles"`
+	BookProfiles     []QualityProfile  `json:"book_profiles"`
 	DelayProfiles    []DelayProfile    `json:"delay_profiles"`
 	ReleaseProfiles  []ReleaseProfile  `json:"release_profiles"`
 }
@@ -320,8 +330,9 @@ type ProfilesSettings struct {
 // DefaultProfiles returns the single default TV profile (every TV level
 // approved, cutoff at the highest TV level) plus the seeded movie documents:
 // the 14 Radarr v6 movie profiles, one empty delay profile, one all-inclusive
-// release profile (R5a), and the seeded Lidarr documents: the 4 default
-// music profiles and the 3 metadata profiles (L3).
+// release profile (R5a), the seeded Lidarr documents: the 4 default music
+// profiles and the 3 metadata profiles (L3), and the seeded Readarr
+// document: the 4 default book quality profiles (B3).
 func DefaultProfiles() ProfilesSettings {
 	levels := DefaultQuality().Levels
 	prof := QualityProfile{ID: 1, Name: "Default", Cutoff: levels[len(levels)-1].ID}
@@ -334,6 +345,7 @@ func DefaultProfiles() ProfilesSettings {
 		MovieProfiles:    DefaultMovieProfiles(),
 		MusicProfiles:    DefaultMusicProfiles(),
 		MetadataProfiles: DefaultMetadataProfiles(),
+		BookProfiles:     DefaultBookProfiles(),
 		DelayProfiles:    DefaultDelayProfiles(),
 		ReleaseProfiles:  DefaultReleaseProfiles(),
 	}
@@ -453,6 +465,45 @@ func (p ProfilesSettings) Validate() string {
 		return p.MetadataProfiles[i].ID, p.MetadataProfiles[i].Name
 	}); msg != "" {
 		return msg
+	}
+
+	// Readarr B3: book profiles — same rules as the music profiles, but
+	// items/cutoff must reference the seeded BOOK level ids (book space),
+	// and ids/names are unique within the book array.
+	validBookLevels := seedBookLevelIDs()
+	bookIDs := map[int]bool{}
+	bookNames := map[string]bool{}
+	for i, prof := range p.BookProfiles {
+		if prof.ID < 1 {
+			return fmt.Sprintf("book_profiles[%d]: id must be >= 1", i)
+		}
+		if bookIDs[prof.ID] {
+			return fmt.Sprintf("book_profiles[%d]: duplicate id %d", i, prof.ID)
+		}
+		bookIDs[prof.ID] = true
+		if prof.Name == "" {
+			return fmt.Sprintf("book_profiles[%d]: name is required", i)
+		}
+		if bookNames[prof.Name] {
+			return fmt.Sprintf("book_profiles[%d]: duplicate name %q", i, prof.Name)
+		}
+		bookNames[prof.Name] = true
+		if !validBookLevels[prof.Cutoff] {
+			return fmt.Sprintf("book_profiles[%d]: cutoff must reference a book quality level id", i)
+		}
+		if len(prof.Items) == 0 {
+			return fmt.Sprintf("book_profiles[%d]: at least one quality item is required", i)
+		}
+		seen := map[int]bool{}
+		for j, it := range prof.Items {
+			if !validBookLevels[it.Quality] {
+				return fmt.Sprintf("book_profiles[%d].items[%d]: unknown book quality level id %d", i, j, it.Quality)
+			}
+			if seen[it.Quality] {
+				return fmt.Sprintf("book_profiles[%d].items[%d]: duplicate quality %d", i, j, it.Quality)
+			}
+			seen[it.Quality] = true
+		}
 	}
 
 	// Delay/release profiles: id/name rules per array (booleans need none).
