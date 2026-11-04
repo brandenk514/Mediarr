@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { client } from '../../../api/client'
 import type {
   BooksBookFileManagement,
@@ -20,6 +20,7 @@ import {
   BOOK_PROPER_REPACKS,
   BOOK_RESCANS,
   BOOK_SPACE_HANDLINGS,
+  CALIBRE_OUTPUT_FORMATS,
   DEFAULT_BOOK_FILE_MANAGEMENT,
   DEFAULT_BOOK_NAMING,
 } from '../../../api/books-b5'
@@ -32,7 +33,13 @@ import type {
   RemotePathMapping,
   RootFolder,
 } from '../../../api/types'
+import type { components } from '../../../api/types.gen'
 import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
+
+// The per-root Calibre block (B5). types.ts does not re-export it, so alias
+// the generated schema here (spec-accurate: the root-folder endpoints mask
+// the password on read and compute HardlinksDisabled).
+type CalibreSettings = components['schemas']['CalibreSettings']
 
 // MediaManagementSection is the media-management section: naming templates
 // per media kind (TV parity first), the Radarr movie-naming block (R5b:
@@ -83,6 +90,18 @@ export function MediaManagementSection() {
   // the profiles section document.
   const [musicProfileNames, setMusicProfileNames] = useState<string[]>([])
   const [metadataProfileNames, setMetadataProfileNames] = useState<string[]>([])
+  // Readarr B5: the per-root Calibre editor. Only one root's editor is open
+  // at a time; the draft is a copy of the stored block (password blanked —
+  // it is write-only and the server masks it on read) or the factory default
+  // when the root has no Calibre config yet.
+  const [calibreEditId, setCalibreEditId] = useState<number | null>(null)
+  const [calibreDraft, setCalibreDraft] = useState<CalibreSettings | null>(null)
+  const [calibreTags, setCalibreTags] = useState('')
+  const [calibreError, setCalibreError] = useState('')
+  // Readarr B5: the seeded book profile names for the Calibre per-root
+  // quality / metadata profile selects.
+  const [bookQualityProfileNames, setBookQualityProfileNames] = useState<string[]>([])
+  const [bookMetadataProfileNames, setBookMetadataProfileNames] = useState<string[]>([])
   const [saved, setSaved] = useState(false)
   const { busy, submit } = useSubmit()
 
@@ -136,10 +155,27 @@ export function MediaManagementSection() {
     client
       .getSettingsSection<ProfilesSettings>('profiles')
       .then((p) => {
-        if (!cancelled) setMetadataProfileNames((p.metadata_profiles ?? []).map((m) => m.name))
+        if (cancelled) return
+        setMetadataProfileNames((p.metadata_profiles ?? []).map((m) => m.name))
+        // Readarr B5: the seeded book metadata profile names for the
+        // per-root Calibre picks.
+        setBookMetadataProfileNames((p.book_metadata_profiles ?? []).map((m) => m.name))
       })
       .catch(() => {
-        if (!cancelled) setMetadataProfileNames([])
+        if (!cancelled) {
+          setMetadataProfileNames([])
+          setBookMetadataProfileNames([])
+        }
+      })
+    // Readarr B5: the seeded book quality profile names for the per-root
+    // Calibre pick.
+    client
+      .getProfiles('books')
+      .then((r) => {
+        if (!cancelled) setBookQualityProfileNames(r.profiles)
+      })
+      .catch(() => {
+        if (!cancelled) setBookQualityProfileNames([])
       })
     return () => {
       cancelled = true
@@ -219,6 +255,92 @@ export function MediaManagementSection() {
       })
       .catch(() => {
         /* registry write failed; the row keeps its previous pick */
+      })
+  }
+
+  // Readarr B5: open (or close) the per-root Calibre editor. The draft is a
+  // copy of the stored block with the password blanked — the key is
+  // write-only (masked on read), so a blank password on save keeps the
+  // stored key and a typed value replaces it.
+  function openCalibre(r: RootFolder) {
+    if (calibreEditId === r.ID) {
+      setCalibreEditId(null)
+      setCalibreDraft(null)
+      return
+    }
+    const base: CalibreSettings =
+      r.Calibre ??
+      ({
+        enabled: false,
+        host: '',
+        port: 0,
+        url_base: '',
+        username: '',
+        password: '',
+        password_set: false,
+        library: '',
+        use_ssl: false,
+        output_format: '',
+        output_profile: 0,
+        monitor: false,
+        quality_profile: '',
+        metadata_profile: '',
+        default_tags: [],
+      } as CalibreSettings)
+    setCalibreDraft({ ...base, password: '' })
+    setCalibreTags((base.default_tags ?? []).join(', '))
+    setCalibreError('')
+    setCalibreEditId(r.ID)
+  }
+
+  function patchCalibre(patch: Partial<CalibreSettings>) {
+    setCalibreDraft((d) => (d ? { ...d, ...patch } : d))
+  }
+
+  // Readarr B5: save the per-root Calibre block to the registry (per-change
+  // write, like the L3 profile picks). The enabled-state mirrors the
+  // backend rules: host/port/username are required when enabled.
+  function saveCalibre() {
+    if (calibreEditId === null || !calibreDraft) return
+    if (calibreDraft.enabled) {
+      if (calibreDraft.host.trim() === '') {
+        setCalibreError('host is required when Calibre is enabled')
+        return
+      }
+      if (calibreDraft.port < 1 || calibreDraft.port > 65535) {
+        setCalibreError('port must be between 1 and 65535')
+        return
+      }
+      if (calibreDraft.username.trim() === '') {
+        setCalibreError('username is required when Calibre is enabled')
+        return
+      }
+    }
+    const tags = [
+      ...new Set(
+        calibreTags
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s !== '')
+          .map(Number)
+          .filter((n) => Number.isInteger(n)),
+      ),
+    ]
+    const block: CalibreSettings = {
+      ...calibreDraft,
+      host: calibreDraft.host.trim(),
+      username: calibreDraft.username.trim(),
+      default_tags: tags,
+    }
+    void client
+      .updateRootFolder(calibreEditId, { calibre: block })
+      .then((updated) => {
+        setRoots((prev) => prev.map((x) => (x.ID === calibreEditId ? updated : x)))
+        setCalibreEditId(null)
+        setCalibreDraft(null)
+      })
+      .catch((e: unknown) => {
+        setCalibreError(e instanceof Error ? e.message : 'failed to save Calibre config')
       })
   }
 
@@ -754,42 +876,227 @@ export function MediaManagementSection() {
             <th>Name</th>
             <th>Default Quality Profile (music)</th>
             <th>Default Metadata Profile</th>
+            <th>Calibre</th>
           </tr>
         </thead>
         <tbody>
           {roots.map((r) => (
-            <tr key={r.ID}>
-              <td>{r.Path}</td>
-              <td>{r.Name}</td>
-              <td>
-                <select
-                  value={r.DefaultQualityProfile ?? ''}
-                  onChange={(e) => applyRootProfile(r, 'default_quality_profile', e.target.value)}
-                  data-testid={`mm-root-quality-${r.ID}`}
-                >
-                  <option value="">(none)</option>
-                  {musicProfileNames.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td>
-                <select
-                  value={r.DefaultMetadataProfile ?? ''}
-                  onChange={(e) => applyRootProfile(r, 'default_metadata_profile', e.target.value)}
-                  data-testid={`mm-root-metadata-${r.ID}`}
-                >
-                  <option value="">(none)</option>
-                  {metadataProfileNames.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </td>
-            </tr>
+            <Fragment key={r.ID}>
+              <tr>
+                <td>{r.Path}</td>
+                <td>{r.Name}</td>
+                <td>
+                  <select
+                    value={r.DefaultQualityProfile ?? ''}
+                    onChange={(e) => applyRootProfile(r, 'default_quality_profile', e.target.value)}
+                    data-testid={`mm-root-quality-${r.ID}`}
+                  >
+                    <option value="">(none)</option>
+                    {musicProfileNames.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <select
+                    value={r.DefaultMetadataProfile ?? ''}
+                    onChange={(e) => applyRootProfile(r, 'default_metadata_profile', e.target.value)}
+                    data-testid={`mm-root-metadata-${r.ID}`}
+                  >
+                    <option value="">(none)</option>
+                    {metadataProfileNames.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td data-testid={`rfc-cell-${r.ID}`}>
+                  {/* Readarr B5: an enabled per-root Calibre forces hard
+                      links OFF for this root (the server computes it). */}
+                  {r.HardlinksDisabled && (
+                    <span className="pill" data-testid={`rfc-hardlinks-${r.ID}`}>
+                      hardlinks off (Calibre)
+                    </span>
+                  )}{' '}
+                  <button
+                    className="ghost"
+                    onClick={() => openCalibre(r)}
+                    data-testid={`rfc-toggle-${r.ID}`}
+                  >
+                    {calibreEditId === r.ID ? 'Hide Calibre' : 'Calibre…'}
+                  </button>
+                </td>
+              </tr>
+              {calibreEditId === r.ID && calibreDraft && (
+                <tr data-testid="rfc-row">
+                  <td colSpan={5}>
+                    <div className="subform" data-testid="rfc-form">
+                      <label className="check" htmlFor="rfc-enabled">
+                        <input
+                          id="rfc-enabled"
+                          type="checkbox"
+                          checked={calibreDraft.enabled}
+                          onChange={(e) => patchCalibre({ enabled: e.target.checked })}
+                          data-testid="rfc-enabled"
+                        />
+                        Use Calibre (Content Server)
+                      </label>
+                      <label htmlFor="rfc-host">Host</label>
+                      <input
+                        id="rfc-host"
+                        value={calibreDraft.host}
+                        onChange={(e) => patchCalibre({ host: e.target.value })}
+                        data-testid="rfc-host"
+                      />
+                      <label htmlFor="rfc-port">Port</label>
+                      <input
+                        id="rfc-port"
+                        type="number"
+                        value={calibreDraft.port}
+                        onChange={(e) => patchCalibre({ port: Number(e.target.value) || 0 })}
+                        data-testid="rfc-port"
+                      />
+                      <label htmlFor="rfc-urlbase">URL base</label>
+                      <input
+                        id="rfc-urlbase"
+                        value={calibreDraft.url_base}
+                        onChange={(e) => patchCalibre({ url_base: e.target.value })}
+                        placeholder="/calibre"
+                        data-testid="rfc-urlbase"
+                      />
+                      <label htmlFor="rfc-user">Username</label>
+                      <input
+                        id="rfc-user"
+                        value={calibreDraft.username}
+                        onChange={(e) => patchCalibre({ username: e.target.value })}
+                        data-testid="rfc-user"
+                      />
+                      <label htmlFor="rfc-pass">
+                        Password{' '}
+                        {calibreDraft.password_set && '(stored — blank to keep)'}
+                      </label>
+                      <input
+                        id="rfc-pass"
+                        type="password"
+                        value={calibreDraft.password}
+                        onChange={(e) => patchCalibre({ password: e.target.value })}
+                        data-testid="rfc-pass"
+                      />
+                      <label htmlFor="rfc-library">Library name</label>
+                      <input
+                        id="rfc-library"
+                        value={calibreDraft.library}
+                        onChange={(e) => patchCalibre({ library: e.target.value })}
+                        data-testid="rfc-library"
+                      />
+                      <label className="check" htmlFor="rfc-ssl">
+                        <input
+                          id="rfc-ssl"
+                          type="checkbox"
+                          checked={calibreDraft.use_ssl}
+                          onChange={(e) => patchCalibre({ use_ssl: e.target.checked })}
+                          data-testid="rfc-ssl"
+                        />
+                        Use SSL
+                      </label>
+                      <label className="check" htmlFor="rfc-monitor">
+                        <input
+                          id="rfc-monitor"
+                          type="checkbox"
+                          checked={calibreDraft.monitor}
+                          onChange={(e) => patchCalibre({ monitor: e.target.checked })}
+                          data-testid="rfc-monitor"
+                        />
+                        Auto-import into Calibre on import
+                      </label>
+                      <label htmlFor="rfc-output-format">Convert to (comma-separated formats)</label>
+                      <input
+                        id="rfc-output-format"
+                        list="rfc-formats"
+                        value={calibreDraft.output_format}
+                        onChange={(e) => patchCalibre({ output_format: e.target.value })}
+                        placeholder="MOBI, EPUB"
+                        data-testid="rfc-output-format"
+                      />
+                      <datalist id="rfc-formats">
+                        {CALIBRE_OUTPUT_FORMATS.map((f) => (
+                          <option key={f} value={f} />
+                        ))}
+                      </datalist>
+                      <label htmlFor="rfc-output-profile">Output profile (0 = default)</label>
+                      <input
+                        id="rfc-output-profile"
+                        type="number"
+                        value={calibreDraft.output_profile}
+                        onChange={(e) =>
+                          patchCalibre({ output_profile: Number(e.target.value) || 0 })
+                        }
+                        data-testid="rfc-output-profile"
+                      />
+                      <label htmlFor="rfc-quality">Quality profile (this root's books)</label>
+                      <select
+                        id="rfc-quality"
+                        value={calibreDraft.quality_profile}
+                        onChange={(e) => patchCalibre({ quality_profile: e.target.value })}
+                        data-testid="rfc-quality"
+                      >
+                        <option value="">(app default)</option>
+                        {bookQualityProfileNames.map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                      <label htmlFor="rfc-metadata">Metadata profile (this root's books)</label>
+                      <select
+                        id="rfc-metadata"
+                        value={calibreDraft.metadata_profile}
+                        onChange={(e) => patchCalibre({ metadata_profile: e.target.value })}
+                        data-testid="rfc-metadata"
+                      >
+                        <option value="">(app default)</option>
+                        {bookMetadataProfileNames.map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                      <label htmlFor="rfc-tags">Default tag ids (comma-separated)</label>
+                      <input
+                        id="rfc-tags"
+                        value={calibreTags}
+                        onChange={(e) => setCalibreTags(e.target.value)}
+                        placeholder="1, 2"
+                        data-testid="rfc-tags"
+                      />
+                      {calibreError && (
+                        <p className="pill pill-bad" data-testid="rfc-error">
+                          {calibreError}
+                        </p>
+                      )}
+                      <div>
+                        <button onClick={saveCalibre} data-testid="rfc-save">
+                          Save Calibre
+                        </button>{' '}
+                        <button
+                          className="ghost"
+                          onClick={() => {
+                            setCalibreEditId(null)
+                            setCalibreDraft(null)
+                          }}
+                          data-testid="rfc-cancel"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
       </table>

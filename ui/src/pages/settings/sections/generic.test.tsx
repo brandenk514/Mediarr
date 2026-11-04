@@ -1192,4 +1192,139 @@ describe('MediaManagementSection', () => {
       ),
     )
   })
+
+  it('opens the per-root Calibre editor, saves an enabled block, and shows the hardlinks indicator (B5)', async () => {
+    const user = userEvent.setup()
+    // One books root with no Calibre config yet.
+    ;(client.listRootFolders as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        ID: 1,
+        Path: '/srv/books',
+        Name: 'Books',
+        CreatedAt: '2026-01-01T00:00:00Z',
+        FreeSpace: null,
+        Calibre: null,
+        HardlinksDisabled: false,
+      },
+    ])
+    // The registry echo returns the full B5 wire shape: the requested block
+    // (password masked) and the computed hard-links rule.
+    ;(client.updateRootFolder as ReturnType<typeof vi.fn>).mockImplementation(
+      async (id: number, req: { calibre?: unknown }) => {
+        const c = req.calibre as Record<string, unknown> | undefined
+        return {
+          ID: id,
+          Path: '/srv/books',
+          Name: 'Books',
+          CreatedAt: '2026-01-01T00:00:00Z',
+          FreeSpace: null,
+          DefaultQualityProfile: '',
+          DefaultMetadataProfile: '',
+          Calibre: c ? { ...c, password: '' } : null,
+          HardlinksDisabled: !!c?.enabled,
+        } as never
+      },
+    )
+    renderSection(<MediaManagementSection />)
+    await screen.findByTestId('rfc-cell-1')
+    // No hardlinks pill while Calibre is unset.
+    expect(screen.queryByTestId('rfc-hardlinks-1')).not.toBeInTheDocument()
+
+    // Open the editor and configure an enabled Content Server.
+    await user.click(screen.getByTestId('rfc-toggle-1'))
+    await screen.findByTestId('rfc-form')
+    await user.click(screen.getByTestId('rfc-enabled'))
+    await user.type(screen.getByTestId('rfc-host'), 'calibre.lan')
+    fireEvent.change(screen.getByTestId('rfc-port'), { target: { value: '8080' } })
+    await user.type(screen.getByTestId('rfc-user'), 'mediarr')
+    await user.type(screen.getByTestId('rfc-pass'), 'sekrit')
+    await user.type(screen.getByTestId('rfc-library'), 'Books')
+    fireEvent.change(screen.getByTestId('rfc-tags'), { target: { value: '1, 2' } })
+    await user.click(screen.getByTestId('rfc-save'))
+
+    // The full block goes to the registry (tags parsed to ints).
+    await waitFor(() =>
+      expect(client.updateRootFolder).toHaveBeenCalledWith(1, {
+        calibre: expect.objectContaining({
+          enabled: true,
+          host: 'calibre.lan',
+          port: 8080,
+          username: 'mediarr',
+          password: 'sekrit',
+          password_set: false,
+          library: 'Books',
+          monitor: false,
+          default_tags: [1, 2],
+        }),
+      }),
+    )
+    // The echo flips the computed rule: the row now shows the indicator.
+    await waitFor(() => expect(screen.getByTestId('rfc-hardlinks-1')).toBeInTheDocument())
+    // The editor closed after the save.
+    expect(screen.queryByTestId('rfc-form')).not.toBeInTheDocument()
+  })
+
+  it('keeps the stored password when the Calibre field is left blank (B5 masked round-trip)', async () => {
+    const user = userEvent.setup()
+    // A root whose Calibre is already enabled with a stored (masked) key.
+    const stored = {
+      enabled: true,
+      host: 'old.lan',
+      port: 1234,
+      url_base: '',
+      username: 'olduser',
+      password: '', // masked on read
+      password_set: true,
+      library: 'Lib',
+      use_ssl: false,
+      output_format: '',
+      output_profile: 0,
+      monitor: true,
+      quality_profile: '',
+      metadata_profile: '',
+      default_tags: [5],
+    }
+    ;(client.listRootFolders as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        ID: 1,
+        Path: '/srv/books',
+        Name: 'Books',
+        CreatedAt: '2026-01-01T00:00:00Z',
+        FreeSpace: null,
+        Calibre: stored,
+        HardlinksDisabled: true,
+      },
+    ])
+    renderSection(<MediaManagementSection />)
+    // The seeded rule shows the indicator on load.
+    expect(await screen.findByTestId('rfc-hardlinks-1')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('rfc-toggle-1'))
+    const form = await screen.findByTestId('rfc-form')
+    // The draft is pre-filled from the stored block, the password stays
+    // blank, and the label hints the stored key is kept.
+    expect(screen.getByTestId('rfc-enabled')).toBeChecked()
+    expect(screen.getByTestId('rfc-host')).toHaveValue('old.lan')
+    expect(screen.getByTestId('rfc-pass')).toHaveValue('')
+    expect(form).toHaveTextContent('(stored — blank to keep)')
+
+    // Change only the host; leave the password blank and save.
+    await user.clear(screen.getByTestId('rfc-host'))
+    await user.type(screen.getByTestId('rfc-host'), 'new.lan')
+    await user.click(screen.getByTestId('rfc-save'))
+    await waitFor(() =>
+      expect(client.updateRootFolder).toHaveBeenCalledWith(1, {
+        calibre: expect.objectContaining({
+          enabled: true,
+          host: 'new.lan',
+          port: 1234,
+          username: 'olduser',
+          password: '', // blank -> the server keeps the stored key
+          password_set: true,
+          monitor: true,
+          default_tags: [5],
+        }),
+      }),
+    )
+  })
 })
