@@ -548,25 +548,120 @@ function BooksAccordion({ titles, onToggle }: { titles: Title[]; onToggle: () =>
 }
 
 // TitleSeries shows the series-membership badges for a book (the many-to-many
-// book↔series link surface).
+// book↔series link surface) plus the Readarr B4 "add to series" control:
+// link the book into an existing series (POST /books/titles/{id}/series) or
+// name a new one (POST /books/series, idempotent by name, then link).
 function TitleSeries({ titleId }: { titleId: number }) {
   const [list, setList] = useState<BookSeries[] | null>(null)
+  const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
     client
       .listTitleSeries(titleId)
       .then(setList)
       .catch(() => setList([]))
-  }, [titleId])
+  }, [titleId, refresh])
 
-  if (!list || list.length === 0) return null
   return (
-    <span data-testid={`book-series-${titleId}`}>
-      {list.map((s) => (
+    <span
+      data-testid={`book-series-${titleId}`}
+      style={{ display: 'inline-flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}
+    >
+      {(list ?? []).map((s) => (
         <Badge key={s.ID} tone="teal" testId={`book-series-badge-${s.ID}`}>
           {s.Name}
         </Badge>
       ))}
+      <AddToSeries titleId={titleId} onLinked={() => setRefresh((k) => k + 1)} />
+    </span>
+  )
+}
+
+// AddToSeries is the link-a-title control inside the book detail: a pick of
+// the existing series, or a new series name (created idempotently first),
+// then the title↔series link.
+function AddToSeries({ titleId, onLinked }: { titleId: number; onLinked: () => void }) {
+  const [allSeries, setAllSeries] = useState<BookSeries[] | null>(null)
+  const [selected, setSelected] = useState(0)
+  const [newName, setNewName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    client
+      .listBookSeries()
+      .then(setAllSeries)
+      .catch(() => setAllSeries([]))
+  }, [])
+
+  const canLink =
+    newName.trim() !== '' || (allSeries !== null && allSeries.some((s) => s.ID === selected))
+
+  async function link() {
+    if (busy || !allSeries) return
+    setBusy(true)
+    setError(null)
+    try {
+      let seriesId = 0
+      const trimmed = newName.trim()
+      if (trimmed) {
+        // A new name creates the series first (idempotent by name), then
+        // links the book into it.
+        const created = await client.addBookSeries({ name: trimmed })
+        seriesId = created.id
+      } else {
+        const s = allSeries.find((x) => x.ID === selected)
+        if (!s) return
+        seriesId = s.ID
+      }
+      await client.linkTitleToSeries(titleId, seriesId)
+      setNewName('')
+      setSelected(0)
+      onLinked()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'failed to add to series')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <span
+      data-testid={`book-series-add-${titleId}`}
+      style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}
+    >
+      <select
+        value={selected}
+        onChange={(e) => setSelected(Number(e.target.value))}
+        aria-label={`Series for this book`}
+        data-testid={`book-series-add-select-${titleId}`}
+      >
+        {(allSeries ?? []).map((s) => (
+          <option key={s.ID} value={s.ID}>
+            {s.Name}
+          </option>
+        ))}
+      </select>
+      <input
+        value={newName}
+        onChange={(e) => setNewName(e.target.value)}
+        placeholder="New series name"
+        aria-label="New series name"
+        data-testid={`book-series-add-name-${titleId}`}
+      />
+      <button
+        type="button"
+        onClick={link}
+        disabled={busy || !canLink}
+        data-testid={`book-series-add-btn-${titleId}`}
+      >
+        Add
+      </button>
+      {error && (
+        <span className="error" data-testid={`book-series-add-error-${titleId}`}>
+          {error}
+        </span>
+      )}
     </span>
   )
 }
