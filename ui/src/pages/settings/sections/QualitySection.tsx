@@ -12,6 +12,11 @@ import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 // Lidarr L3 adds the music quality definitions (music_levels, the 200+ id
 // space): a 38-row lossy/lossless ladder rendered read-mostly (Quality ·
 // Title · Size Limit, 0 = "Unlimited") with a "Reset Definitions" button.
+//
+// Readarr B3 adds the book quality definitions (book_levels, the 300+ id
+// space): ONE unified table — the e-book format-preference entries (EPUB /
+// AZW3 / MOBI) plus the a-book lossless/lossy ladder (the music ladder
+// re-based at +110) — with a "Reset Book Definitions" button.
 
 // FACTORY_MUSIC_LEVELS mirrors internal/settings.DefaultMusicLevels() (the
 // 38-row Lidarr ladder, best-first: the lossless group, then High/Mid/Low/
@@ -68,6 +73,22 @@ const FACTORY_MUSIC_LEVELS: QualityLevel[] = (
   size_limit_mb: sizeLimitMb,
 }))
 
+// FACTORY_BOOK_LEVELS mirrors internal/settings.DefaultBookLevels() (the
+// Readarr B3 unified book ladder, 41 rows): the three e-book
+// format-preference entries (EPUB/AZW3/MOBI, ids 300-302), then the a-book
+// lossless/lossy ladder, which is the music ladder re-based into the book
+// id space (music id + 110, same names/groups/size limits/order). It is
+// derived from FACTORY_MUSIC_LEVELS so the two factory tables can't drift
+// apart. There is no reset endpoint on the server — the "Reset Definitions"
+// button PUTs the document with this table, so it must stay in lockstep with
+// the backend seed if that changes.
+const FACTORY_BOOK_LEVELS: QualityLevel[] = [
+  { id: 300, name: 'EPUB', group: 'E-book', source: '', resolution: '', size_limit_mb: 0 },
+  { id: 301, name: 'AZW3', group: 'E-book', source: '', resolution: '', size_limit_mb: 0 },
+  { id: 302, name: 'MOBI', group: 'E-book', source: '', resolution: '', size_limit_mb: 0 },
+  ...FACTORY_MUSIC_LEVELS.map((l) => ({ ...l, id: l.id + 110 })),
+]
+
 // sizeLimit renders the Size Limit column the Lidarr way: 0 = "Unlimited".
 function sizeLimit(mb: number): string {
   return mb === 0 ? 'Unlimited' : `${mb} MB`
@@ -81,6 +102,8 @@ export function QualitySection() {
   // Lidarr L3: the music ladder. A missing key (pre-L3 documents) seeds an
   // empty table — the block renders its empty state rather than throwing.
   const [musicLevels, setMusicLevels] = useState<QualityLevel[]>([])
+  // Readarr B3: the unified book ladder (e-book entries + a-book ladder).
+  const [bookLevels, setBookLevels] = useState<QualityLevel[]>([])
   const [saved, setSaved] = useState(false)
   const { busy, submit } = useSubmit()
 
@@ -89,6 +112,7 @@ export function QualitySection() {
       setLevels(doc.levels)
       setMovieLevels(doc.movie_levels ?? [])
       setMusicLevels(doc.music_levels ?? [])
+      setBookLevels(doc.book_levels ?? [])
     }
   }, [doc])
 
@@ -108,10 +132,19 @@ export function QualitySection() {
     setMusicLevels((prev) => prev.map((l) => (l.id === id ? { ...l, [field]: value } : l)))
   }
 
+  function patchBookLevel(id: number, field: keyof QualityLevel, value: string | number) {
+    setBookLevels((prev) => prev.map((l) => (l.id === id ? { ...l, [field]: value } : l)))
+  }
+
   function handleSave() {
     if (!doc) return
     void submit(async () => {
-      const next: QualitySettings = { levels, movie_levels: movieLevels, music_levels: musicLevels }
+      const next: QualitySettings = {
+        levels,
+        movie_levels: movieLevels,
+        music_levels: musicLevels,
+        book_levels: bookLevels,
+      }
       await client.putSettingsSection<QualitySettings>('quality', next)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -129,6 +162,26 @@ export function QualitySection() {
         levels,
         movie_levels: movieLevels,
         music_levels: FACTORY_MUSIC_LEVELS,
+        book_levels: bookLevels,
+      }
+      await client.putSettingsSection<QualitySettings>('quality', next)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    })
+  }
+
+  // Reset Book Definitions: PUT the full document with the factory book
+  // ladder (same pattern as the music reset — the server has no reset
+  // endpoint; the factory table is a component constant).
+  function handleResetBooks() {
+    if (!doc) return
+    setBookLevels(FACTORY_BOOK_LEVELS)
+    void submit(async () => {
+      const next: QualitySettings = {
+        levels,
+        movie_levels: movieLevels,
+        music_levels: musicLevels,
+        book_levels: FACTORY_BOOK_LEVELS,
       }
       await client.putSettingsSection<QualitySettings>('quality', next)
       setSaved(true)
@@ -269,6 +322,48 @@ export function QualitySection() {
       )}
       <button onClick={handleResetMusic} disabled={busy || loading} data-testid="music-quality-reset">
         Reset Definitions
+      </button>
+
+      {/* Readarr B3: the unified book quality definitions — the e-book
+          format-preference entries and the a-book lossless/lossy ladder in
+          ONE table (the Readarr "Quality" section shape). */}
+      <h4>Book quality definitions</h4>
+      <p className="dim small">
+        E-book formats and the a-book (audiobook) ladder in one unified table.
+      </p>
+      {bookLevels.length === 0 && <p className="dim small">No book quality definitions.</p>}
+      {bookLevels.length > 0 && (
+        <table className="table" data-testid="book-quality-table">
+          <thead>
+            <tr>
+              <th>Quality</th>
+              <th>Title</th>
+              <th>Size Limit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bookLevels.map((l) => (
+              <tr key={l.id} data-testid={`book-quality-row-${l.id}`}>
+                <td>
+                  <input
+                    value={l.name}
+                    onChange={(e) => patchBookLevel(l.id, 'name', e.target.value)}
+                    data-testid={`book-quality-name-${l.id}`}
+                  />
+                </td>
+                <td data-testid={`book-quality-group-${l.id}`}>{l.group}</td>
+                <td data-testid={`book-quality-size-${l.id}`}>{sizeLimit(l.size_limit_mb)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <button
+        onClick={handleResetBooks}
+        disabled={busy || loading || bookLevels.length === 0}
+        data-testid="book-quality-reset"
+      >
+        Reset Book Definitions
       </button>
       {saved && (
         <p className="pill pill-ok" data-testid="quality-saved">
