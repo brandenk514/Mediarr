@@ -26,6 +26,7 @@ import type {
   BookAuthorSeries,
   BookFile,
   BookHistoryEntry,
+  BookLookupResult,
   BookSeries,
   BookSeriesBook,
   LinkedSeriesResult,
@@ -88,6 +89,7 @@ import type {
   Track,
   TrackMonitoredResult,
   UpdateArtistRequest,
+  UpdateAuthorRequest,
   UpdateSeriesRequest,
   GlobalHistoryItem,
   BlocklistEntry,
@@ -314,6 +316,11 @@ export const client = {
   listAuthors: (q?: ListQuery) => request<PageAuthor>('GET', `/books/authors${buildListQuery(q)}`),
   getAuthor: (id: number) => request<Author>('GET', `/books/authors/${id}`),
   addAuthor: (req: AddAuthorRequest) => request<AddedId>('POST', '/books/authors', req),
+  // Readarr B2: the Edit Author modal's full author update. Omitted fields
+  // keep their current value; a body with only `monitored` toggles
+  // monitoring and fans out to the author's known titles.
+  updateAuthor: (id: number, req: UpdateAuthorRequest) =>
+    request<MonitoredResult>('PUT', `/books/authors/${id}`, req),
   setAuthorMonitored: (id: number, monitored: boolean) =>
     request<MonitoredResult>('PUT', `/books/authors/${id}`, { monitored }),
   listTitles: (authorId: number) => request<Title[]>('GET', `/books/authors/${authorId}/titles`),
@@ -599,6 +606,11 @@ export const client = {
     request<ArtistSearchResult>('GET', `/search/artists?query=${encodeURIComponent(q)}`),
   searchBookAuthors: (q: string) =>
     request<SearchResult[]>('GET', `/search/books/authors?query=${encodeURIComponent(q)}`),
+  // Readarr B2: the combined plain-text books lookup (Open Library author +
+  // work search in one call, kind-tagged hits; authors first). The old
+  // authors/works endpoints stay for the later metadata work item.
+  lookupBooks: (q: string) =>
+    request<BookLookupResult[]>('GET', `/search/books/lookup?query=${encodeURIComponent(q)}`),
   searchBookWorks: (q: string, author: string) => {
     const params = new URLSearchParams()
     params.set('query', q)

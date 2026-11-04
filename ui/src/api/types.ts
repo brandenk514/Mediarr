@@ -58,6 +58,10 @@ export type MusicLibrarySummary = components["schemas"]["MusicLibrarySummary"]
 export type UnmappedFile = components["schemas"]["UnmappedFile"]
 export type Author = components["schemas"]["Author"]
 export type AddAuthorRequest = components["schemas"]["AddAuthorRequest"]
+// Readarr B2: the Edit Author modal's full author update, and the combined
+// Open Library lookup (kind-tagged author/book hits).
+export type UpdateAuthorRequest = components["schemas"]["UpdateAuthorRequest"]
+export type BookLookupResult = components["schemas"]["BookLookupResult"]
 export type BookTitle = components["schemas"]["BookTitle"]
 export type AddTitleRequest = components["schemas"]["AddTitleRequest"]
 export type Edition = components["schemas"]["Edition"]
