@@ -19,6 +19,7 @@ import { MovieDetailPage } from './pages/movies/MovieDetail'
 import { SeriesDetailPage } from './pages/tv/SeriesDetail'
 import { ArtistDetailPage } from './pages/music/ArtistDetail'
 import { AuthorDetailPage } from './pages/books/AuthorDetail'
+import { UnmappedBooksFilesPage } from './pages/books/UnmappedFiles'
 import { UnmappedFilesPage } from './pages/music/UnmappedFiles'
 import { LibraryImportPage } from './pages/tv/LibraryImport'
 import { CalendarPage } from './pages/Calendar'
@@ -79,6 +80,9 @@ export default function App() {
             ranks above /music/:id). */}
         <Route path="/music/:id" element={<ArtistDetailPage />} />
         <Route path="/books/add" element={<BookAddPage />} />
+        {/* Readarr B3: the Unmapped Files page (static, ranks above
+            /books/:id). */}
+        <Route path="/books/unmapped" element={<UnmappedBooksFilesPage />} />
         {/* Readarr B1: the author detail deep route (the static /books/add
             ranks above /books/:id). */}
         <Route path="/books/:id" element={<AuthorDetailPage />} />
