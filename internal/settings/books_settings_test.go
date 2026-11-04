@@ -61,12 +61,20 @@ func TestB5_BookManagementValidation(t *testing.T) {
 		fn   func() BookFileManagement
 		want string
 	}{
-		{"bad propers", func() BookFileManagement { m := DefaultBookManagement(); m.DownloadPropersAndRepacks = "maybe"; return m }, "download_propers_and_repacks"},
+		{"bad propers", func() BookFileManagement {
+			m := DefaultBookManagement()
+			m.DownloadPropersAndRepacks = "maybe"
+			return m
+		}, "download_propers_and_repacks"},
 		{"bad file date", func() BookFileManagement { m := DefaultBookManagement(); m.FileDate = "now"; return m }, "file_date"},
 		{"bad rescan", func() BookFileManagement { m := DefaultBookManagement(); m.RescanAfterRefresh = "sometimes"; return m }, "rescan_after_refresh"},
 		{"bad fingerprint", func() BookFileManagement { m := DefaultBookManagement(); m.AllowFingerprinting = "kinda"; return m }, "allow_fingerprinting"},
 		{"negative recycle days", func() BookFileManagement { m := DefaultBookManagement(); m.RecycleBinCleanupDays = -1; return m }, "recycle_bin_cleanup_days"},
-		{"negative free space", func() BookFileManagement { m := DefaultBookManagement(); m.MinimumFreeSpaceWhenImportingGB = -1; return m }, "min_free_space_gb"},
+		{"negative free space", func() BookFileManagement {
+			m := DefaultBookManagement()
+			m.MinimumFreeSpaceWhenImportingGB = -1
+			return m
+		}, "min_free_space_gb"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -109,8 +117,11 @@ func TestB5_CalibreValidation(t *testing.T) {
 	if got := en(func(c *CalibreSettings) { c.Username = "" }).Validate(); !strings.Contains(got, "username") {
 		t.Errorf("missing username: got %q", got)
 	}
-	if got := en(func(c *CalibreSettings) { c.ConvertToFormat = "PDF" }).Validate(); !strings.Contains(got, "convert_to_format") {
+	if got := en(func(c *CalibreSettings) { c.OutputFormat = "PDF" }).Validate(); !strings.Contains(got, "output format") {
 		t.Errorf("bad format: got %q", got)
+	}
+	if got := en(func(c *CalibreSettings) { c.OutputFormat = "MOBI,EPUB" }).Validate(); got != "" {
+		t.Errorf("valid multi-format should pass, got %q", got)
 	}
 }
 

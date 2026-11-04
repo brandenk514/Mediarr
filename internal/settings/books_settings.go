@@ -233,8 +233,9 @@ const CalibreEnabledFlag = "calibre_enabled"
 // blank on write keeps the stored value (the indexer masked-edit convention);
 // it is vault-encrypted at rest by the Postgres root-folder repo.
 type CalibreSettings struct {
-	// Enabled is this root folder's "Use Calibre" toggle (the per-root flag;
-	// it is also gated by the global CalibreEnabled flag above).
+	// Enabled is this root folder's "Use Calibre" toggle (Readarr's
+	// IsCalibreLibrary; the per-root flag, also gated by the global
+	// CalibreEnabled feature flag).
 	Enabled bool `json:"enabled"`
 
 	// Content Server connection.
@@ -248,19 +249,21 @@ type CalibreSettings struct {
 	// UseSSL uses an HTTPS Content Server connection.
 	UseSSL bool `json:"use_ssl"`
 
-	// ConvertToFormat / OutputProfile: the target format and the Calibre
-	// output profile to convert to.
-	ConvertToFormat string `json:"convert_to_format"`
-	OutputProfile   string `json:"output_profile"`
+	// OutputFormat is the comma-separated list of Calibre output formats to
+	// convert to (the "Convert to" formats: MOBI, EPUB, AZW3, ...); "" = no
+	// conversion (just import). OutputProfile is the Calibre output (device)
+	// profile index to convert with (0 = default).
+	OutputFormat  string `json:"output_format"`
+	OutputProfile int    `json:"output_profile"`
 
 	// Monitor, when true, auto-imports this root's books into Calibre on
 	// import. QualityProfile / MetadataProfile are the NAMEs of the seeded
 	// book profiles to apply to this root's books ("" = the app default).
-	// DefaultTags is a comma-separated tag list written to this root's books.
+	// DefaultTags is the set of tag ids written to this root's books.
 	Monitor         bool   `json:"monitor"`
 	QualityProfile  string `json:"quality_profile"`
 	MetadataProfile string `json:"metadata_profile"`
-	DefaultTags     string `json:"default_tags"`
+	DefaultTags     []int  `json:"default_tags"`
 }
 
 // CalibreConvertFormats is the set of Calibre output formats a root can
@@ -275,20 +278,30 @@ var CalibreConvertFormats = []string{
 // conversion.
 func DefaultCalibre() CalibreSettings {
 	return CalibreSettings{
-		Enabled:         false,
-		ConvertToFormat: "MOBI",
-		OutputProfile:   "",
-		Monitor:         false,
+		Enabled:       false,
+		OutputFormat:  "MOBI",
+		OutputProfile: 0,
+		Monitor:       false,
+		DefaultTags:   []int{},
 	}
 }
 
 // Validate checks a per-root Calibre config. When disabled the connection
 // fields are not required (a half-configured-but-off root is legal); when
-// enabled the Content Server host/port/username are required. ConvertToFormat
-// (when set) must be a known Calibre format.
+// enabled the Content Server host/port/username are required. OutputFormat
+// (when set) must be a comma-separated list of known Calibre formats and
+// OutputProfile must be non-negative.
 func (c CalibreSettings) Validate() string {
-	if c.ConvertToFormat != "" && !containsString(CalibreConvertFormats, c.ConvertToFormat) {
-		return fmt.Sprintf("calibre: unknown convert_to_format %q", c.ConvertToFormat)
+	if c.OutputFormat != "" {
+		for _, f := range strings.Split(c.OutputFormat, ",") {
+			f = strings.TrimSpace(f)
+			if !containsString(CalibreConvertFormats, f) {
+				return fmt.Sprintf("calibre: unknown output format %q", f)
+			}
+		}
+	}
+	if c.OutputProfile < 0 {
+		return "calibre: output_profile must be >= 0"
 	}
 	if !c.Enabled {
 		return ""
