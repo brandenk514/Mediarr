@@ -155,7 +155,7 @@ func (s *Server) lookupBooks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "books is not configured")
 		return
 	}
-	q := r.URL.Query().Get("q")
+	q := r.URL.Query().Get("query")
 	results, err := s.booksDeps.Svc.BooksLookup(r.Context(), q)
 	if err != nil {
 		if errors.Is(err, bookssvc.ErrSearcherNotConfigured) {

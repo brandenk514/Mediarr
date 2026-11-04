@@ -116,7 +116,7 @@ func TestBooksB2_LookupAndAddFlow(t *testing.T) {
 
 	// 1. Combined lookup against an empty library: 2 author + 2 book hits,
 	//    none added. Authors come first, then books.
-	rec := c.get(t, "/api/v1/search/books/lookup?q=ursula")
+	rec := c.get(t, "/api/v1/search/books/lookup?query=ursula")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("lookup status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -214,7 +214,7 @@ func TestBooksB2_LookupAndAddFlow(t *testing.T) {
 	}
 
 	// 5. Re-run the lookup: the author and book are now added with ids.
-	rec = c.get(t, "/api/v1/search/books/lookup?q=ursula")
+	rec = c.get(t, "/api/v1/search/books/lookup?query=ursula")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("lookup(after) status = %d", rec.Code)
 	}
@@ -239,11 +239,30 @@ func TestBooksB2_LookupAndAddFlow(t *testing.T) {
 	}
 }
 
+// TestBooksB2_LookupQueryParam is the spec-conformance guard: the spec
+// declares the `query` param (components/parameters/SearchQuery) and the UI
+// client sends `?query=`, so a lookup using the spec param must return hits
+// (regression: the handler once read `q` and silently answered 200 []).
+func TestBooksB2_LookupQueryParam(t *testing.T) {
+	c := newBooksB2Server(t, newKindsBooksRepo())
+	rec := c.get(t, "/api/v1/search/books/lookup?query=ursula")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lookup status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var hits []bookLookupResult
+	if err := json.NewDecoder(rec.Body).Decode(&hits); err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 4 {
+		t.Fatalf("lookup(?query=) hits = %d, want 4: %+v", len(hits), hits)
+	}
+}
+
 // TestBooksB2_LookupEmptyQuery verifies the degenerate endpoint path: a blank
-// q returns an empty list (200), not an error.
+// query returns an empty list (200), not an error.
 func TestBooksB2_LookupEmptyQuery(t *testing.T) {
 	c := newBooksB2Server(t, newKindsBooksRepo())
-	rec := c.get(t, "/api/v1/search/books/lookup?q=")
+	rec := c.get(t, "/api/v1/search/books/lookup?query=")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("lookup(empty) status = %d", rec.Code)
 	}
