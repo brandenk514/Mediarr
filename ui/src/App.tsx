@@ -18,6 +18,7 @@ import { SettingsShell } from './pages/settings/SettingsShell'
 import { MovieDetailPage } from './pages/movies/MovieDetail'
 import { SeriesDetailPage } from './pages/tv/SeriesDetail'
 import { ArtistDetailPage } from './pages/music/ArtistDetail'
+import { AuthorDetailPage } from './pages/books/AuthorDetail'
 import { UnmappedFilesPage } from './pages/music/UnmappedFiles'
 import { LibraryImportPage } from './pages/tv/LibraryImport'
 import { CalendarPage } from './pages/Calendar'
@@ -78,6 +79,9 @@ export default function App() {
             ranks above /music/:id). */}
         <Route path="/music/:id" element={<ArtistDetailPage />} />
         <Route path="/books/add" element={<BookAddPage />} />
+        {/* Readarr B1: the author detail deep route (the static /books/add
+            ranks above /books/:id). */}
+        <Route path="/books/:id" element={<AuthorDetailPage />} />
         {/* Radarr R3: static collection/discover routes rank above the
             /movies/:id deep route (same as /movies/add). */}
         <Route path="/movies/collections" element={<MovieCollectionsPage />} />
