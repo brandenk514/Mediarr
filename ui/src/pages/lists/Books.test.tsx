@@ -1,9 +1,9 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
-import type { Book, PageAuthor } from '../../api/types'
+import type { Author, Book, PageAuthor } from '../../api/types'
 import { BooksPage } from './Books'
 import { AuthorDetailPage } from '../books/AuthorDetail'
 
@@ -28,11 +28,25 @@ vi.mock('../../api/client', () => ({
     listBookFiles: vi.fn(),
     listAuthorHistory: vi.fn(),
     setEditionMonitored: vi.fn(),
+    // Readarr B2 Edit Author modal pickers + full author update.
+    updateAuthor: vi.fn(),
+    listRootFolders: vi.fn(),
+    getProfiles: vi.fn(),
   },
 }))
 
-const AUTHORS = [
-  { ID: 1, Name: 'Ursula K. Le Guin', Monitored: true, AddedAt: '2026-11-01T00:00:00Z' },
+const AUTHORS: Author[] = [
+  {
+    ID: 1,
+    Name: 'Ursula K. Le Guin',
+    Monitored: true,
+    AddedAt: '2026-11-01T00:00:00Z',
+    // Readarr B2 fields, exercised by the Edit Author modal tests.
+    MonitorPolicy: 'existing',
+    RootFolder: '/media/books',
+    QualityProfile: 'EPUB',
+    Tags: ['sci-fi'],
+  },
   { ID: 2, Name: 'K. William Wilson', Monitored: false, AddedAt: '2026-11-01T00:00:00Z' },
 ]
 
@@ -194,5 +208,89 @@ describe('BooksPage (Readarr B1 dual view)', () => {
     await user.click(within(card).getByRole('button'))
 
     expect(screen.getByTestId('probe-location')).toHaveTextContent('/books/1')
+  })
+})
+
+// Readarr B2: the Edit Author modal on the author detail — pre-filled from
+// the loaded author and persisted through the full author-update PUT.
+describe('AuthorDetailPage (Readarr B2 Edit Author modal)', () => {
+  function mockAuthorDetail() {
+    vi.mocked(client.getAuthor).mockResolvedValue(AUTHORS[0]! as never)
+    vi.mocked(client.listTitles).mockResolvedValue([])
+    vi.mocked(client.listAuthorSeries).mockResolvedValue([])
+    vi.mocked(client.listRootFolders).mockResolvedValue([
+      { ID: 1, Path: '/media/books', Name: 'Books', CreatedAt: '', FreeSpace: 100 * 1024 ** 3 },
+    ] as never)
+    vi.mocked(client.getProfiles).mockResolvedValue({
+      profiles: ['EPUB', 'MOBI'],
+      default: 'EPUB',
+    } as never)
+  }
+
+  async function openEditModal(user: ReturnType<typeof userEvent.setup>) {
+    renderWithProbe()
+    const grid = await screen.findByTestId('books-authors-grid')
+    const card = within(grid).getByTestId('author-card-1')
+    await user.click(within(card).getByRole('button'))
+    await user.click(await screen.findByTestId('author-detail-edit'))
+    await screen.findByTestId('edit-modal')
+  }
+
+  it('opens the modal pre-filled from the loaded author (policy, root folder, profile, tags, monitored)', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    mockAuthorDetail()
+    const user = userEvent.setup()
+    await openEditModal(user)
+
+    expect(screen.getByTestId('edit-monitored')).toBeChecked()
+    expect(screen.getByTestId('edit-monitor-policy')).toHaveValue('existing')
+    expect(screen.getByTestId('edit-root-folder')).toHaveValue('/media/books')
+    expect(screen.getByTestId('edit-profile')).toHaveValue('EPUB')
+    expect(screen.getByTestId('edit-tags-chips')).toHaveTextContent('sci-fi')
+    // The metadata profile is a B3 stub: present but disabled.
+    expect(screen.getByTestId('edit-metadata-profile')).toBeDisabled()
+    expect(
+      screen.getByText('Metadata profiles land in a later phase (B3).'),
+    ).toBeInTheDocument()
+    // The 7 monitor states render in the policy select.
+    const policy = screen.getByTestId('edit-monitor-policy') as HTMLSelectElement
+    expect(Array.from(policy.options).map((o) => o.label)).toEqual([
+      'All Albums',
+      'Future Albums',
+      'Missing Albums',
+      'Existing Albums',
+      'First Album',
+      'Lastest Album',
+      'None',
+    ])
+  })
+
+  it('saves a full author update with the changed fields', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    vi.mocked(client.updateAuthor).mockResolvedValue({ id: 1, monitored: false } as never)
+    mockAuthorDetail()
+    const user = userEvent.setup()
+    await openEditModal(user)
+
+    // Change the policy, un-monitor, and append a tag.
+    await user.selectOptions(screen.getByTestId('edit-monitor-policy'), 'missing')
+    await user.click(screen.getByTestId('edit-monitored'))
+    await user.type(screen.getByTestId('edit-tags-input'), 'e2e{Enter}')
+
+    await user.click(screen.getByTestId('edit-save'))
+    await waitFor(() =>
+      expect(client.updateAuthor).toHaveBeenCalledWith(1, {
+        monitored: false,
+        monitor_policy: 'missing',
+        root_folder: '/media/books',
+        quality_profile: 'EPUB',
+        tags: ['sci-fi', 'e2e'],
+      }),
+    )
+    // The modal closes and the page reports the save (and reloads).
+    expect(screen.queryByTestId('edit-modal')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('author-detail-status')).toHaveTextContent(
+      'Author updated.',
+    )
   })
 })

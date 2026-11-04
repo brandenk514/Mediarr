@@ -109,10 +109,10 @@ function BookResultRow({ hit, index, onPick }: { hit: BookLookupResult; index: n
               ) : null}
             </span>
             <BadgeRow>
-              <Badge tone={isAuthor ? 'teal' : 'default'} testId={`book-result-kind-${testId}`}>
+              <Badge tone={isAuthor ? 'teal' : 'default'} testId={`${testId}-kind`}>
                 {isAuthor ? 'Author' : 'Book'}
               </Badge>
-              <Badge tone="ok" testId={`book-result-added-${testId}`}>
+              <Badge tone="ok" testId={`${testId}-added`}>
                 In library
               </Badge>
             </BadgeRow>
@@ -147,7 +147,7 @@ function BookResultRow({ hit, index, onPick }: { hit: BookLookupResult; index: n
             {!isAuthor && hit.year && hit.year > 0 ? <span className="dim"> ({hit.year})</span> : null}
           </span>
           <BadgeRow>
-            <Badge tone={isAuthor ? 'teal' : 'default'} testId={`book-result-kind-${testId}`}>
+            <Badge tone={isAuthor ? 'teal' : 'default'} testId={`${testId}-kind`}>
               {isAuthor ? 'Author' : 'Book'}
             </Badge>
           </BadgeRow>
