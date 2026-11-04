@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	booksdom "github.com/brandenk514/mediarr/internal/domains/books"
 	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
 	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/providers"
@@ -430,14 +429,6 @@ func namesOfMusicProfiles(ps []settings.QualityProfile) []string {
 // namesOfBookProfilesSettings lists the names of the seeded book quality
 // profiles (settings documents) in seed order (the Readarr B3 books picker).
 func namesOfBookProfilesSettings(ps []settings.QualityProfile) []string {
-	out := make([]string, 0, len(ps))
-	for _, p := range ps {
-		out = append(out, p.Name)
-	}
-	return out
-}
-
-func namesOfBookProfiles(ps []booksdom.Profile) []string {
 	out := make([]string, 0, len(ps))
 	for _, p := range ps {
 		out = append(out, p.Name)

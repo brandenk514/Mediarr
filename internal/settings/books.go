@@ -2,7 +2,6 @@ package settings
 
 import (
 	"fmt"
-	"strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -85,17 +84,6 @@ func DefaultBookLevels() []QualityLevel {
 		})
 	}
 	return out
-}
-
-// bookLevelID returns the book level id for a book level name (any case), or
-// 0 when the name is not in the seeded table.
-func bookLevelID(name string) int {
-	for _, l := range DefaultBookLevels() {
-		if strings.EqualFold(l.Name, name) {
-			return l.ID
-		}
-	}
-	return 0
 }
 
 // seedBookLevelIDs returns the seeded book level ids — the reference set
