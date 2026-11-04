@@ -9,10 +9,10 @@ import { BookAddPage } from './BookAdd'
 // Page test for the Readarr B2 book add flow: the combined Open Library
 // lookup (kind-tagged author/book rows, already-added jump links) and the
 // "Add New Author/Book" modal (Root Folder · Monitor · Quality Profile ·
-// Metadata Profile (B3 stub, disabled) · Tags, the start-search checkbox,
-// and the green add button). The books model is hierarchical, so a book add
-// with a new author is two calls (author then title) and with an existing
-// author is a direct title add.
+// Metadata Profile · Tags, the start-search checkbox, and the green add
+// button). The books model is hierarchical, so a book add with a new author
+// is two calls (author then title) and with an existing author is a direct
+// title add.
 vi.mock('../../api/client', () => {
   class ApiError extends Error {
     status: number
@@ -27,6 +27,8 @@ vi.mock('../../api/client', () => {
       lookupBooks: vi.fn(),
       listRootFolders: vi.fn(),
       getProfiles: vi.fn(),
+      // Readarr B3: the book metadata profile names for the add modal.
+      listBookMetadataProfiles: vi.fn(),
       addAuthor: vi.fn(),
       addTitle: vi.fn(),
       runBooksPipeline: vi.fn(),
@@ -102,6 +104,7 @@ beforeEach(() => {
     profiles: ['EPUB', 'MOBI'],
     default: 'EPUB',
   } as never)
+  vi.mocked(client.listBookMetadataProfiles).mockResolvedValue(['Default', 'E-book Only'])
   vi.mocked(client.addAuthor).mockResolvedValue({ id: 71 })
   vi.mocked(client.addTitle).mockResolvedValue({ id: 55 })
   vi.mocked(client.runBooksPipeline).mockResolvedValue({ imported: '' } as never)
@@ -187,14 +190,14 @@ describe('AddBookModal (Readarr B2 "Add New Author/Book")', () => {
     return screen.findByTestId('add-book-modal')
   }
 
-  it('opens with the book field set: root folder, 7 monitor states, quality profile, B3-stub metadata profile, tags', async () => {
+  it('opens with the book field set: root folder, 7 monitor states, quality profile, metadata profile, tags', async () => {
     const user = userEvent.setup()
     await openAuthorModal(user)
     await screen.findByTestId('add-book-modal')
 
     expect(screen.getByTestId('add-book-name')).toHaveTextContent('Ursula K. Le Guin')
     // Field order (the ArtistAdd order, minus the music-only Monitor New
-    // Albums, plus the metadata profile stub).
+    // Albums, plus the metadata profile).
     const order = [
       'add-book-root-folder',
       'add-book-monitor-policy',
@@ -237,10 +240,16 @@ describe('AddBookModal (Readarr B2 "Add New Author/Book")', () => {
     await waitFor(() => expect(profile).toHaveValue('EPUB'))
     expect(Array.from(profile.options).map((o) => o.value)).toEqual(['EPUB', 'MOBI'])
 
-    // Metadata profile: no listing endpoint until B3 → disabled stub.
-    expect(screen.getByTestId('add-book-metadata-profile')).toBeDisabled()
+    // Metadata profile (Readarr B3): a live select populated from the book
+    // metadata profile names, '— None —' by default.
+    const metaProfile = screen.getByTestId('add-book-metadata-profile') as HTMLSelectElement
+    await waitFor(() =>
+      expect(Array.from(metaProfile.options).map((o) => o.value)).toEqual(['', 'Default', 'E-book Only']),
+    )
+    expect(metaProfile).toHaveValue('')
+    expect(metaProfile).not.toBeDisabled()
     expect(screen.getByTestId('add-book-metadata-profile-help')).toHaveTextContent(
-      'Metadata profiles land in a later phase (B3).',
+      "Which metadata filters to apply when importing this author's books",
     )
   })
 
@@ -252,6 +261,8 @@ describe('AddBookModal (Readarr B2 "Add New Author/Book")', () => {
     await user.selectOptions(screen.getByTestId('add-book-monitor-policy'), 'existing')
     await user.type(screen.getByTestId('add-book-tags-input'), 'sci-fi{Enter}')
     expect(screen.getByTestId('add-book-tags-chips')).toHaveTextContent('sci-fi')
+    // Readarr B3: pick a metadata profile — it lands in the payload.
+    await user.selectOptions(screen.getByTestId('add-book-metadata-profile'), 'Default')
     await user.click(screen.getByTestId('book-start-search'))
     await user.click(screen.getByTestId('book-add-button'))
 
@@ -262,6 +273,7 @@ describe('AddBookModal (Readarr B2 "Add New Author/Book")', () => {
         start_search: true,
         root_folder: '/media/books',
         quality_profile: 'EPUB',
+        metadata_profile: 'Default',
         tags: ['sci-fi'],
       }),
     )

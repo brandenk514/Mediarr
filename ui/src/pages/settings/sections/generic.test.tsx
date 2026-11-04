@@ -80,6 +80,17 @@ function freshDoc(section: string): unknown {
           { id: 204, name: 'MP3-320', group: 'High Quality Lossy', source: '', resolution: '', size_limit_mb: 350 },
           { id: 200, name: 'Unknown', group: '', source: '', resolution: '', size_limit_mb: 350 },
         ],
+        // Readarr B3: the unified book ladder (300+ id space) — the e-book
+        // format-preference entries (300-302) + an a-book ladder subset
+        // (music id + 110). A 5-row subset, so the Reset test can assert the
+        // reset restores the full 41-row factory table.
+        book_levels: [
+          { id: 300, name: 'EPUB', group: 'E-book', source: '', resolution: '', size_limit_mb: 0 },
+          { id: 310, name: 'Unknown', group: '', source: '', resolution: '', size_limit_mb: 350 },
+          { id: 314, name: 'MP3-320', group: 'High Quality Lossy', source: '', resolution: '', size_limit_mb: 350 },
+          { id: 323, name: 'WAV', group: '', source: '', resolution: '', size_limit_mb: 0 },
+          { id: 345, name: 'APE', group: 'Lossless', source: '', resolution: '', size_limit_mb: 0 },
+        ],
       }
     case 'profiles':
       return {
@@ -167,6 +178,35 @@ function freshDoc(section: string): unknown {
           },
           { id: 2, name: 'Album', description: 'Album-scoped metadata.', items: ['Embedded', 'Album TXT'] },
           { id: 3, name: 'Studio', description: 'Artist/label-scoped metadata.', items: ['Embedded', 'Artist TXT'] },
+        ],
+        // Readarr B3: the seeded book quality profiles (300+ id space; items
+        // reference the book level ids from the quality doc) + the seeded
+        // book metadata profile (the Readarr content filters).
+        book_profiles: [
+          {
+            id: 300,
+            name: 'Best',
+            cutoff: 345,
+            items: [
+              { quality: 300, approved: true },
+              { quality: 345, approved: true },
+              { quality: 310, approved: false },
+            ],
+          },
+          { id: 301, name: 'EPUB', cutoff: 300, items: [{ quality: 300, approved: true }] },
+        ],
+        book_metadata_profiles: [
+          {
+            id: 1,
+            name: 'Default',
+            description: 'The default book metadata filters.',
+            minimum_popularity: 0,
+            skip_missing_release_date: false,
+            skip_no_isbn_asin: true,
+            skip_broken_parts: false,
+            skip_secondary_series: false,
+            allowed_languages: [],
+          },
         ],
       }
     case 'tags':
@@ -373,6 +413,14 @@ describe('QualitySection', () => {
             { id: 204, name: 'MP3-320', group: 'High Quality Lossy', source: '', resolution: '', size_limit_mb: 350 },
             { id: 200, name: 'Unknown', group: '', source: '', resolution: '', size_limit_mb: 350 },
           ],
+          // Readarr B3: the book ladder round-trips untouched too.
+          book_levels: [
+            { id: 300, name: 'EPUB', group: 'E-book', source: '', resolution: '', size_limit_mb: 0 },
+            { id: 310, name: 'Unknown', group: '', source: '', resolution: '', size_limit_mb: 350 },
+            { id: 314, name: 'MP3-320', group: 'High Quality Lossy', source: '', resolution: '', size_limit_mb: 350 },
+            { id: 323, name: 'WAV', group: '', source: '', resolution: '', size_limit_mb: 0 },
+            { id: 345, name: 'APE', group: 'Lossless', source: '', resolution: '', size_limit_mb: 0 },
+          ],
         },
       ),
     )
@@ -457,6 +505,66 @@ describe('QualitySection', () => {
     const calls = (client.putSettingsSection as ReturnType<typeof vi.fn>).mock.calls
     const lastCall = calls[calls.length - 1]
     expect((lastCall[1] as { music_levels: unknown[] }).music_levels).toHaveLength(38)
+  })
+
+  it('renders the unified book quality definitions (B3) and saves a renamed book level', async () => {
+    const user = userEvent.setup()
+    renderSection(<QualitySection />)
+    // The unified book ladder renders in one table (e-book entries + the
+    // a-book ladder): the e-book rows show an 'E-book' group, a 0 size limit
+    // renders as "Unlimited".
+    expect(await screen.findByTestId('book-quality-name-300')).toHaveValue('EPUB')
+    expect(screen.getByTestId('book-quality-group-300')).toHaveTextContent('E-book')
+    expect(screen.getByTestId('book-quality-size-300')).toHaveTextContent('Unlimited')
+    expect(screen.getByTestId('book-quality-name-314')).toHaveValue('MP3-320')
+    expect(screen.getByTestId('book-quality-size-314')).toHaveTextContent('350 MB')
+
+    // Rename an a-book level; the other ladders round-trip untouched.
+    fireEvent.change(screen.getByTestId('book-quality-name-314'), { target: { value: 'MP3-320-R' } })
+    await user.click(screen.getByTestId('quality-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'quality',
+        expect.objectContaining({
+          book_levels: expect.arrayContaining([
+            expect.objectContaining({ id: 300, name: 'EPUB' }),
+            expect.objectContaining({ id: 314, name: 'MP3-320-R' }),
+            expect.objectContaining({ id: 345, name: 'APE' }),
+          ]),
+        }),
+      ),
+    )
+  })
+
+  it('resets the book definitions to the 41-row factory ladder (B3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<QualitySection />)
+    await screen.findByTestId('book-quality-name-300')
+
+    await user.click(screen.getByTestId('book-quality-reset'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'quality',
+        expect.objectContaining({
+          book_levels: expect.arrayContaining([
+            // The three e-book format-preference entries (300-302).
+            expect.objectContaining({ id: 300, name: 'EPUB', group: 'E-book', size_limit_mb: 0 }),
+            expect.objectContaining({ id: 301, name: 'AZW3', group: 'E-book', size_limit_mb: 0 }),
+            expect.objectContaining({ id: 302, name: 'MOBI', group: 'E-book', size_limit_mb: 0 }),
+            // The a-book ladder is the music factory table re-based at +110.
+            expect.objectContaining({ id: 323, name: 'WAV', size_limit_mb: 0 }),
+            expect.objectContaining({ id: 345, name: 'APE', group: 'Lossless', size_limit_mb: 0 }),
+            expect.objectContaining({ id: 314, name: 'MP3-320', group: 'High Quality Lossy' }),
+            expect.objectContaining({ id: 310, name: 'Unknown', size_limit_mb: 350 }),
+          ]),
+        }),
+      ),
+    )
+    // The reset PUTs the FULL factory book table: 41 rows (3 e-book + 38
+    // a-book).
+    const calls = (client.putSettingsSection as ReturnType<typeof vi.fn>).mock.calls
+    const lastCall = calls[calls.length - 1]
+    expect((lastCall[1] as { book_levels: unknown[] }).book_levels).toHaveLength(41)
   })
 })
 
@@ -640,6 +748,163 @@ describe('ProfilesSection', () => {
         }),
       ),
     )
+  })
+
+  it('lists and edits the book quality profiles (B3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<ProfilesSection />)
+    // The seeded book profile renders with its name and cutoff.
+    expect(await screen.findByTestId('bookprofile-name-300')).toHaveValue('Best')
+    expect(screen.getByTestId('bookprofile-name-301')).toHaveValue('EPUB')
+    // The level checkboxes come from the quality doc (second fetch) — wait
+    // for one before driving the form.
+    await screen.findByTestId('bookprofile-level-300-300')
+    expect(screen.getByTestId('bookprofile-level-300-300')).toBeChecked()
+    expect(screen.getByTestId('bookprofile-level-300-310')).not.toBeChecked()
+    expect(screen.getByTestId('bookprofile-level-300-345')).toBeChecked()
+    const cutoff = screen.getByTestId('bookprofile-cutoff-300') as HTMLSelectElement
+    expect(cutoff).toHaveValue('345')
+
+    // Rename profile 301, approve 310 on 300, and move 300's cutoff to EPUB.
+    await user.clear(screen.getByTestId('bookprofile-name-301'))
+    await user.type(screen.getByTestId('bookprofile-name-301'), 'EPUB Plus')
+    await user.click(screen.getByTestId('bookprofile-level-300-310'))
+    await user.selectOptions(cutoff, '300')
+
+    await user.click(screen.getByTestId('profiles-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'profiles',
+        expect.objectContaining({
+          book_profiles: [
+            expect.objectContaining({
+              id: 300,
+              name: 'Best',
+              cutoff: 300,
+              items: [
+                expect.objectContaining({ quality: 300, approved: true }),
+                expect.objectContaining({ quality: 345, approved: true }),
+                expect.objectContaining({ quality: 310, approved: true }),
+              ],
+            }),
+            expect.objectContaining({ id: 301, name: 'EPUB Plus' }),
+          ],
+          // The book metadata profile round-trips untouched.
+          book_metadata_profiles: [
+            {
+              id: 1,
+              name: 'Default',
+              description: 'The default book metadata filters.',
+              minimum_popularity: 0,
+              skip_missing_release_date: false,
+              skip_no_isbn_asin: true,
+              skip_broken_parts: false,
+              skip_secondary_series: false,
+              allowed_languages: [],
+            },
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('edits the book metadata profile content filters and saves (B3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<ProfilesSection />)
+    await screen.findByTestId('bookmetadataprofile-1')
+    // The seeded profile renders with its name/description and the Readarr
+    // content filters.
+    expect(screen.getByTestId('bookmetadataprofile-name-1')).toHaveValue('Default')
+    expect(screen.getByTestId('bookmetadataprofile-desc-1')).toHaveValue(
+      'The default book metadata filters.',
+    )
+    expect(screen.getByTestId('bookmetadataprofile-minpop-1')).toHaveValue(0)
+    expect(screen.getByTestId('bookmetadataprofile-skipisbn-1')).toBeChecked()
+    expect(screen.getByTestId('bookmetadataprofile-skipdate-1')).not.toBeChecked()
+    expect(screen.getByTestId('bookmetadataprofile-skipbroken-1')).not.toBeChecked()
+    expect(screen.getByTestId('bookmetadataprofile-skipsecondary-1')).not.toBeChecked()
+
+    // Raise the popularity minimum, enable two more skip flags, and set the
+    // allowed languages (comma-separated → string list). fireEvent.change is
+    // used for the languages box: the controlled input normalizes its value
+    // on every keystroke, so character-by-character typing drops the comma.
+    await user.click(screen.getByTestId('bookmetadataprofile-skipdate-1'))
+    await user.click(screen.getByTestId('bookmetadataprofile-skipbroken-1'))
+    fireEvent.change(screen.getByTestId('bookmetadataprofile-minpop-1'), { target: { value: '5' } })
+    fireEvent.change(screen.getByTestId('bookmetadataprofile-langs-1'), { target: { value: 'en, fr' } })
+
+    await user.click(screen.getByTestId('profiles-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'profiles',
+        expect.objectContaining({
+          book_metadata_profiles: [
+            {
+              id: 1,
+              name: 'Default',
+              description: 'The default book metadata filters.',
+              minimum_popularity: 5,
+              skip_missing_release_date: true,
+              skip_no_isbn_asin: true,
+              skip_broken_parts: true,
+              skip_secondary_series: false,
+              allowed_languages: ['en', 'fr'],
+            },
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('creates a book quality profile and a book metadata profile (B3)', async () => {
+    const user = userEvent.setup()
+    renderSection(<ProfilesSection />)
+    await screen.findByTestId('bookprofile-300')
+    // The seeded state: two book quality profiles, one book metadata profile.
+    expect(screen.getAllByTestId(/^bookprofile-\d+$/)).toHaveLength(2)
+    expect(screen.getAllByTestId(/^bookmetadataprofile-\d+$/)).toHaveLength(1)
+
+    // Add one of each. The new book profile seeds all of its levels
+    // unapproved with the first book level as its cutoff; the new metadata
+    // profile starts at the empty-filter defaults.
+    await user.click(screen.getByTestId('bookprofile-add'))
+    await user.click(screen.getByTestId('bookmetadataprofile-add'))
+    await waitFor(() => expect(screen.getAllByTestId(/^bookprofile-\d+$/)).toHaveLength(3))
+    expect(screen.getAllByTestId(/^bookmetadataprofile-\d+$/)).toHaveLength(2)
+
+    await user.click(screen.getByTestId('profiles-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'profiles',
+        expect.objectContaining({
+          book_profiles: expect.arrayContaining([
+            expect.objectContaining({ id: 300, name: 'Best' }),
+            expect.objectContaining({ id: 301, name: 'EPUB' }),
+            // The created profile: numbered name, the first book level as
+            // cutoff, all levels unapproved.
+            expect.objectContaining({ name: 'Profile 3', cutoff: 300 }),
+          ]),
+          book_metadata_profiles: expect.arrayContaining([
+            expect.objectContaining({ id: 1, name: 'Default' }),
+            expect.objectContaining({
+              name: 'Book metadata 2',
+              minimum_popularity: 0,
+              skip_missing_release_date: false,
+              skip_no_isbn_asin: false,
+              skip_broken_parts: false,
+              skip_secondary_series: false,
+              allowed_languages: [],
+            }),
+          ]),
+        }),
+      ),
+    )
+    // The created book profile carries one unapproved item per book level.
+    const calls = (client.putSettingsSection as ReturnType<typeof vi.fn>).mock.calls
+    const lastCall = calls[calls.length - 1]
+    const bookProfiles = (lastCall[1] as { book_profiles: { items: unknown[] }[] }).book_profiles
+    const created = bookProfiles.find((p) => p.items.length === 5)
+    expect(created).toBeDefined()
   })
 })
 

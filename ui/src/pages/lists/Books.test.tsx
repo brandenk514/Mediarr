@@ -32,6 +32,8 @@ vi.mock('../../api/client', () => ({
     updateAuthor: vi.fn(),
     listRootFolders: vi.fn(),
     getProfiles: vi.fn(),
+    // Readarr B3: the book metadata profile names for the edit modal.
+    listBookMetadataProfiles: vi.fn(),
   },
 }))
 
@@ -45,6 +47,7 @@ const AUTHORS: Author[] = [
     MonitorPolicy: 'existing',
     RootFolder: '/media/books',
     QualityProfile: 'EPUB',
+    MetadataProfile: 'Default',
     Tags: ['sci-fi'],
   },
   { ID: 2, Name: 'K. William Wilson', Monitored: false, AddedAt: '2026-11-01T00:00:00Z' },
@@ -225,6 +228,8 @@ describe('AuthorDetailPage (Readarr B2 Edit Author modal)', () => {
       profiles: ['EPUB', 'MOBI'],
       default: 'EPUB',
     } as never)
+    // Readarr B3: the book metadata profile names for the edit modal.
+    vi.mocked(client.listBookMetadataProfiles).mockResolvedValue(['Default', 'E-book Only'])
   }
 
   async function openEditModal(user: ReturnType<typeof userEvent.setup>) {
@@ -247,10 +252,13 @@ describe('AuthorDetailPage (Readarr B2 Edit Author modal)', () => {
     expect(screen.getByTestId('edit-root-folder')).toHaveValue('/media/books')
     expect(screen.getByTestId('edit-profile')).toHaveValue('EPUB')
     expect(screen.getByTestId('edit-tags-chips')).toHaveTextContent('sci-fi')
-    // The metadata profile is a B3 stub: present but disabled.
-    expect(screen.getByTestId('edit-metadata-profile')).toBeDisabled()
+    // Readarr B3: the metadata profile is a live select, pre-filled from
+    // the author and populated from the book metadata profile names.
+    const metaProfile = screen.getByTestId('edit-metadata-profile') as HTMLSelectElement
+    await waitFor(() => expect(metaProfile).toHaveValue('Default'))
+    expect(Array.from(metaProfile.options).map((o) => o.value)).toEqual(['', 'Default', 'E-book Only'])
     expect(
-      screen.getByText('Metadata profiles land in a later phase (B3).'),
+      screen.getByText("Which metadata filters apply to this author's books (empty = server default)"),
     ).toBeInTheDocument()
     // The 7 monitor states render in the policy select.
     const policy = screen.getByTestId('edit-monitor-policy') as HTMLSelectElement
@@ -272,10 +280,12 @@ describe('AuthorDetailPage (Readarr B2 Edit Author modal)', () => {
     const user = userEvent.setup()
     await openEditModal(user)
 
-    // Change the policy, un-monitor, and append a tag.
+    // Change the policy, un-monitor, append a tag, and switch the metadata
+    // profile (the pre-filled 'Default' → 'E-book Only').
     await user.selectOptions(screen.getByTestId('edit-monitor-policy'), 'missing')
     await user.click(screen.getByTestId('edit-monitored'))
     await user.type(screen.getByTestId('edit-tags-input'), 'e2e{Enter}')
+    await user.selectOptions(screen.getByTestId('edit-metadata-profile'), 'E-book Only')
 
     await user.click(screen.getByTestId('edit-save'))
     await waitFor(() =>
@@ -284,6 +294,7 @@ describe('AuthorDetailPage (Readarr B2 Edit Author modal)', () => {
         monitor_policy: 'missing',
         root_folder: '/media/books',
         quality_profile: 'EPUB',
+        metadata_profile: 'E-book Only',
         tags: ['sci-fi', 'e2e'],
       }),
     )
