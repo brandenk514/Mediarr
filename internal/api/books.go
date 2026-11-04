@@ -125,6 +125,7 @@ type bookLookupResult struct {
 	Year      int    `json:"year"`
 	Added     bool   `json:"added"`
 	LibraryID int64  `json:"library_id"`
+	AuthorID  int64  `json:"author_id"`
 }
 
 func toLookupWire(results []booksdom.LookupResult) []bookLookupResult {
@@ -137,6 +138,7 @@ func toLookupWire(results []booksdom.LookupResult) []bookLookupResult {
 			Year:      r.Year,
 			Added:     r.Added,
 			LibraryID: r.LibraryID,
+			AuthorID:  r.AuthorID,
 		})
 	}
 	return out

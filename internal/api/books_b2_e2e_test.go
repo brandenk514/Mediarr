@@ -231,11 +231,11 @@ func TestBooksB2_LookupAndAddFlow(t *testing.T) {
 			bHit = &after[i]
 		}
 	}
-	if aHit == nil || !aHit.Added || aHit.LibraryID != id.ID {
-		t.Errorf("author not flagged added: %+v (want added, library_id=%d)", aHit, id.ID)
+	if aHit == nil || !aHit.Added || aHit.LibraryID != id.ID || aHit.AuthorID != id.ID {
+		t.Errorf("author not flagged added: %+v (want added, library_id=%d, author_id=%d)", aHit, id.ID, id.ID)
 	}
-	if bHit == nil || !bHit.Added || bHit.LibraryID == 0 {
-		t.Errorf("book not flagged added: %+v (want added, library_id!=0)", bHit)
+	if bHit == nil || !bHit.Added || bHit.LibraryID == 0 || bHit.AuthorID != id.ID {
+		t.Errorf("book not flagged added: %+v (want added, library_id!=0, author_id=%d)", bHit, id.ID)
 	}
 }
 

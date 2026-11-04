@@ -268,8 +268,10 @@ func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult
 		return nil, fmt.Errorf("books: lookup: list books: %w", berr)
 	}
 	titleID := make(map[string]int64, len(books))
+	titleAuthor := make(map[string]int64, len(books))
 	for _, b := range books {
 		titleID[foldName(b.AuthorName)+"\x00"+foldName(b.Name)] = b.ID
+		titleAuthor[foldName(b.AuthorName)+"\x00"+foldName(b.Name)] = b.AuthorID
 	}
 
 	out := make([]dom.LookupResult, 0, len(authorHits)+len(workHits))
@@ -280,17 +282,19 @@ func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult
 			Name:      h.Name,
 			Added:     ok,
 			LibraryID: id,
+			AuthorID:  id,
 		})
 	}
 	for _, h := range workHits {
-		id, ok := titleID[foldName(h.Author)+"\x00"+foldName(h.Name)]
+		aid, ok := titleID[foldName(h.Author)+"\x00"+foldName(h.Name)]
 		out = append(out, dom.LookupResult{
 			Kind:      dom.LookupBook,
 			Name:      h.Name,
 			Author:    h.Author,
 			Year:      h.Year,
 			Added:     ok,
-			LibraryID: id,
+			LibraryID: aid,
+			AuthorID:  titleAuthor[foldName(h.Author)+"\x00"+foldName(h.Name)],
 		})
 	}
 	return out, nil

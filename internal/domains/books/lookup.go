@@ -40,7 +40,9 @@ type BookSearcher interface {
 // kind-tagged, with the `added` flag computed against the books library so
 // the UI navigates to an already-added author/book instead of re-adding it.
 // LibraryID is the matching author id (kind=author) or title id
-// (kind=book); 0 when not added.
+// (kind=book); 0 when not added. AuthorID is the matching author id for
+// BOTH hit kinds (0 when not added) — for book hits it is what the UI
+// navigates to (/books/{authorId}); LibraryID stays the title id there.
 type LookupResult struct {
 	Kind      LookupKind
 	Name      string // author name (kind=author) or work title (kind=book)
@@ -48,4 +50,5 @@ type LookupResult struct {
 	Year      int    // kind=book: first publish year; 0 when unknown
 	Added     bool
 	LibraryID int64
+	AuthorID  int64
 }

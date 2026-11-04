@@ -3406,6 +3406,11 @@ export interface components {
              * @description The matching author id (kind=author) or title id (kind=book); 0 when not added.
              */
             library_id?: number;
+            /**
+             * Format: int64
+             * @description The matching author id for BOTH hit kinds; 0 when not added. For kind=book this is what the UI navigates to (/books/{author_id}).
+             */
+            author_id?: number;
         };
         BookTitle: {
             /** Format: int64 */

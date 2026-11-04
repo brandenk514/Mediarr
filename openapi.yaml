@@ -5672,6 +5672,10 @@ components:
           type: integer
           format: int64
           description: The matching author id (kind=author) or title id (kind=book); 0 when not added.
+        author_id:
+          type: integer
+          format: int64
+          description: The matching author id for BOTH hit kinds; 0 when not added. For kind=book this is what the UI navigates to (/books/{author_id}).
     BookTitle:
       type: object
       required: [ID, AuthorID, Name, Monitored, AddedAt]
