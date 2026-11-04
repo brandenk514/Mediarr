@@ -570,9 +570,24 @@ func (r *BooksRepo) ListBookFilesByEdition(ctx context.Context, editionID int64)
 
 // ListBooks returns every book across all authors, joined with its author's
 // name, sorted by author name then title name (the flat Books index).
+//
+// Readarr B4: each row also carries the bookshelves rollup pair — HasFile
+// (a correlated EXISTS over book_files; false = "missing") and Format (the
+// newest imported file's format, else the newest edition's format, else "" —
+// the book's resolvable quality). Both are computed in the query so the UI
+// never has to fan out per-title file/edition requests.
 func (r *BooksRepo) ListBooks(ctx context.Context) ([]books.Book, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT t.id, t.author_id, t.name, t.monitored, t.added_at, a.name
+		SELECT t.id, t.author_id, t.name, t.monitored, t.added_at, a.name,
+		       EXISTS (SELECT 1 FROM book_files f WHERE f.title_id = t.id),
+		       COALESCE(
+		           (SELECT f.format FROM book_files f
+		             WHERE f.title_id = t.id
+		             ORDER BY f.added_at DESC, f.id DESC LIMIT 1),
+		           (SELECT e.format FROM book_editions e
+		             WHERE e.title_id = t.id
+		             ORDER BY e.added_at DESC, e.id DESC LIMIT 1),
+		           '')
 		FROM book_titles t
 		JOIN book_authors a ON a.id = t.author_id
 		ORDER BY a.name, t.name, t.id`)
@@ -583,7 +598,8 @@ func (r *BooksRepo) ListBooks(ctx context.Context) ([]books.Book, error) {
 	var out []books.Book
 	for rows.Next() {
 		var b books.Book
-		if err := rows.Scan(&b.ID, &b.AuthorID, &b.Name, &b.Monitored, &b.AddedAt, &b.AuthorName); err != nil {
+		if err := rows.Scan(&b.ID, &b.AuthorID, &b.Name, &b.Monitored, &b.AddedAt,
+			&b.AuthorName, &b.HasFile, &b.Format); err != nil {
 			return nil, fmt.Errorf("books: scan book: %w", err)
 		}
 		out = append(out, b)
@@ -641,13 +657,25 @@ func (r *BooksRepo) ListSeries(ctx context.Context) ([]books.Series, error) {
 
 // ListSeriesBooks returns the books (titles + author names) in a series,
 // sorted by author name then title name. An unknown series is
-// ErrSeriesNotFound.
+// ErrSeriesNotFound. Readarr B4: each member also carries the bookshelves
+// rollup pair (HasFile / Format, the same correlated subqueries as ListBooks)
+// so the series page can show every member's missing state and quality
+// without per-title file/edition requests.
 func (r *BooksRepo) ListSeriesBooks(ctx context.Context, seriesID int64) ([]books.SeriesBook, error) {
 	if _, err := r.GetSeries(ctx, seriesID); err != nil {
 		return nil, err
 	}
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT t.id, t.author_id, t.name, t.monitored, t.added_at, a.name
+		SELECT t.id, t.author_id, t.name, t.monitored, t.added_at, a.name,
+		       EXISTS (SELECT 1 FROM book_files f WHERE f.title_id = t.id),
+		       COALESCE(
+		           (SELECT f.format FROM book_files f
+		             WHERE f.title_id = t.id
+		             ORDER BY f.added_at DESC, f.id DESC LIMIT 1),
+		           (SELECT e.format FROM book_editions e
+		             WHERE e.title_id = t.id
+		             ORDER BY e.added_at DESC, e.id DESC LIMIT 1),
+		           '')
 		FROM book_series_members m
 		JOIN book_titles t ON t.id = m.title_id
 		JOIN book_authors a ON a.id = t.author_id
@@ -660,7 +688,8 @@ func (r *BooksRepo) ListSeriesBooks(ctx context.Context, seriesID int64) ([]book
 	var out []books.SeriesBook
 	for rows.Next() {
 		var b books.SeriesBook
-		if err := rows.Scan(&b.ID, &b.AuthorID, &b.Name, &b.Monitored, &b.AddedAt, &b.AuthorName); err != nil {
+		if err := rows.Scan(&b.ID, &b.AuthorID, &b.Name, &b.Monitored, &b.AddedAt,
+			&b.AuthorName, &b.HasFile, &b.Format); err != nil {
 			return nil, fmt.Errorf("books: scan series book: %w", err)
 		}
 		out = append(out, b)

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { client } from '../../api/client'
 import type { Book, ListQuery, PageAuthor } from '../../api/types'
+import { isRecentlyAdded } from '../books/Bookshelves'
 import { AddButton } from '../../components/addflow'
 import {
   DEFAULT_PAGE_SIZE,
@@ -26,7 +27,12 @@ import {
 //    quick-jump) or a table. An author card opens the author detail page.
 //  - The **Books** tab is the flat Books index — every book across all
 //    authors — rendered as a poster grid (card = title, footer = author)
-//    or a table (title + author + monitor toggle).
+//    or a table (title + author + quality + status + monitor toggle).
+//
+// Readarr B4: the index tab also hosts the bookshelves shelf filters
+// (Missing = no files, Recent = added in the last 30 days) and reads its
+// initial state from the URL (?tab=books&monitored=…&missing=1&recent=1) so
+// a Bookshelves shelf click lands on the matching filtered view.
 //
 // The P7 toolbar (Update All / RSS Sync / Select / Options + Filter menu)
 // and the shared ViewToggle carry over; "Select" carries the Author/Book
@@ -35,10 +41,29 @@ const FILTER_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'monitored', label: 'Monitored' },
   { value: 'unmonitored', label: 'Unmonitored' },
+  // Readarr B4 shelf filters (the Bookshelves page mirrors these).
+  { value: 'missing', label: 'Missing' },
+  { value: 'recent', label: 'Recent' },
 ] as const
 
+type FilterValue = (typeof FILTER_OPTIONS)[number]['value']
+
+// initialFilterFromParams maps the Bookshelves click-through query params to
+// the index tab's filter (missing/recent win over monitored; absent = all).
+function initialFilterFromParams(params: URLSearchParams): FilterValue {
+  if (params.get('missing') === '1') return 'missing'
+  if (params.get('recent') === '1') return 'recent'
+  if (params.get('monitored') === 'monitored') return 'monitored'
+  if (params.get('monitored') === 'unmonitored') return 'unmonitored'
+  return 'all'
+}
+
 export function BooksPage() {
-  const [tab, setTab] = useState<'authors' | 'books'>('authors')
+  const [searchParams] = useSearchParams()
+  const [tab, setTab] = useState<'authors' | 'books'>(
+    searchParams.get('tab') === 'books' ? 'books' : 'authors',
+  )
+  const initialFilter = initialFilterFromParams(searchParams)
 
   return (
     <div className="list-page">
@@ -79,7 +104,7 @@ export function BooksPage() {
       {tab === 'authors' ? (
         <AuthorsView key="authors" />
       ) : (
-        <BooksIndexView key="books" />
+        <BooksIndexView key="books" initialFilter={initialFilter} />
       )}
     </div>
   )
@@ -248,14 +273,15 @@ function AuthorsView() {
 }
 
 // BooksIndexView is the flat Books index: every book across all authors,
-// client-filtered (monitored) and paginated (the endpoint returns the whole
-// index; the library is bounded by the authors' titles).
-function BooksIndexView() {
+// client-filtered (monitored / missing / recent) and paginated (the endpoint
+// returns the whole index; the library is bounded by the authors' titles).
+// initialFilter is the Readarr B4 shelf-filter preset (from the URL).
+function BooksIndexView({ initialFilter }: { initialFilter: FilterValue }) {
   const navigate = useNavigate()
   const [books, setBooks] = useState<Book[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [monitored, setMonitored] = useState<'all' | 'monitored' | 'unmonitored'>('all')
+  const [filter, setFilter] = useState<FilterValue>(initialFilter)
   const [view, setView] = useState<ViewMode>('grid')
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState<string | null>(null)
@@ -276,10 +302,21 @@ function BooksIndexView() {
 
   const all = useMemo(() => books ?? [], [books])
   const filtered = useMemo(() => {
-    if (monitored === 'monitored') return all.filter((b) => b.Monitored)
-    if (monitored === 'unmonitored') return all.filter((b) => !b.Monitored)
-    return all
-  }, [all, monitored])
+    switch (filter) {
+      case 'monitored':
+        return all.filter((b) => b.Monitored)
+      case 'unmonitored':
+        return all.filter((b) => !b.Monitored)
+      case 'missing':
+        // Readarr B4 shelf: books with no imported file.
+        return all.filter((b) => !b.HasFile)
+      case 'recent':
+        // Readarr B4 shelf: books added within the last 30 days.
+        return all.filter((b) => isRecentlyAdded(b.AddedAt))
+      default:
+        return all
+    }
+  }, [all, filter])
 
   const total = filtered.length
   const pageCount = Math.max(1, Math.ceil(total / DEFAULT_PAGE_SIZE))
@@ -344,9 +381,9 @@ function BooksIndexView() {
               label="Filter"
               icon="⚲"
               options={[...FILTER_OPTIONS]}
-              selected={monitored}
+              selected={filter}
               onSelect={(v) => {
-                setMonitored(v as 'all' | 'monitored' | 'unmonitored')
+                setFilter(v as FilterValue)
                 setPage(1)
               }}
               testId="books-index-filter"
@@ -378,9 +415,9 @@ function BooksIndexView() {
               ) : rows.length === 0 ? (
                 <EmptyState
                   title="No books"
-                  message={monitored === 'all' ? 'Add a book to get started.' : 'No books with this filter.'}
+                  message={filter === 'all' ? 'Add a book to get started.' : 'No books with this filter.'}
                 >
-                  {monitored === 'all' && (
+                  {filter === 'all' && (
                     <Link to="/books/add" data-testid="books-index-empty-add">
                       + Add book
                     </Link>
@@ -408,6 +445,10 @@ function BooksIndexView() {
               <div className="lt-head">
                 <span>Title</span>
                 <span>Author</span>
+                {/* Readarr B4: the per-book rollup (quality = resolvable
+                    edition/file format, status = has file / missing). */}
+                <span>Quality</span>
+                <span>Status</span>
                 <span>Monitor</span>
               </div>
               {loading && !books ? (
@@ -425,6 +466,16 @@ function BooksIndexView() {
                       </Link>
                     </span>
                     <span className="lt-dim">{b.AuthorName}</span>
+                    <span className="lt-dim" data-testid={`book-quality-${b.ID}`}>
+                      {b.Format || '—'}
+                    </span>
+                    <span data-testid={`book-status-${b.ID}`}>
+                      {b.HasFile ? (
+                        <span className="badge badge-ok">Has file</span>
+                      ) : (
+                        <span className="badge badge-err">Missing</span>
+                      )}
+                    </span>
                     <MonitoredToggle
                       monitored={b.Monitored}
                       onToggle={async (next) => {

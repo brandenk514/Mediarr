@@ -5835,7 +5835,7 @@ components:
     Book:
       type: object
       description: One row of the flat Books index — a title joined with its author's name.
-      required: [ID, AuthorID, Name, Monitored, AddedAt, AuthorName]
+      required: [ID, AuthorID, Name, Monitored, AddedAt, AuthorName, HasFile, Format]
       properties:
         ID:
           type: integer
@@ -5852,6 +5852,12 @@ components:
           format: date-time
         AuthorName:
           type: string
+        HasFile:
+          type: boolean
+          description: Whether the book has at least one imported file; false = missing (Readarr B4 bookshelves rollup).
+        Format:
+          type: string
+          description: The book's resolvable quality — the newest imported file's format, else the newest edition's format, empty = unknown (Readarr B4 bookshelves rollup).
     BookFile:
       type: object
       description: An imported e-book file and its media info (Readarr B1).
@@ -5901,7 +5907,7 @@ components:
     BookSeriesBook:
       type: object
       description: A book in a series, with its author's name.
-      required: [ID, AuthorID, Name, Monitored, AddedAt, AuthorName]
+      required: [ID, AuthorID, Name, Monitored, AddedAt, AuthorName, HasFile, Format]
       properties:
         ID:
           type: integer
@@ -5918,6 +5924,12 @@ components:
           format: date-time
         AuthorName:
           type: string
+        HasFile:
+          type: boolean
+          description: Whether the book has at least one imported file; false = missing (Readarr B4 series rollup).
+        Format:
+          type: string
+          description: The book's resolvable quality — the newest imported file's format, else the newest edition's format, empty = unknown (Readarr B4 series rollup).
     BookAuthorSeries:
       type: object
       description: A series the author's books belong to, with the member titles by this author.

@@ -61,6 +61,9 @@ const BOOKS: Book[] = [
     Monitored: true,
     AddedAt: '2026-11-01T00:00:00Z',
     AuthorName: 'Ursula K. Le Guin',
+    // Readarr B4 rollup pair (required on the generated Book type).
+    HasFile: true,
+    Format: 'EPUB',
   },
   {
     ID: 2,
@@ -69,6 +72,8 @@ const BOOKS: Book[] = [
     Monitored: false,
     AddedAt: '2026-11-01T00:00:00Z',
     AuthorName: 'K. William Wilson',
+    HasFile: false,
+    Format: '',
   },
 ]
 

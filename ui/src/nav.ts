@@ -76,7 +76,13 @@ export const KINDS: KindMeta[] = [
     importPath: null,
     // Readarr B3: the Unmapped Files page (books twin of Lidarr's L5
     // unmapped page) is a first-class books sub-link.
-    extraLinks: [{ to: '/books/unmapped', label: 'Unmapped Files' }],
+    // Readarr B4: Bookshelves (client-side shelf rollup) and Series (the
+    // book↔series collection surface, Radarr-Collections analogue).
+    extraLinks: [
+      { to: '/books/unmapped', label: 'Unmapped Files' },
+      { to: '/books/bookshelves', label: 'Bookshelves' },
+      { to: '/books/series', label: 'Series' },
+    ],
   },
 ]
 

@@ -474,6 +474,37 @@ func (r *kindsBooksRepo) ListWanted(_ context.Context, _ int64) ([]booksdom.Want
 	return nil, nil
 }
 
+// Readarr B4: the bookshelves rollup pair for a title, mirroring the postgres
+// repo's correlated subqueries — HasFile (any imported file) and Format (the
+// newest imported file's format, else the newest edition's format, else "").
+func (r *kindsBooksRepo) rollupFor(titleID int64) (bool, string) {
+	var hasFile, picked bool
+	var format string
+	var at time.Time
+	var id int64
+	for _, f := range r.bookFiles {
+		if f.TitleID != titleID {
+			continue
+		}
+		hasFile = true
+		if !picked || f.AddedAt.After(at) || (f.AddedAt.Equal(at) && f.ID > id) {
+			picked, format, at, id = true, f.Format, f.AddedAt, f.ID
+		}
+	}
+	if hasFile {
+		return hasFile, format
+	}
+	for _, e := range r.editions {
+		if e.TitleID != titleID {
+			continue
+		}
+		if !picked || e.AddedAt.After(at) || (e.AddedAt.Equal(at) && e.ID > id) {
+			picked, format, at, id = true, e.Format, e.AddedAt, e.ID
+		}
+	}
+	return false, format
+}
+
 // Readarr B1 methods.
 func (r *kindsBooksRepo) CreateBookFile(_ context.Context, f booksdom.BookFile) (int64, error) {
 	for _, v := range r.bookFiles {
@@ -511,7 +542,8 @@ func (r *kindsBooksRepo) ListBooks(_ context.Context) ([]booksdom.Book, error) {
 	var out []booksdom.Book
 	for _, t := range r.titles {
 		if a, ok := r.authors[t.AuthorID]; ok {
-			out = append(out, booksdom.Book{Title: t, AuthorName: a.Name})
+			hasFile, format := r.rollupFor(t.ID)
+			out = append(out, booksdom.Book{Title: t, AuthorName: a.Name, HasFile: hasFile, Format: format})
 		}
 	}
 	return out, nil
@@ -556,7 +588,8 @@ func (r *kindsBooksRepo) ListSeriesBooks(_ context.Context, seriesID int64) ([]b
 			continue
 		}
 		if a, ok := r.authors[t.AuthorID]; ok {
-			out = append(out, booksdom.SeriesBook{Title: t, AuthorName: a.Name})
+			hasFile, format := r.rollupFor(t.ID)
+			out = append(out, booksdom.SeriesBook{Title: t, AuthorName: a.Name, HasFile: hasFile, Format: format})
 		}
 	}
 	return out, nil
@@ -837,6 +870,8 @@ func TestP7_BooksB1ReadSurface(t *testing.T) {
 		ID         int64  `json:"ID"`
 		Name       string `json:"Name"`
 		AuthorName string `json:"AuthorName"`
+		HasFile    bool   `json:"HasFile"`
+		Format     string `json:"Format"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&booksIdx); err != nil {
 		t.Fatal(err)
@@ -844,6 +879,12 @@ func TestP7_BooksB1ReadSurface(t *testing.T) {
 	if len(booksIdx) != 1 || booksIdx[0].Name != "The Dispossessed" ||
 		booksIdx[0].AuthorName != "Ursula K. Le Guin" {
 		t.Fatalf("books index = %+v", booksIdx)
+	}
+	// Readarr B4 rollup pair: the title has an epub edition but no imported
+	// file, so HasFile=false and the resolvable Format falls back to the
+	// edition's format.
+	if booksIdx[0].HasFile || booksIdx[0].Format != "epub" {
+		t.Fatalf("books index rollup = %+v (want HasFile=false, Format=epub)", booksIdx[0])
 	}
 
 	// Series lifecycle: add (idempotent), list, get, link a title, list
