@@ -24,6 +24,7 @@ import type {
   Author,
   Book,
   BookAuthorSeries,
+  BookMetadataProfile,
   BookFile,
   BookHistoryEntry,
   BookLookupResult,
@@ -353,6 +354,9 @@ export const client = {
   listTitleSeries: (titleId: number) => request<BookSeries[]>('GET', `/books/titles/${titleId}/series`),
   linkTitleToSeries: (titleId: number, seriesId: number) =>
     request<LinkedSeriesResult>('POST', `/books/titles/${titleId}/series`, { series_id: seriesId }),
+  // Readarr B3: the Unmapped Files page (read-only walk of the configured
+  // books media root; 404 when no books root folder is configured).
+  listBookUnmappedFiles: () => request<UnmappedFile[]>('GET', '/books/unmapped'),
 
   // ---- indexers ----
   listIndexers: () => request<Indexer[]>('GET', '/indexers'),
@@ -523,6 +527,13 @@ export const client = {
     request<T>('GET', `/settings/${section}`),
   putSettingsSection: <T,>(section: SettingsSection, doc: T) =>
     request<T>('PUT', `/settings/${section}`, doc),
+  // Readarr B3: the book metadata profile names for the add/edit modal
+  // pickers. The profiles settings document (book_metadata_profiles) is the
+  // listing source — there is no dedicated endpoint for them.
+  listBookMetadataProfiles: () =>
+    request<{ book_metadata_profiles?: BookMetadataProfile[] }>('GET', '/settings/profiles').then(
+      (d) => (d.book_metadata_profiles ?? []).map((p) => p.name),
+    ),
   // Tag usage view: the series/episodes carrying one tag (tags section).
   getTagUsage: (id: number) => request<TagUsage>('GET', `/settings/tags/${id}/usage`),
   // P5 action endpoints (the four POSTs beyond the generic section docs).

@@ -202,6 +202,9 @@ export type DelayProfile = components["schemas"]["DelayProfile"]
 export type ReleaseProfile = components["schemas"]["ReleaseProfile"]
 // Lidarr L3: the metadata profiles (Standard / Album / Studio item lists).
 export type MetadataProfile = components["schemas"]["MetadataProfile"]
+// Readarr B3: the book metadata profiles (the server-side book metadata
+// filters: minimum popularity, skip flags, allowed languages).
+export type BookMetadataProfile = components["schemas"]["BookMetadataProfile"]
 
 // ---- Prowlarr PR4: notifications (saved sinks) + indexer proxies (FlareSolverr) ----
 export type NotificationSink = components["schemas"]["NotificationSink"]

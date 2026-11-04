@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	booksdom "github.com/brandenk514/mediarr/internal/domains/books"
 	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
 	tvdom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/providers"
@@ -391,7 +390,13 @@ func profilesForKind(kind string) ([]string, string) {
 		// built-ins (the matching engine is a separate layer).
 		return namesOfMusicProfiles(settings.DefaultMusicProfiles()), settings.DefaultMusicQualityProfile
 	case "books":
-		return namesOfBookProfiles(booksdom.BuiltInProfiles()), "Best"
+		// Readarr B3: the books picker lists the SETTINGS-seeded Readarr
+		// profiles (the 4 factory defaults), not the release-matching
+		// domain built-ins — the L3 music direction (the matching engine is
+		// a separate layer). The seeded names intentionally mirror the
+		// domain built-ins, so this is behavior-preserving for existing
+		// clients.
+		return namesOfBookProfilesSettings(settings.DefaultBookProfiles()), settings.DefaultBookQualityProfile
 	default:
 		return nil, ""
 	}
@@ -421,7 +426,9 @@ func namesOfMusicProfiles(ps []settings.QualityProfile) []string {
 	return out
 }
 
-func namesOfBookProfiles(ps []booksdom.Profile) []string {
+// namesOfBookProfilesSettings lists the names of the seeded book quality
+// profiles (settings documents) in seed order (the Readarr B3 books picker).
+func namesOfBookProfilesSettings(ps []settings.QualityProfile) []string {
 	out := make([]string, 0, len(ps))
 	for _, p := range ps {
 		out = append(out, p.Name)

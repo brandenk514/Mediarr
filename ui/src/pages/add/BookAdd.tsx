@@ -14,8 +14,11 @@ import { AddError, SearchBox, useAddSubmit, useDebouncedSearch } from '../../com
 // BookAddPage is the Readarr B2 book add flow: one combined Open Library
 // lookup (authors + works in a single debounced search, kind-tagged hits)
 // and an "Add New Author/Book" modal (Root Folder · Monitor · Quality
-// Profile · Metadata Profile (B3 stub, disabled) · Tags, with the
-// start-search footer checkbox). Already-added hits render as jump links:
+// Profile · Metadata Profile · Tags, with the start-search footer
+// checkbox). The quality profile lists the seeded book quality profiles
+// (Best / EPUB / Kindle / Any, GET /profiles?kind=books); the metadata
+// profile lists the book metadata profiles (the profiles settings document).
+// Already-added hits render as jump links:
 // an author hit to /books/{author id}, a book hit to /books/{author id} of
 // the work's author — never re-added. The books model is hierarchical
 // (author → title), so adding a book whose author is new is two calls:
@@ -160,8 +163,8 @@ function BookResultRow({ hit, index, onPick }: { hit: BookLookupResult; index: n
 
 // AddBookModal is the B2 "Add New Author/Book" modal — the ArtistAdd layout
 // with the books field set: Root Folder → Monitor (the 7 states) → Quality
-// Profile → Metadata Profile (disabled: no listing endpoint until B3) →
-// Tags, with the start-search checkbox + green Add button in the footer.
+// Profile → Metadata Profile (B3: both live selects) → Tags, with the
+// start-search checkbox + green Add button in the footer.
 function AddBookModal({
   hit,
   onClose,
@@ -176,6 +179,11 @@ function AddBookModal({
   const [monitorPolicy, setMonitorPolicy] = useState<MonitorPolicy>('all')
   const [profile, setProfile] = useState('')
   const [profiles, setProfiles] = useState<ProfilesResponse | null>(null)
+  // Readarr B3: the metadata profile name (the seeded "Default" book
+  // metadata profile and any user-created ones). Empty = none (server
+  // default).
+  const [metadataProfile, setMetadataProfile] = useState('')
+  const [metadataProfiles, setMetadataProfiles] = useState<string[] | null>(null)
   const [tags, setTags] = useState<string[]>([])
   const [tagDraft, setTagDraft] = useState('')
   const [startSearch, setStartSearch] = useState(false)
@@ -212,10 +220,29 @@ function AddBookModal({
     }
   }, [])
 
+  // Readarr B3: load the book metadata profile names for the select. A
+  // failed load leaves the list null — the select renders its loading
+  // placeholder and '' is still sent (server default), matching the quality
+  // profile's tolerance.
+  useEffect(() => {
+    let cancelled = false
+    client
+      .listBookMetadataProfiles()
+      .then((names) => {
+        if (!cancelled) setMetadataProfiles(names)
+      })
+      .catch(() => {
+        if (!cancelled) setMetadataProfiles([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // buildAuthorRequest assembles the full AddAuthorRequest from the modal
-  // fields. Empty tags / profile / root folder are omitted (server defaults);
-  // start_search is the server-side best-effort pipeline kick, so the UI
-  // never fires a pipeline on the fresh-author path itself.
+  // fields. Empty tags / profile / metadata profile / root folder are omitted
+  // (server defaults); start_search is the server-side best-effort pipeline
+  // kick, so the UI never fires a pipeline on the fresh-author path itself.
   function buildAuthorRequest(name: string): AddAuthorRequest {
     const req: AddAuthorRequest = {
       name,
@@ -224,6 +251,7 @@ function AddBookModal({
     }
     if (rootFolderPath) req.root_folder = rootFolderPath
     if (profile) req.quality_profile = profile
+    if (metadataProfile) req.metadata_profile = metadataProfile
     if (tags.length > 0) req.tags = tags
     return req
   }
@@ -383,11 +411,21 @@ function AddBookModal({
           <label htmlFor="book-metadata-profile" className="dim small">
             Metadata Profile
           </label>
-          <select id="book-metadata-profile" value="none" disabled data-testid="add-book-metadata-profile">
-            <option value="none">— None —</option>
+          <select
+            id="book-metadata-profile"
+            value={metadataProfile}
+            onChange={(e) => setMetadataProfile(e.target.value)}
+            data-testid="add-book-metadata-profile"
+          >
+            <option value="">— None —</option>
+            {(metadataProfiles ?? []).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
           </select>
           <p className="dim small" data-testid="add-book-metadata-profile-help">
-            Metadata profiles land in a later phase (B3).
+            Which metadata filters to apply when importing this author's books
           </p>
 
           <label htmlFor="book-tags" className="dim small">

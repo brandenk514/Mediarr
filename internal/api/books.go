@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -51,6 +52,9 @@ func (s *Server) SetBooks(deps *BooksDeps) {
 	s.register("GET /api/v1/books/series/{id}", s.requireAuth(s.GetBookSeries))
 	s.register("GET /api/v1/books/series/{id}/books", s.requireAuth(s.ListSeriesBooks))
 	s.register("POST /api/v1/books/authors/{id}/pipeline", s.requireAuth(s.RunBooksPipeline))
+	// Unmapped book files (Readarr B3, the "Unmapped Files" page): book
+	// files under the configured media root not mapped to a monitored author.
+	s.register("GET /api/v1/books/unmapped", s.requireAuth(s.ListBookUnmappedFiles))
 	// Combined plain-text books lookup (Readarr B2): one query over authors +
 	// works, kind-tagged, with `added`/`library_id` so the UI navigates
 	// instead of re-adding.
@@ -680,4 +684,32 @@ func (s *Server) SetEditionMonitored(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "monitored": req.Monitored})
+}
+
+// ListBookUnmappedFiles handles GET /api/v1/books/unmapped (Readarr B3, the
+// "Unmapped Files" page): it lists the book files under the books media root
+// that are not mapped to a monitored author (Path / Size / Date Added /
+// Quality). The walk is bounded to the configured media root (a trusted
+// config value, not client input) so the endpoint cannot be turned into an
+// arbitrary directory listing (the music L5 twin, the gosec G703 lesson).
+func (s *Server) ListBookUnmappedFiles(w http.ResponseWriter, r *http.Request) {
+	root := strings.TrimSpace(s.booksDeps.Svc.MediaRoot())
+	if root == "" {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	// Map filesystem problems to a clean 404/400 before the scan.
+	if fi, err := os.Stat(root); err != nil {
+		writeError(w, http.StatusNotFound, "root folder not found")
+		return
+	} else if !fi.IsDir() {
+		writeError(w, http.StatusBadRequest, "root folder is not a directory")
+		return
+	}
+	files, err := s.booksDeps.Svc.ListUnmappedFiles(r.Context(), root)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, files)
 }

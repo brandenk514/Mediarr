@@ -46,8 +46,8 @@ function humanBytes(n: number): string {
 // info (pages, size, format, language, added date). A toolbar carries
 // Refresh & Scan, Search (the author pipeline), History (modal), and Edit
 // (the Readarr B2 Edit Author modal: monitored · monitor policy · root
-// folder · quality profile · metadata profile (B3 stub) · tags, persisted
-// through the full author-update PUT) and the not-yet-built Delete.
+// folder · quality profile · metadata profile (B3: live select) · tags,
+// persisted through the full author-update PUT) and the not-yet-built Delete.
 export function AuthorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const authorId = Number(id)
@@ -66,6 +66,7 @@ export function AuthorDetailPage() {
     monitorPolicy: NonNullable<UpdateAuthorRequest['monitor_policy']>
     rootFolder: string
     profile: string
+    metadataProfile: string
     tags: string[]
     tagDraft: string
   } | null>(null)
@@ -73,6 +74,9 @@ export function AuthorDetailPage() {
   // Edit Artist pattern).
   const [editRootFolders, setEditRootFolders] = useState<RootFolder[] | null>(null)
   const [editProfiles, setEditProfiles] = useState<ProfilesResponse | null>(null)
+  // Readarr B3: the book metadata profile names for the metadata-profile
+  // select.
+  const [editMetadataProfiles, setEditMetadataProfiles] = useState<string[] | null>(null)
 
   const reload = useCallback(() => {
     setError(null)
@@ -95,12 +99,14 @@ export function AuthorDetailPage() {
     reload()
   }, [reload])
 
-  // The Edit modal's pickers load the root-folder list and book quality
-  // profiles lazily, only while the modal is open.
+  // The Edit modal's pickers load the root-folder list, the book quality
+  // profiles, and the book metadata profile names lazily, only while the
+  // modal is open.
   useEffect(() => {
     if (modal !== 'edit') return
     setEditRootFolders(null)
     setEditProfiles(null)
+    setEditMetadataProfiles(null)
     client
       .listRootFolders()
       .then(setEditRootFolders)
@@ -109,6 +115,10 @@ export function AuthorDetailPage() {
       .getProfiles('books')
       .then(setEditProfiles)
       .catch(() => setEditProfiles(null))
+    client
+      .listBookMetadataProfiles()
+      .then(setEditMetadataProfiles)
+      .catch(() => setEditMetadataProfiles([]))
   }, [modal])
 
   // Search runs the author's indexer pipeline (the books analogue of Radarr's
@@ -189,6 +199,7 @@ export function AuthorDetailPage() {
                   monitorPolicy: author.MonitorPolicy || 'all',
                   rootFolder: author.RootFolder ?? '',
                   profile: author.QualityProfile ?? '',
+                  metadataProfile: author.MetadataProfile ?? '',
                   tags: author.Tags ?? [],
                   tagDraft: '',
                 })
@@ -275,9 +286,9 @@ export function AuthorDetailPage() {
 
       {/* Edit Author modal (Readarr B2). Persists through PUT
           /books/authors/{id} (UpdateAuthorRequest): Monitored · Monitor
-          Policy · Root Folder · Quality Profile · Metadata Profile (B3
-          stub — disabled) · Tags. A monitored change fans out to the
-          author's known titles server-side. */}
+          Policy · Root Folder · Quality Profile · Metadata Profile ·
+          Tags. A monitored change fans out to the author's known titles
+          server-side. */}
       {modal === 'edit' && edit && (
         <Modal
           title="Edit Author"
@@ -298,6 +309,7 @@ export function AuthorDetailPage() {
                       monitor_policy: edit.monitorPolicy,
                       root_folder: edit.rootFolder,
                       quality_profile: edit.profile,
+                      metadata_profile: edit.metadataProfile,
                       tags: edit.tags,
                     })
                     setModal(null)
@@ -393,12 +405,26 @@ export function AuthorDetailPage() {
 
           <label style={{ display: 'block', marginBottom: '0.6rem' }}>
             <span className="dim small">Metadata Profile</span>
-            <select value="none" disabled data-testid="edit-metadata-profile">
-              <option value="none">— None —</option>
+            <select
+              value={edit.metadataProfile}
+              onChange={(e) => setEdit({ ...edit, metadataProfile: e.target.value })}
+              data-testid="edit-metadata-profile"
+            >
+              <option value="">— None —</option>
+              {(editMetadataProfiles ?? []).map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+              {editMetadataProfiles !== null &&
+                edit.metadataProfile !== '' &&
+                !(editMetadataProfiles ?? []).includes(edit.metadataProfile) && (
+                  <option value={edit.metadataProfile}>{edit.metadataProfile}</option>
+                )}
             </select>
           </label>
           <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
-            Metadata profiles land in a later phase (B3).
+            Which metadata filters apply to this author's books (empty = server default)
           </p>
 
           <label style={{ display: 'block', marginBottom: '0.6rem' }}>
