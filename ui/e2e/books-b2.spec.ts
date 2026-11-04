@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { E2E_PASSWORD, E2E_USER, signIn } from './login'
 
 // Readarr B2: the book add flow e2e — the combined Open Library lookup
@@ -107,9 +107,12 @@ test('combined search renders kind-tagged rows and the modal has the Readarr fie
   await expect(page.getByTestId('add-book-monitor-policy')).toBeVisible()
   await expect(page.getByTestId('add-book-monitor-policy-help')).toContainText('one-time adjustment')
   await expect(page.getByTestId('add-book-quality-profile')).toBeVisible()
-  // Metadata profile: no listing endpoint until B3 — disabled stub.
-  await expect(page.getByTestId('add-book-metadata-profile')).toBeDisabled()
-  await expect(page.getByText('Metadata profiles land in a later phase (B3).')).toBeVisible()
+  // Metadata profile: B3 enabled this select (the B2 disabled stub is gone) —
+  // it is populated from the seeded book metadata profiles.
+  await expect(page.getByTestId('add-book-metadata-profile')).toBeEnabled()
+  await expect(page.getByTestId('add-book-metadata-profile-help')).toContainText(
+    'metadata filters',
+  )
   await expect(page.getByTestId('add-book-tags-input')).toBeVisible()
   await expect(page.getByTestId('book-start-search')).toBeVisible()
   await expect(page.getByTestId('book-add-button')).toBeVisible()
@@ -209,12 +212,23 @@ test('add a book through a book hit; the title lands monitored under its author'
 
   if (!(await searchBooks(page, PROBE_BOOK))) return
 
-  const plainBook = page.locator('div[data-testid^="book-result-book-"]')
-  if (await plainBook.count()) {
+  // The combined lookup is fuzzy and its ordering drifts with Open Library's
+  // data, so target the probe work by its byline among the plain (not-added)
+  // book rows rather than assuming it is first.
+  const plainBooks = page.locator('div[data-testid^="book-result-book-"]')
+  let probeRow: Locator | null = null
+  for (let i = 0; i < (await plainBooks.count()); i++) {
+    const row = plainBooks.nth(i)
+    if ((await row.textContent())?.includes(`by ${PROBE_AUTHOR}`)) {
+      probeRow = row
+      break
+    }
+  }
+  if (probeRow) {
     // Book row: the Book kind badge and the work's author as its byline.
-    await expect(plainBook.first()).toContainText('Book')
-    await expect(plainBook.first()).toContainText(`by ${PROBE_AUTHOR}`)
-    await plainBook.first().click()
+    await expect(probeRow).toContainText('Book')
+    await expect(probeRow).toContainText(`by ${PROBE_AUTHOR}`)
+    await probeRow.click()
     await expect(page.getByTestId('add-book-modal')).toBeVisible()
     await expect(page.getByTestId('add-book-byline')).toContainText(PROBE_AUTHOR)
 
@@ -252,9 +266,14 @@ test('add a book through a book hit; the title lands monitored under its author'
 
   // Re-run branch: the work is already in the library from a previous run,
   // so its hit is a jump link to the author's detail — where the title row
-  // proves it is still there.
-  const bookLink = page.locator('a[data-testid^="book-result-book-"]').first()
-  await bookLink.click()
+  // proves it is still there. (If the lookup returns no book hit at all, the
+  // environment simply doesn't surface the probe work — skip.)
+  const bookLinks = page.locator('a[data-testid^="book-result-book-"]')
+  if (!(await bookLinks.count())) {
+    test.skip(true, `no book hit for ${PROBE_BOOK} in this environment`)
+    return
+  }
+  await bookLinks.first().click()
   await expect(page).toHaveURL(/\/books\/\d+$/)
   await expect(page.getByTestId('author-detail')).toBeVisible()
   await expect(page.getByTestId('author-detail').getByText(PROBE_BOOK)).toBeVisible()
