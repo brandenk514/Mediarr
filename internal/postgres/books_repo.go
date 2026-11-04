@@ -801,8 +801,8 @@ func (r *BooksRepo) FindTitle(ctx context.Context, authorID int64, name string) 
 // edition with no ISBN (the domain's fallback identity).
 func (r *BooksRepo) FindEdition(ctx context.Context, titleID int64, format, isbn string) (int64, bool, error) {
 	var id int64
-	err := r.db.QueryRowContext(ctx, `\
-		SELECT id FROM book_editions
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM book_editions
 		WHERE title_id = $1 AND format = $2
 		  AND ($3 = '' AND (isbn IS NULL OR isbn = '') OR isbn = $3)`, titleID, format, isbn).Scan(&id)
 	if err == sql.ErrNoRows {
