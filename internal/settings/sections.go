@@ -644,10 +644,17 @@ type RemotePathMapping struct {
 // MediaManagementSettings is the media-management document. Root folders are
 // NOT part of this document — they live in the root-folders registry
 // (P2 add-flow domain) and the section's UI reads/writes that registry.
+// The Readarr B5 books additions: the book naming block (book tag-set
+// templates + rename / illegal-char / colon / space / case options), the
+// book file-management block (folders, import, file management,
+// permissions), and the global Calibre feature flag (off by default).
 type MediaManagementSettings struct {
 	Naming             NamingTemplate      `json:"naming"`
 	MovieNaming        MovieNaming         `json:"movie_naming"`
 	MusicNaming        MusicNaming         `json:"music_naming"`
+	BookNaming         BookNaming          `json:"book_naming"`
+	BookManagement     BookFileManagement  `json:"book_management"`
+	CalibreEnabled     bool                `json:"calibre_enabled"`
 	Management         FileManagement      `json:"file_management"`
 	RemotePathMappings []RemotePathMapping `json:"remote_path_mappings"`
 }
@@ -676,6 +683,11 @@ func DefaultMediaManagement() MediaManagementSettings {
 			StandardFormat:           DefaultMusicStandardFormat,
 			MultiDiscFormat:          DefaultMusicMultiDiscFormat,
 		},
+		// Readarr B5 books: book naming + file-management blocks, and the
+		// Calibre feature flag (off by default).
+		BookNaming:     DefaultBookNaming(),
+		BookManagement: DefaultBookManagement(),
+		CalibreEnabled: false,
 		Management: FileManagement{
 			MinFileAgeHours:        0,
 			RemoveEmptyDirs:        true,
@@ -715,6 +727,14 @@ func (m MediaManagementSettings) Validate() string {
 	}
 	if utf8.RuneCountInString(m.MusicNaming.ColonReplacement) > 1 {
 		return "music_naming.colon_replacement must be a single character or empty"
+	}
+	// Readarr B5 books: the book naming block (templates + space/case
+	// handling) and the book file-management block.
+	if msg := m.BookNaming.Validate(); msg != "" {
+		return msg
+	}
+	if msg := m.BookManagement.Validate(); msg != "" {
+		return msg
 	}
 	if m.Management.MinFileAgeHours < 0 {
 		return "file_management.min_file_age_hours must be >= 0"
@@ -884,9 +904,12 @@ type MetadataSettings struct {
 	Kinds             map[string]bool `json:"kinds"`
 	// Lidarr L3 music metadata: tag audio files with metadata on import and
 	// scrub existing tags from the files.
-	TagAudioFiles     bool               `json:"tag_audio_files"`
-	ScrubExistingTags bool               `json:"scrub_existing_tags"`
-	Consumers         []MetadataConsumer `json:"consumers"`
+	TagAudioFiles     bool `json:"tag_audio_files"`
+	ScrubExistingTags bool `json:"scrub_existing_tags"`
+	// Readarr B5 books: the "write tags to files" modes for book and audio
+	// (a-book) files.
+	BookTags  BookTagWrite       `json:"book_tag_write"`
+	Consumers []MetadataConsumer `json:"consumers"`
 }
 
 // MetadataConsumer is one music metadata consumer (L3): an app that reads
@@ -907,6 +930,8 @@ func DefaultMetadata() MetadataSettings {
 		// unless the user opts in).
 		TagAudioFiles:     true,
 		ScrubExistingTags: false,
+		// Readarr B5 books: tag e-books with all tags; audio off by default.
+		BookTags: DefaultBookTagWrite(),
 		Consumers: []MetadataConsumer{
 			// Lidarr groups Kodi/Emby under one consumer label.
 			{Name: "Kodi (XBMC)/Emby", Enabled: false},
@@ -926,6 +951,10 @@ func (m MetadataSettings) Validate() string {
 		}
 	}
 	// Lidarr L3: consumers carry a required name (enabled is a plain bool).
+	// Readarr B5: the book tag-writing modes must be in their vocabularies.
+	if msg := m.BookTags.Validate(); msg != "" {
+		return msg
+	}
 	seenConsumers := map[string]bool{}
 	for i, c := range m.Consumers {
 		if c.Name == "" {
