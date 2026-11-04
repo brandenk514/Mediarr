@@ -400,6 +400,22 @@ func TestProfiles_AllKinds(t *testing.T) {
 			t.Errorf("music profiles[%d] = %q, want %q", i, p, want[i])
 		}
 	}
+
+	// Readarr B3: the books kind pins the 4 SETTINGS-seeded profile names in
+	// seed order (the L3 music direction — not the domain built-ins).
+	rec = getJSON(t, s.Handler(), "/api/v1/profiles?kind=books", token)
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	wantBooks := []string{"Best", "EPUB", "Kindle", "Any"}
+	if len(got.Profiles) != len(wantBooks) {
+		t.Fatalf("books profiles = %v, want %v", got.Profiles, wantBooks)
+	}
+	for i, p := range got.Profiles {
+		if p != wantBooks[i] {
+			t.Errorf("books profiles[%d] = %q, want %q", i, p, wantBooks[i])
+		}
+	}
 }
 
 func TestProfiles_InvalidKind(t *testing.T) {
