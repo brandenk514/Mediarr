@@ -1,30 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { client } from '../../../api/client'
 import type {
-  BooksBookFileManagement,
-  BooksBookNaming,
-  BooksMediaManagementSettings,
-} from '../../../api/books-b5'
-import type {
-  BookCaseHandling,
-  BookFileDate,
-  BookFingerprint,
-  BookProperRepacks,
-  BookRescan,
-  BookSpaceHandling,
-} from '../../../api/books-b5'
-import {
-  BOOK_CASE_HANDLINGS,
-  BOOK_FILE_DATES,
-  BOOK_FINGERPRINTS,
-  BOOK_PROPER_REPACKS,
-  BOOK_RESCANS,
-  BOOK_SPACE_HANDLINGS,
-  CALIBRE_OUTPUT_FORMATS,
-  DEFAULT_BOOK_FILE_MANAGEMENT,
-  DEFAULT_BOOK_NAMING,
-} from '../../../api/books-b5'
-import type {
   FileManagement,
   MovieNaming,
   MusicNaming,
@@ -40,6 +16,64 @@ import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 // the generated schema here (spec-accurate: the root-folder endpoints mask
 // the password on read and compute HardlinksDisabled).
 type CalibreSettings = components['schemas']['CalibreSettings']
+// Readarr B5 books blocks, generated from openapi.yaml (the spec was
+// corrected to the backend wire shapes; the earlier hand-written bridge file
+// existed only to cover that divergence and is gone with it).
+type MediaManagementDoc = components['schemas']['MediaManagementSettings']
+type BookNamingDoc = components['schemas']['BookNaming']
+type BookFileManagementDoc = components['schemas']['BookFileManagement']
+type BookSpaceHandling = BookNamingDoc['space_handling']
+type BookCaseHandling = BookNamingDoc['case_handling']
+type BookProperRepacks = BookFileManagementDoc['download_propers_and_repacks']
+type BookFileDate = BookFileManagementDoc['file_date']
+type BookRescan = BookFileManagementDoc['rescan_after_refresh']
+type BookFingerprint = BookFileManagementDoc['allow_fingerprinting']
+
+const BOOK_SPACE_HANDLINGS: BookSpaceHandling[] = ['space', 'period', 'underscore', 'dash']
+const BOOK_CASE_HANDLINGS: BookCaseHandling[] = ['default', 'uppercase', 'lowercase']
+const BOOK_PROPER_REPACKS: BookProperRepacks[] = ['ignore', 'include', 'upgrade']
+const BOOK_FILE_DATES: BookFileDate[] = ['original', 'release']
+const BOOK_RESCANS: BookRescan[] = ['no', 'changed', 'all']
+const BOOK_FINGERPRINTS: BookFingerprint[] = ['no', 'yes']
+const CALIBRE_OUTPUT_FORMATS = [
+  'MOBI', 'EPUB', 'AZW3', 'DOCX', 'FB2', 'TXT', 'RTF', 'LIT', 'CHM', 'HTML', 'AZW', 'KFX', 'SNB', 'TTS',
+] as const
+
+// The server's factory defaults (settings.DefaultBookNaming /
+// settings.DefaultBookManagement) — load-boundary fallbacks for pre-B5
+// documents missing the books keys.
+const DEFAULT_BOOK_NAMING: BookNamingDoc = {
+  rename_books: true,
+  replace_illegal_characters: true,
+  colon_replacement: '',
+  standard_format: '{Author Name} - {Book Title} ({Release Year})',
+  author_format: '{Author Name}',
+  space_handling: 'space',
+  case_handling: 'default',
+}
+const DEFAULT_BOOK_FILE_MANAGEMENT: BookFileManagementDoc = {
+  unmonitor_downloaded: true,
+  ignore_deleted_files: false,
+  download_propers_and_repacks: 'include',
+  create_empty_author_folders: true,
+  delete_empty_folders: false,
+  file_date: 'original',
+  watch_library_for_changes: true,
+  rescan_after_refresh: 'no',
+  allow_fingerprinting: 'no',
+  recycle_bin: '',
+  recycle_bin_cleanup_days: 14,
+  set_permissions_linux: false,
+  chmod_folder: '',
+  chown_user: '',
+  chown_group: '',
+  skip_free_space_check: false,
+  min_free_space_gb: 0,
+  copy_using_hardlinks: true,
+  import_extra_files: false,
+  extra_file_extensions: '',
+}
+
 
 // MediaManagementSection is the media-management section: naming templates
 // per media kind (TV parity first), the Radarr movie-naming block (R5b:
@@ -48,8 +82,8 @@ type CalibreSettings = components['schemas']['CalibreSettings']
 // the TV-era NamingTemplate.movie), the Lidarr track-naming block (L3:
 // Rename Tracks / Replace Illegal Characters / Colon Replacement / Standard
 // Format / Multi-Disc Format), the Readarr book-naming + book file-management
-// blocks and the global Calibre feature flag (B5; the books wire shapes come
-// from books-b5.ts — see its spec-divergence note), the file-management
+// blocks and the global Calibre feature flag (B5; the books blocks are
+// generated from the spec), the file-management
 // options (including Unmonitor Deleted Movies), remote path mappings
 // (indexer/download paths -> local), and the root-folder list (paths owned by
 // the P2 root-folders domain and the add flow; the per-root default music
@@ -65,7 +99,7 @@ const TEMPLATE_FIELDS: { field: keyof NamingTemplate; label: string }[] = [
 ]
 
 export function MediaManagementSection() {
-  const { doc, loading, error, authLost, refresh } = useSectionDoc<BooksMediaManagementSettings>('media-management')
+  const { doc, loading, error, authLost, refresh } = useSectionDoc<MediaManagementDoc>('media-management')
 
   const [naming, setNaming] = useState<NamingTemplate | null>(null)
   const [movieNaming, setMovieNaming] = useState<MovieNaming | null>(null)
@@ -77,8 +111,8 @@ export function MediaManagementSection() {
   // Calibre feature flag. A pre-B5 document (missing keys) seeds the
   // factory defaults at the load boundary, mirroring the music_naming
   // fallback pattern.
-  const [bookNaming, setBookNaming] = useState<BooksBookNaming>(DEFAULT_BOOK_NAMING)
-  const [bookMgmt, setBookMgmt] = useState<BooksBookFileManagement>(DEFAULT_BOOK_FILE_MANAGEMENT)
+  const [bookNaming, setBookNaming] = useState<BookNamingDoc>(DEFAULT_BOOK_NAMING)
+  const [bookMgmt, setBookMgmt] = useState<BookFileManagementDoc>(DEFAULT_BOOK_FILE_MANAGEMENT)
   const [calibreEnabled, setCalibreEnabled] = useState(false)
   const [fileMgmt, setFileMgmt] = useState<FileManagement | null>(null)
   const [mappings, setMappings] = useState<RemotePathMapping[]>([])
@@ -210,11 +244,11 @@ export function MediaManagementSection() {
 
   // Readarr B5: the books naming / file-management patches (the blocks are
   // always non-null — they seed the factory defaults at the load boundary).
-  function patchBookNaming(patch: Partial<BooksBookNaming>) {
+  function patchBookNaming(patch: Partial<BookNamingDoc>) {
     setBookNaming({ ...bookNaming, ...patch })
   }
 
-  function patchBookMgmt(patch: Partial<BooksBookFileManagement>) {
+  function patchBookMgmt(patch: Partial<BookFileManagementDoc>) {
     setBookMgmt({ ...bookMgmt, ...patch })
   }
 
@@ -348,7 +382,7 @@ export function MediaManagementSection() {
     if (!doc) return
     if (!naming || !fileMgmt || !movieNaming) return
     void submit(async () => {
-      const next: BooksMediaManagementSettings = {
+      const next: MediaManagementDoc = {
         naming,
         movie_naming: movieNaming,
         // Lidarr L3: send the local block when present; a pre-L3 doc (no
@@ -362,7 +396,7 @@ export function MediaManagementSection() {
         file_management: fileMgmt,
         remote_path_mappings: mappings,
       }
-      await client.putSettingsSection<BooksMediaManagementSettings>('media-management', next)
+      await client.putSettingsSection<MediaManagementDoc>('media-management', next)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     })
@@ -476,8 +510,7 @@ export function MediaManagementSection() {
         />
       </div>
 
-      {/* Readarr B5: the books naming block (wire shape from books-b5.ts —
-          the backend's BookNaming, which openapi.yaml documents differently). */}
+      {/* Readarr B5: the books naming block (BookNaming from the spec). */}
       <h4>Book naming</h4>
       <div data-testid="mm-book-naming">
         <label className="check" htmlFor="mm-book-rename">

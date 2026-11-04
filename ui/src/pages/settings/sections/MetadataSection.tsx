@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
 import type { MediaKind, MetadataConsumer, MetadataSettings } from '../../../api/types'
-import {
-  AUDIO_TAG_TYPES,
-  BOOK_TAG_TYPES,
-  DEFAULT_BOOK_TAG_WRITE,
-} from '../../../api/books-b5'
-import type { AudioTagType, BookTagType } from '../../../api/books-b5'
+import type { components } from '../../../api/types.gen'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
 // MetadataSection is the metadata section of the P5 settings shell: the
@@ -16,6 +11,17 @@ import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from '
 // existing tags, and the metadata consumers (Kodi (XBMC)/Emby, Roksbox,
 // WDTV) that run against the generated files. The NFO toggle gates the
 // metawrite.Writer wired into the wanted manual-import flow (P5 wave 2).
+// Readarr B5: the books tag-writing options (generated BookTagWrite; the
+// state type is MetadataSettings['book_tag_write'], the same shape).
+type BookTagWrite = components['schemas']['BookTagWrite']
+type BookTagType = BookTagWrite['book_tag_type']
+type AudioTagType = BookTagWrite['audio_tag_type']
+
+const BOOK_TAG_TYPES: BookTagType[] = ['no', 'all', 'book']
+const AUDIO_TAG_TYPES: AudioTagType[] = ['no', 'all', 'audio']
+// The server's default (settings.DefaultBookTagWrite).
+const DEFAULT_BOOK_TAG_WRITE: BookTagWrite = { book_tag_type: 'all', audio_tag_type: 'no' }
+
 const KINDS: MediaKind[] = ['movie', 'tv', 'music', 'book']
 
 export function MetadataSection() {

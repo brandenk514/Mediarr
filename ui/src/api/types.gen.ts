@@ -5188,35 +5188,91 @@ export interface components {
              */
             audio_tag_type: "no" | "all" | "audio";
         };
+        /**
+         * @description Readarr book naming block (B5). standard_format is the book file
+         *     naming template and author_format the author-folder template, both in
+         *     the same brace-token style as the rest of the naming document.
+         */
         BookNaming: {
-            /** @description E-book folder format (Readarr Standard Format), e.g. [Author] - [BookTitle]. */
+            /** @description Rename book files to the standard template; false keeps the original release filename. */
+            rename_books: boolean;
+            /** @description Replace characters the filesystem rejects. */
+            replace_illegal_characters: boolean;
+            /** @description Single character (or empty) used for ':' in titles. */
+            colon_replacement: string;
+            /** @description Book file-naming template (brace tokens), e.g. "{Author Name} - {Book Title} ({Release Year})". */
             standard_format: string;
-            /** @description E-book file template (Readarr Standard Template), e.g. [Author] - [BookTitle] ([Volume]) ([Year]). */
-            standard_template: string;
-            /** @description E-book filename sanitization (Readarr Standard Replacement). */
-            standard_replace: string;
-            /** @description A-book folder format (Readarr Audio Book Format), e.g. [Author] - [SeriesName] ([Series0] of [Series]). */
-            audiobook_format: string;
-            /** @description A-book file template (Readarr Audio Book Template), e.g. [Author] - [SeriesName] ([Series0] of [Series]) ([Chapter000]) - [ChapterName]. */
-            audiobook_template: string;
-            /** @description A-book filename sanitization (Readarr Audio Book Replacement). */
-            audiobook_replace: string;
+            /** @description Author-folder template (brace tokens), e.g. "{Author Name}". */
+            author_format: string;
+            /**
+             * @description How whitespace in rendered names is handled; space by default.
+             * @enum {string}
+             */
+            space_handling: "space" | "period" | "underscore" | "dash";
+            /**
+             * @description Case transform applied to rendered names; default by default.
+             * @enum {string}
+             */
+            case_handling: "default" | "uppercase" | "lowercase";
         };
+        /**
+         * @description Readarr book file-management block (B5): author-folder handling,
+         *     import behavior (free space, hard links, extra files), file
+         *     management (rescan, fingerprint, recycle bin) and Linux permissions.
+         */
         BookFileManagement: {
-            /** @description Default is .epz (Readarr's E-Book Format default). */
-            epub_extension: string;
-            /** @description Default is .azw. */
-            mobi_extension: string;
-            /** @description Default is .azw3. */
-            azw3_extension: string;
-            /** @description Default is .m4b. */
-            aac_extension: string;
-            /** @description Default is .flac. */
-            flac_extension: string;
-            /** @description Default is .mp3. */
-            mp3_extension: string;
-            /** @description Default is .m4a. */
-            m4a_extension: string;
+            /** @description Stop monitoring a book once a file for it has been imported; true by default. */
+            unmonitor_downloaded: boolean;
+            /** @description Ignore book files that are deleted on disk; false by default. */
+            ignore_deleted_files: boolean;
+            /**
+             * @description Propers/repacks handling; include by default.
+             * @enum {string}
+             */
+            download_propers_and_repacks: "ignore" | "include" | "upgrade";
+            /** @description Create an author's folder even when it has no imported books yet; true by default. */
+            create_empty_author_folders: boolean;
+            /** @description Remove author folders that end up empty; false by default. */
+            delete_empty_folders: boolean;
+            /**
+             * @description File mtime on import — the original file date or the release date; original by default.
+             * @enum {string}
+             */
+            file_date: "original" | "release";
+            /** @description Rescan a root folder for changes; true by default. */
+            watch_library_for_changes: boolean;
+            /**
+             * @description Rescan after refresh — no, changed, or all; no by default.
+             * @enum {string}
+             */
+            rescan_after_refresh: "no" | "changed" | "all";
+            /**
+             * @description Write the file-fingerprint tag; no by default.
+             * @enum {string}
+             */
+            allow_fingerprinting: "no" | "yes";
+            /** @description Recycle-bin path for deleted files; empty (direct delete) by default. */
+            recycle_bin: string;
+            /** @description How long recycle-bin items stay before purge (days); 14 by default. */
+            recycle_bin_cleanup_days: number;
+            /** @description Apply the Linux permissions on import; false by default. */
+            set_permissions_linux: boolean;
+            /** @description chmod mode for imported folders; empty by default. */
+            chmod_folder: string;
+            /** @description chown user for imported files; empty by default. */
+            chown_user: string;
+            /** @description chown group for imported files; empty by default. */
+            chown_group: string;
+            /** @description Skip the destination free-space check when importing; false by default. */
+            skip_free_space_check: boolean;
+            /** @description Minimum free space (GB) required at the destination; 0 by default. */
+            min_free_space_gb: number;
+            /** @description Hard-link instead of copy when possible; true by default. Auto-disabled per root folder when Calibre is enabled for that root. */
+            copy_using_hardlinks: boolean;
+            /** @description Copy extra (non-book) files on import; false by default. */
+            import_extra_files: boolean;
+            /** @description Allowed extra-file extensions; empty (all) by default. */
+            extra_file_extensions: string;
         };
         BookImportList: {
             /** Format: int64 */
@@ -5229,8 +5285,10 @@ export interface components {
              * @enum {string}
              */
             kind: "goodreads" | "lazylibrarian" | "readarr";
-            /** @description Goodreads list id (goodreads kind only). */
-            list_id: string;
+            /** @description Whether this list is active for imports. */
+            enabled: boolean;
+            /** @description Goodreads list id (goodreads kind only; 0 for other kinds). */
+            list_id: number;
             /** @description The Goodreads site, or the lazylibrarian/readarr instance URL. */
             base_url: string;
             /** @description lazylibrarian / readarr API key; masked on read, empty string when unset. */
@@ -5243,7 +5301,6 @@ export interface components {
             tag_ids: number[];
             /** @description Readarr-instance filter: root-folder paths (readarr kind only; empty = all). */
             root_folder_paths: string[];
-            exclusions: components["schemas"]["BookImportListExclusion"][];
         };
         BookImportListExclusion: {
             /** @description The source's book foreign id to skip. */

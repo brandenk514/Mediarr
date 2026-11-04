@@ -1,11 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
-import type {
-  BooksBookImportList,
-  BooksBookImportListExclusion,
-  BooksBookImportListsSettings,
-} from '../../../api/books-b5'
-import { BOOK_IMPORT_LIST_KINDS } from '../../../api/books-b5'
+import type { components } from '../../../api/types.gen'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
 // BookImportListsSection is the Readarr B5 books import-lists section:
@@ -17,8 +12,14 @@ import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from '
 // books importer has no /import endpoint yet (the movie/TV one reads the
 // shared import-lists document, not this one).
 //
-// Wire shapes come from books-b5.ts: the backend's BookImportList diverges
-// from openapi.yaml (int list_id + enabled + document-level exclusions).
+// Wire shapes are generated from openapi.yaml (the spec matches the backend:
+// int list_id, per-list enabled, document-level exclusions).
+type BookImportListsDoc = components['schemas']['BookImportListsSettings']
+type BookImportListDoc = components['schemas']['BookImportList']
+type BookImportListExclusionDoc = components['schemas']['BookImportListExclusion']
+type BookImportListKind = BookImportListDoc['kind']
+
+const BOOK_IMPORT_LIST_KINDS: BookImportListKind[] = ['goodreads', 'lazylibrarian', 'readarr']
 const GOODREADS_DEFAULT_URL = 'https://www.goodreads.com'
 
 // parseIds parses a comma-separated id field into a de-duplicated int list
@@ -43,11 +44,11 @@ function parsePaths(raw: string): string[] {
 }
 
 export function BookImportListsSection() {
-  const { doc, loading, error, authLost, refresh } = useSectionDoc<BooksBookImportListsSettings>(
+  const { doc, loading, error, authLost, refresh } = useSectionDoc<BookImportListsDoc>(
     'book-import-lists',
   )
-  const [lists, setLists] = useState<BooksBookImportList[]>([])
-  const [exclusions, setExclusions] = useState<BooksBookImportListExclusion[]>([])
+  const [lists, setLists] = useState<BookImportListDoc[]>([])
+  const [exclusions, setExclusions] = useState<BookImportListExclusionDoc[]>([])
   const [saved, setSaved] = useState(false)
   const { busy, error: saveError, submit } = useSubmit()
 
@@ -78,7 +79,7 @@ export function BookImportListsSection() {
     )
   }
 
-  function beginEdit(l: BooksBookImportList) {
+  function beginEdit(l: BookImportListDoc) {
     setEditId(l.id)
     setName(l.name)
     setKind(l.kind)
@@ -114,7 +115,7 @@ export function BookImportListsSection() {
       if (idNum < 1) return
       // The draft omits id/enabled: the row keeps the existing id, and a
       // new list starts enabled (the shared import-lists convention).
-      const base: Omit<BooksBookImportList, 'id' | 'enabled'> = {
+      const base: Omit<BookImportListDoc, 'id' | 'enabled'> = {
         name: n,
         kind,
         base_url: url,
@@ -134,7 +135,7 @@ export function BookImportListsSection() {
       clearDraft()
       return
     }
-    const base: Omit<BooksBookImportList, 'id' | 'enabled' | 'api_key_set'> = {
+    const base: Omit<BookImportListDoc, 'id' | 'enabled' | 'api_key_set'> = {
       name: n,
       kind,
       base_url: url,
@@ -173,8 +174,8 @@ export function BookImportListsSection() {
 
   function handleSave() {
     void submit(async () => {
-      const next: BooksBookImportListsSettings = { lists, exclusions }
-      await client.putSettingsSection<BooksBookImportListsSettings>('book-import-lists', next)
+      const next: BookImportListsDoc = { lists, exclusions }
+      await client.putSettingsSection<BookImportListsDoc>('book-import-lists', next)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     })
@@ -183,7 +184,7 @@ export function BookImportListsSection() {
   // The address summary per row: goodreads shows site + list id; the
   // instance kinds show the base URL (+ key-stored note + the readarr
   // source filters).
-  function addressOf(l: BooksBookImportList): string {
+  function addressOf(l: BookImportListDoc): string {
     if (l.kind === 'goodreads') return `${l.base_url} / list ${l.list_id}`
     const filters =
       l.kind === 'readarr'
