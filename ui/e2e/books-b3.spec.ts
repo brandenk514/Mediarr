@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { E2E_PASSWORD, E2E_USER, signIn } from './login'
 
 // Readarr B3: the books "Unmapped Files" e2e — the rail entry and the page
