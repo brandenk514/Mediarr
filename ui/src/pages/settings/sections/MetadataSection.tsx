@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
 import type { MediaKind, MetadataConsumer, MetadataSettings } from '../../../api/types'
-import { DEFAULT_BOOK_TAG_WRITE } from '../../../api/books-b5'
+import {
+  AUDIO_TAG_TYPES,
+  BOOK_TAG_TYPES,
+  DEFAULT_BOOK_TAG_WRITE,
+} from '../../../api/books-b5'
+import type { AudioTagType, BookTagType } from '../../../api/books-b5'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
 // MetadataSection is the metadata section of the P5 settings shell: the
@@ -156,6 +161,41 @@ export function MetadataSection() {
             {c.name}
           </label>
         ))}
+      </div>
+
+      {/* Readarr B5: write tags to book files (e-book + a-book modes). */}
+      <h4>Book tag writing</h4>
+      <div data-testid="md-book-tag">
+        <label htmlFor="md-book-tag-type">Book tag type</label>
+        <select
+          id="md-book-tag-type"
+          value={bookTagWrite.book_tag_type}
+          onChange={(e) =>
+            setBookTagWrite({ ...bookTagWrite, book_tag_type: e.target.value as BookTagType })
+          }
+          data-testid="md-book-tag-type"
+        >
+          {BOOK_TAG_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        <label htmlFor="md-audio-tag-type">Audio tag type</label>
+        <select
+          id="md-audio-tag-type"
+          value={bookTagWrite.audio_tag_type}
+          onChange={(e) =>
+            setBookTagWrite({ ...bookTagWrite, audio_tag_type: e.target.value as AudioTagType })
+          }
+          data-testid="md-audio-tag-type"
+        >
+          {AUDIO_TAG_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
       </div>
       {saved && (
         <p className="pill pill-ok" data-testid="metadata-saved">
