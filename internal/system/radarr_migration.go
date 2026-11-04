@@ -889,3 +889,29 @@ func (s *MigrationService) Status() MigrationStatus {
 	}
 	return r.Status()
 }
+
+// StatusFor reports the named source's runner status — the per-source view
+// the dedicated /system/migration/<source> status endpoints expose (the
+// generic /status reflects the most recently run source, which may be a
+// different source). An unknown or unwired source reports idle.
+func (s *MigrationService) StatusFor(source string) MigrationStatus {
+	var r MigrationRunner
+	switch source {
+	case SourceSonarr:
+		r = s.Sonarr
+	case SourceRadarr:
+		r = s.Radarr
+	case SourceLidarr:
+		r = s.Lidarr
+	case SourceProwlarr:
+		r = s.Prowlarr
+	case SourceReadarr:
+		r = s.Readarr
+	default:
+		return MigrationStatus{Status: "idle"}
+	}
+	if r == nil {
+		return MigrationStatus{Status: "idle"}
+	}
+	return r.Status()
+}
