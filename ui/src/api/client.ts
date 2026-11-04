@@ -9,6 +9,7 @@ import type {
   AddAlbumRequest,
   AddArtistRequest,
   AddAuthorRequest,
+  AddBookSeriesRequest,
   AddEditionRequest,
   AddEpisodeRequest,
   AddMovieRequest,
@@ -21,6 +22,13 @@ import type {
   Artist,
   ArtistSearchResult,
   Author,
+  Book,
+  BookAuthorSeries,
+  BookFile,
+  BookHistoryEntry,
+  BookSeries,
+  BookSeriesBook,
+  LinkedSeriesResult,
   Dashboard,
   DownloadClient,
   DownloadClientCreate,
@@ -323,6 +331,21 @@ export const client = {
   runBooksPipeline: (authorId: number) =>
     request<{ imported: string }>('POST', `/books/authors/${authorId}/pipeline`),
   listTitleWanted: (titleId: number) => request<TitleWanted[]>('GET', `/books/titles/${titleId}/wanted`),
+  // Readarr B1: flat Books index, book files (media info), series membership,
+  // and per-author history.
+  listBooks: () => request<Book[]>('GET', '/books'),
+  listBookFiles: (titleId: number) => request<BookFile[]>('GET', `/books/titles/${titleId}/files`),
+  listAuthorHistory: (authorId: number, limit?: number) =>
+    request<BookHistoryEntry[]>('GET', `/books/authors/${authorId}/history${limit ? `?limit=${limit}` : ''}`),
+  listAuthorSeries: (authorId: number) =>
+    request<BookAuthorSeries[]>('GET', `/books/authors/${authorId}/series`),
+  listBookSeries: () => request<BookSeries[]>('GET', '/books/series'),
+  getBookSeries: (id: number) => request<BookSeries>('GET', `/books/series/${id}`),
+  addBookSeries: (req: AddBookSeriesRequest) => request<AddedId>('POST', '/books/series', req),
+  listSeriesBooks: (seriesId: number) => request<BookSeriesBook[]>('GET', `/books/series/${seriesId}/books`),
+  listTitleSeries: (titleId: number) => request<BookSeries[]>('GET', `/books/titles/${titleId}/series`),
+  linkTitleToSeries: (titleId: number, seriesId: number) =>
+    request<LinkedSeriesResult>('POST', `/books/titles/${titleId}/series`, { series_id: seriesId }),
 
   // ---- indexers ----
   listIndexers: () => request<Indexer[]>('GET', '/indexers'),

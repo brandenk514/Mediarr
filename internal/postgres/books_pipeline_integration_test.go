@@ -161,7 +161,7 @@ func TestBooksPipeline_EndToEnd_Postgres(t *testing.T) {
 		t.Fatalf("add title: %v", err)
 	}
 	// A monitored edition of the same title (edition-level wanted too).
-	if _, err := svc.AddEdition(ctx, dispossessedID, books.FormatEPUB, "9780805079181", "Astounding", 1974, 505, true); err != nil {
+	if _, err := svc.AddEdition(ctx, dispossessedID, books.FormatEPUB, "en", "9780805079181", "Astounding", 1974, 505, true); err != nil {
 		t.Fatalf("add edition: %v", err)
 	}
 	// An unmonitored second title (its release is a distractor, not imported).

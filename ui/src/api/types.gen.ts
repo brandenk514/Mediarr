@@ -781,6 +781,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/books/authors/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List an author's history (Readarr B1; books analogue of TV series history). */
+        get: operations["listAuthorHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/books/authors/{id}/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the series the author's books belong to (Readarr B1). */
+        get: operations["listAuthorSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/books/authors/{id}/pipeline": {
         parameters: {
             query?: never;
@@ -856,6 +890,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/books/titles/{id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a title's imported book files with media info (Readarr B1). */
+        get: operations["listBookFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/books/titles/{id}/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the series a book belongs to (Readarr B1). */
+        get: operations["listTitleSeries"];
+        put?: never;
+        /** Link a book to a series (Readarr B1; idempotent, manual entry until MT1 id-lookup). */
+        post: operations["linkTitleToSeries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/books/titles/{id}/wanted": {
         parameters: {
             query?: never;
@@ -865,6 +934,78 @@ export interface paths {
         };
         /** List a title's wanted entries (title-level and edition-level). */
         get: operations["listTitleWanted"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/books": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List every book across all authors — the flat Books index (Readarr B1). */
+        get: operations["listBooks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/books/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all series (Readarr B1). */
+        get: operations["listBookSeries"];
+        put?: never;
+        /**
+         * Add a series (Readarr B1; idempotent by name).
+         * @description Creating a series by name is idempotent — an existing series returns its existing id.
+         */
+        post: operations["addBookSeries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/books/series/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one series (Readarr B1). */
+        get: operations["getBookSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/books/series/{id}/books": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the books in a series (Readarr B1). */
+        get: operations["listSeriesBooks"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3184,6 +3325,8 @@ export interface components {
             TitleID: number;
             /** @description epub / mobi / azw3 */
             Format: string;
+            /** @description Edition language code (e.g. "en"); empty = unknown. The edition is the (format, language, monitored) triple. */
+            Language: string;
             Publisher: string;
             ISBN: string;
             Year: number;
@@ -3195,6 +3338,8 @@ export interface components {
         AddEditionRequest: {
             /** @enum {string} */
             format: "epub" | "mobi" | "azw3";
+            /** @description Edition language code (e.g. "en"); omitted/empty = unknown. */
+            language?: string;
             isbn?: string;
             publisher?: string;
             year?: number;
@@ -3216,6 +3361,98 @@ export interface components {
             CreatedAt: string;
             /** Format: date-time */
             SatisfiedAt: string | null;
+        };
+        /** @description One row of the flat Books index — a title joined with its author's name. */
+        Book: {
+            /** Format: int64 */
+            ID: number;
+            /** Format: int64 */
+            AuthorID: number;
+            Name: string;
+            Monitored: boolean;
+            /** Format: date-time */
+            AddedAt: string;
+            AuthorName: string;
+        };
+        /** @description An imported e-book file and its media info (Readarr B1). */
+        BookFile: {
+            /** Format: int64 */
+            ID: number;
+            /** Format: int64 */
+            TitleID: number;
+            /**
+             * Format: int64
+             * @description 0 = not tied to a specific edition.
+             */
+            EditionID: number;
+            Path: string;
+            /** @description One of the e-book format codes (epub / mobi / azw3). */
+            Format: string;
+            /**
+             * Format: int64
+             * @description File size in bytes; 0 = unknown.
+             */
+            Size: number;
+            /** @description Page count; 0 = unknown. */
+            Pages: number;
+            /** @description Edition language code; empty = unknown. */
+            Language: string;
+            /** Format: date-time */
+            AddedAt: string;
+        };
+        /** @description A named collection of books (a book can belong to many series). */
+        BookSeries: {
+            /** Format: int64 */
+            ID: number;
+            Name: string;
+            /** Format: date-time */
+            AddedAt: string;
+        };
+        /** @description A book in a series, with its author's name. */
+        BookSeriesBook: {
+            /** Format: int64 */
+            ID: number;
+            /** Format: int64 */
+            AuthorID: number;
+            Name: string;
+            Monitored: boolean;
+            /** Format: date-time */
+            AddedAt: string;
+            AuthorName: string;
+        };
+        /** @description A series the author's books belong to, with the member titles by this author. */
+        BookAuthorSeries: {
+            /** Format: int64 */
+            ID: number;
+            Name: string;
+            /** Format: date-time */
+            AddedAt: string;
+            Titles: string[];
+        };
+        /** @description An auditable event in an author's library lifecycle. */
+        BookHistoryEntry: {
+            /** Format: int64 */
+            ID: number;
+            /** Format: int64 */
+            AuthorID: number;
+            /** @description e.g. added, monitored, searched, imported, book-file-added */
+            Event: string;
+            Detail: string;
+            /** Format: date-time */
+            At: string;
+        };
+        AddBookSeriesRequest: {
+            name: string;
+        };
+        LinkTitleToSeriesRequest: {
+            /** Format: int64 */
+            series_id: number;
+        };
+        LinkedSeriesResult: {
+            /** Format: int64 */
+            title_id: number;
+            /** Format: int64 */
+            series_id: number;
         };
         /** @enum {string} */
         MediaKind: "movie" | "tv" | "music" | "book";
@@ -6613,6 +6850,59 @@ export interface operations {
             500: components["responses"]["Internal"];
         };
     };
+    listAuthorHistory: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of entries to return (server clamps to 1..200, default 50). */
+                limit?: components["parameters"]["HistoryLimit"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The author's history entries, newest first (empty array when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookHistoryEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listAuthorSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The author's series, with the member titles by this author (empty array when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookAuthorSeries"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
     runBooksPipeline: {
         parameters: {
             query?: never;
@@ -6816,6 +7106,86 @@ export interface operations {
             500: components["responses"]["Internal"];
         };
     };
+    listBookFiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The title's book files (pages, size, format, language, added date), oldest first (empty array when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookFile"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listTitleSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series, or an empty array when the book is not in any. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookSeries"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    linkTitleToSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkTitleToSeriesRequest"];
+            };
+        };
+        responses: {
+            /** @description Linked (idempotent — linking twice succeeds). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedSeriesResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
     listTitleWanted: {
         parameters: {
             query?: never;
@@ -6837,6 +7207,127 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listBooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every book (a title joined with its author's name), sorted by author name then title name (empty array when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Book"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listBookSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description All series, alphabetically (empty array when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookSeries"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    addBookSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddBookSeriesRequest"];
+            };
+        };
+        responses: {
+            /** @description Created (or already existed). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddedId"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    getBookSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookSeries"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listSeriesBooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series' books (with author names), sorted by author name then title name (empty array when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookSeriesBook"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["Internal"];
         };
     };

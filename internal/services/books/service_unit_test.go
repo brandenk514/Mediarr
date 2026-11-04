@@ -21,7 +21,7 @@ func TestService_ReadMethods(t *testing.T) {
 
 	authorID, _ := svc.AddAuthor(ctx, "Ursula K. Le Guin", true)
 	titleID, _ := svc.AddTitle(ctx, authorID, "The Dispossessed", true)
-	editionID, _ := svc.AddEdition(ctx, titleID, dom.FormatEPUB, "9780805079181", "Astounding", 1974, 505, true)
+	editionID, _ := svc.AddEdition(ctx, titleID, dom.FormatEPUB, "en", "9780805079181", "Astounding", 1974, 505, true)
 
 	// ListAuthors / GetAuthor.
 	authors, err := svc.ListAuthors(ctx)
@@ -81,6 +81,112 @@ func TestService_ReadMethods(t *testing.T) {
 	}
 }
 
+// TestService_B1ReadSurface exercises the Readarr B1 service additions: the
+// flat Books index, book files, series (add/idempotency/linking/membership)
+// and per-author history.
+func TestService_B1ReadSurface(t *testing.T) {
+	repo := newMemRepo()
+	svc := New(Deps{Repo: repo, DefaultProfile: "Best"})
+	ctx := context.Background()
+
+	authorID, _ := svc.AddAuthor(ctx, "Ursula K. Le Guin", true)
+	titleID, _ := svc.AddTitle(ctx, authorID, "The Dispossessed", true)
+
+	// Flat Books index carries the author name.
+	books, err := svc.ListBooks(ctx)
+	if err != nil {
+		t.Fatalf("ListBooks: %v", err)
+	}
+	if len(books) != 1 || books[0].Name != "The Dispossessed" ||
+		books[0].AuthorName != "Ursula K. Le Guin" {
+		t.Fatalf("ListBooks = %+v, want one Dispossessed by Le Guin", books)
+	}
+
+	// Book files: guard on unknown title, empty for an un-imported title.
+	if _, err := svc.GetBookFiles(ctx, 9999); !errors.Is(err, ErrTitleNotFound) {
+		t.Errorf("GetBookFiles(missing) err = %v, want ErrTitleNotFound", err)
+	}
+	files, err := svc.GetBookFiles(ctx, titleID)
+	if err != nil {
+		t.Fatalf("GetBookFiles: %v", err)
+	}
+	if len(files) != 0 {
+		t.Errorf("GetBookFiles = %+v, want none (never imported)", files)
+	}
+
+	// Series: add is idempotent by name; unknown series is an error.
+	seriesID, err := svc.AddSeries(ctx, "The Dispossessed Saga")
+	if err != nil {
+		t.Fatalf("AddSeries: %v", err)
+	}
+	again, err := svc.AddSeries(ctx, "The Dispossessed Saga")
+	if err != nil {
+		t.Fatalf("AddSeries (again): %v", err)
+	}
+	if again != seriesID {
+		t.Errorf("AddSeries idempotent: got %d, want %d", again, seriesID)
+	}
+	if _, err := svc.GetSeries(ctx, 9999); !errors.Is(err, ErrSeriesNotFound) {
+		t.Errorf("GetSeries(missing) err = %v, want ErrSeriesNotFound", err)
+	}
+
+	// Linking: unknown title or series fails; a valid link is idempotent.
+	if err := svc.LinkTitleToSeries(ctx, 9999, seriesID); !errors.Is(err, ErrTitleNotFound) {
+		t.Errorf("LinkTitleToSeries(missing title) err = %v, want ErrTitleNotFound", err)
+	}
+	if err := svc.LinkTitleToSeries(ctx, titleID, 9999); !errors.Is(err, ErrSeriesNotFound) {
+		t.Errorf("LinkTitleToSeries(missing series) err = %v, want ErrSeriesNotFound", err)
+	}
+	if err := svc.LinkTitleToSeries(ctx, titleID, seriesID); err != nil {
+		t.Fatalf("LinkTitleToSeries: %v", err)
+	}
+	if err := svc.LinkTitleToSeries(ctx, titleID, seriesID); err != nil {
+		t.Fatalf("LinkTitleToSeries (again, idempotent): %v", err)
+	}
+
+	// Membership from both directions.
+	titleSeries, err := svc.ListTitleSeries(ctx, titleID)
+	if err != nil {
+		t.Fatalf("ListTitleSeries: %v", err)
+	}
+	if len(titleSeries) != 1 || titleSeries[0].Name != "The Dispossessed Saga" {
+		t.Errorf("ListTitleSeries = %+v, want the saga", titleSeries)
+	}
+	seriesBooks, err := svc.ListSeriesBooks(ctx, seriesID)
+	if err != nil {
+		t.Fatalf("ListSeriesBooks: %v", err)
+	}
+	if len(seriesBooks) != 1 || seriesBooks[0].Name != "The Dispossessed" ||
+		seriesBooks[0].AuthorName != "Ursula K. Le Guin" {
+		t.Errorf("ListSeriesBooks = %+v, want the Dispossessed", seriesBooks)
+	}
+	authorSeries, err := svc.ListAuthorSeries(ctx, authorID)
+	if err != nil {
+		t.Fatalf("ListAuthorSeries: %v", err)
+	}
+	if len(authorSeries) != 1 || len(authorSeries[0].Titles) != 1 {
+		t.Errorf("ListAuthorSeries = %+v, want the saga with one title", authorSeries)
+	}
+
+	// Per-author history: the linking event is recorded; unknown author 404s.
+	hist, err := svc.GetAuthorHistory(ctx, authorID, 0)
+	if err != nil {
+		t.Fatalf("GetAuthorHistory: %v", err)
+	}
+	found := false
+	for _, h := range hist {
+		if h.Event == "series-linked" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("history = %+v, want a series-linked event", hist)
+	}
+	if _, err := svc.GetAuthorHistory(ctx, 9999, 0); !errors.Is(err, ErrAuthorNotFound) {
+		t.Errorf("GetAuthorHistory(missing) err = %v, want ErrAuthorNotFound", err)
+	}
+}
+
 // TestService_MonitorToggles exercises the author/title/edition monitor
 // toggles: turning on must (re)create the wanted row, turning off must not.
 func TestService_MonitorToggles(t *testing.T) {
@@ -90,7 +196,7 @@ func TestService_MonitorToggles(t *testing.T) {
 
 	authorID, _ := svc.AddAuthor(ctx, "A Author", false)
 	titleID, _ := svc.AddTitle(ctx, authorID, "Title", false)
-	editionID, _ := svc.AddEdition(ctx, titleID, dom.FormatEPUB, "", "", 0, 0, false)
+	editionID, _ := svc.AddEdition(ctx, titleID, dom.FormatEPUB, "en", "", "", 0, 0, false)
 
 	// Turning a title on ensures a pending whole-title wanted row.
 	if err := svc.SetTitleMonitored(ctx, titleID, true); err != nil {
@@ -147,7 +253,7 @@ func TestService_InputGuards(t *testing.T) {
 	if _, err := svc.AddTitle(ctx, 1, "\t", true); err == nil {
 		t.Error("AddTitle with blank name should fail")
 	}
-	if _, err := svc.AddEdition(ctx, 1, "pdf", "", "", 0, 0, true); err == nil {
+	if _, err := svc.AddEdition(ctx, 1, "pdf", "en", "", "", 0, 0, true); err == nil {
 		t.Error("AddEdition with unsupported format should fail")
 	}
 }

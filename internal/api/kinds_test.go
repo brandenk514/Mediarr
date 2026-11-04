@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -292,14 +293,33 @@ type kindsBooksRepo struct {
 	titles   map[int64]booksdom.Title
 	editions map[int64]booksdom.Edition
 	nextID   int64
+	// Readarr B1.
+	bookFiles     map[int64]booksdom.BookFile
+	nextBookFile  int64
+	series        map[int64]booksdom.Series
+	nextSeries    int64
+	seriesMembers map[kindsMemberKey]struct{}
+	history       []booksdom.HistoryEntry
+	nextHistory   int64
+}
+
+type kindsMemberKey struct {
+	series int64
+	title  int64
 }
 
 func newKindsBooksRepo() *kindsBooksRepo {
 	return &kindsBooksRepo{
-		authors:  map[int64]booksdom.Author{},
-		titles:   map[int64]booksdom.Title{},
-		editions: map[int64]booksdom.Edition{},
-		nextID:   1,
+		authors:       map[int64]booksdom.Author{},
+		titles:        map[int64]booksdom.Title{},
+		editions:      map[int64]booksdom.Edition{},
+		bookFiles:     map[int64]booksdom.BookFile{},
+		series:        map[int64]booksdom.Series{},
+		seriesMembers: map[kindsMemberKey]struct{}{},
+		nextID:        1,
+		nextBookFile:  1,
+		nextSeries:    1,
+		nextHistory:   1,
 	}
 }
 
@@ -395,6 +415,13 @@ func (r *kindsBooksRepo) ListEditions(_ context.Context, titleID int64) ([]books
 	}
 	return out, nil
 }
+func (r *kindsBooksRepo) GetEdition(_ context.Context, id int64) (*booksdom.Edition, error) {
+	e, ok := r.editions[id]
+	if !ok {
+		return nil, booksdom.ErrEditionNotFound
+	}
+	return &e, nil
+}
 
 func (r *kindsBooksRepo) SetEditionMonitored(_ context.Context, id int64, monitored bool) error {
 	if e, ok := r.editions[id]; ok {
@@ -405,8 +432,26 @@ func (r *kindsBooksRepo) SetEditionMonitored(_ context.Context, id int64, monito
 }
 
 // No-op lifecycle methods the services call on the add paths.
-func (r *kindsBooksRepo) AddHistory(_ context.Context, _ booksdom.HistoryEntry) error {
+func (r *kindsBooksRepo) AddHistory(_ context.Context, e booksdom.HistoryEntry) error {
+	e.ID = r.nextHistory
+	r.nextHistory++
+	if e.At.IsZero() {
+		e.At = time.Now().UTC()
+	}
+	r.history = append(r.history, e)
 	return nil
+}
+func (r *kindsBooksRepo) ListHistory(_ context.Context, authorID int64, limit int) ([]booksdom.HistoryEntry, error) {
+	var out []booksdom.HistoryEntry
+	for _, e := range r.history {
+		if e.AuthorID == authorID {
+			out = append(out, e)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out, nil
 }
 func (r *kindsBooksRepo) EnsureWantedTitle(_ context.Context, _ int64) error { return nil }
 func (r *kindsBooksRepo) EnsureWantedEdition(_ context.Context, _, _ int64) error {
@@ -417,6 +462,134 @@ func (r *kindsBooksRepo) GetWanted(_ context.Context, _, _ int64) (*booksdom.Wan
 }
 func (r *kindsBooksRepo) ListWanted(_ context.Context, _ int64) ([]booksdom.Wanted, error) {
 	return nil, nil
+}
+
+// Readarr B1 methods.
+func (r *kindsBooksRepo) CreateBookFile(_ context.Context, f booksdom.BookFile) (int64, error) {
+	for _, v := range r.bookFiles {
+		if v.TitleID == f.TitleID && v.Path == f.Path {
+			f.ID, f.AddedAt = v.ID, v.AddedAt
+			r.bookFiles[f.ID] = f
+			return f.ID, nil
+		}
+	}
+	f.ID = r.nextBookFile
+	r.nextBookFile++
+	f.AddedAt = time.Now().UTC()
+	r.bookFiles[f.ID] = f
+	return f.ID, nil
+}
+func (r *kindsBooksRepo) ListBookFilesByTitle(_ context.Context, titleID int64) ([]booksdom.BookFile, error) {
+	var out []booksdom.BookFile
+	for _, f := range r.bookFiles {
+		if f.TitleID == titleID {
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+func (r *kindsBooksRepo) ListBookFilesByEdition(_ context.Context, editionID int64) ([]booksdom.BookFile, error) {
+	var out []booksdom.BookFile
+	for _, f := range r.bookFiles {
+		if f.EditionID == editionID {
+			out = append(out, f)
+		}
+	}
+	return out, nil
+}
+func (r *kindsBooksRepo) ListBooks(_ context.Context) ([]booksdom.Book, error) {
+	var out []booksdom.Book
+	for _, t := range r.titles {
+		if a, ok := r.authors[t.AuthorID]; ok {
+			out = append(out, booksdom.Book{Title: t, AuthorName: a.Name})
+		}
+	}
+	return out, nil
+}
+func (r *kindsBooksRepo) CreateSeries(_ context.Context, s booksdom.Series) (int64, error) {
+	for _, v := range r.series {
+		if v.Name == s.Name {
+			return v.ID, nil
+		}
+	}
+	s.ID = r.nextSeries
+	r.nextSeries++
+	s.AddedAt = time.Now().UTC()
+	r.series[s.ID] = s
+	return s.ID, nil
+}
+func (r *kindsBooksRepo) GetSeries(_ context.Context, id int64) (*booksdom.Series, error) {
+	s, ok := r.series[id]
+	if !ok {
+		return nil, booksdom.ErrSeriesNotFound
+	}
+	return &s, nil
+}
+func (r *kindsBooksRepo) ListSeries(_ context.Context) ([]booksdom.Series, error) {
+	var out []booksdom.Series
+	for _, s := range r.series {
+		out = append(out, s)
+	}
+	return out, nil
+}
+func (r *kindsBooksRepo) ListSeriesBooks(_ context.Context, seriesID int64) ([]booksdom.SeriesBook, error) {
+	if _, err := r.GetSeries(context.Background(), seriesID); err != nil {
+		return nil, err
+	}
+	var out []booksdom.SeriesBook
+	for k := range r.seriesMembers {
+		if k.series != seriesID {
+			continue
+		}
+		t, ok := r.titles[k.title]
+		if !ok {
+			continue
+		}
+		if a, ok := r.authors[t.AuthorID]; ok {
+			out = append(out, booksdom.SeriesBook{Title: t, AuthorName: a.Name})
+		}
+	}
+	return out, nil
+}
+func (r *kindsBooksRepo) ListTitleSeries(_ context.Context, titleID int64) ([]booksdom.Series, error) {
+	var out []booksdom.Series
+	for id, s := range r.series {
+		if _, ok := r.seriesMembers[kindsMemberKey{series: id, title: titleID}]; ok {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+func (r *kindsBooksRepo) ListAuthorSeries(_ context.Context, authorID int64) ([]booksdom.AuthorSeries, error) {
+	if _, ok := r.authors[authorID]; !ok {
+		return nil, booksdom.ErrAuthorNotFound
+	}
+	var out []booksdom.AuthorSeries
+	for id, s := range r.series {
+		var titles []string
+		for k := range r.seriesMembers {
+			if k.series != id {
+				continue
+			}
+			if t, ok := r.titles[k.title]; ok && t.AuthorID == authorID {
+				titles = append(titles, t.Name)
+			}
+		}
+		if len(titles) > 0 {
+			out = append(out, booksdom.AuthorSeries{Series: s, Titles: titles})
+		}
+	}
+	return out, nil
+}
+func (r *kindsBooksRepo) LinkTitleToSeries(_ context.Context, titleID, seriesID int64) error {
+	if _, err := r.GetTitle(context.Background(), titleID); err != nil {
+		return err
+	}
+	if _, err := r.GetSeries(context.Background(), seriesID); err != nil {
+		return err
+	}
+	r.seriesMembers[kindsMemberKey{series: seriesID, title: titleID}] = struct{}{}
+	return nil
 }
 
 func (f *kindsServer) post(t *testing.T, path string, body any) *httptest.ResponseRecorder {
@@ -595,5 +768,173 @@ func TestP7_BooksLibraryFlow(t *testing.T) {
 	rec = getJSON(t, h, "/api/v1/books/titles/999", f.token)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown title status = %d", rec.Code)
+	}
+}
+
+// TestP7_BooksB1ReadSurface exercises the Readarr B1 additions: edition
+// language round-trip, per-edition monitored toggle, the flat Books index,
+// book files, series, and per-author history.
+func TestP7_BooksB1ReadSurface(t *testing.T) {
+	music, books := newKindsMusicRepo(), newKindsBooksRepo()
+	f := newKindsServer(t, music, books)
+	h := f.s.Handler()
+
+	rec := f.post(t, "/api/v1/books/authors", map[string]any{"name": "Ursula K. Le Guin"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add author status = %d", rec.Code)
+	}
+	rec = f.post(t, "/api/v1/books/authors/1/titles", map[string]any{"name": "The Dispossessed"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add title status = %d", rec.Code)
+	}
+	// Title id is 2; the edition gets id 3.
+	rec = f.post(t, "/api/v1/books/titles/2/editions", map[string]any{
+		"format": "epub", "language": "en", "isbn": "978-0060722820", "pages": 320,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add edition status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Edition list carries the language.
+	rec = getJSON(t, h, "/api/v1/books/titles/2/editions", f.token)
+	var editions []struct {
+		Format   string `json:"Format"`
+		Language string `json:"Language"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&editions); err != nil {
+		t.Fatal(err)
+	}
+	if len(editions) != 1 || editions[0].Language != "en" {
+		t.Fatalf("editions = %+v", editions)
+	}
+
+	// Per-edition monitored toggle.
+	rec = putJSON(t, h, "/api/v1/books/editions/3", f.token, map[string]any{"monitored": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("toggle edition status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = getJSON(t, h, "/api/v1/books/titles/2/editions", f.token)
+	if err := json.NewDecoder(rec.Body).Decode(&editions); err != nil {
+		t.Fatal(err)
+	}
+
+	// Flat Books index: every book across all authors, with author names.
+	rec = getJSON(t, h, "/api/v1/books", f.token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list books status = %d", rec.Code)
+	}
+	var booksIdx []struct {
+		ID         int64  `json:"ID"`
+		Name       string `json:"Name"`
+		AuthorName string `json:"AuthorName"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&booksIdx); err != nil {
+		t.Fatal(err)
+	}
+	if len(booksIdx) != 1 || booksIdx[0].Name != "The Dispossessed" ||
+		booksIdx[0].AuthorName != "Ursula K. Le Guin" {
+		t.Fatalf("books index = %+v", booksIdx)
+	}
+
+	// Series lifecycle: add (idempotent), list, get, link a title, list
+	// membership from both directions, unknown series is a 404.
+	rec = f.post(t, "/api/v1/books/series", map[string]any{"name": "The Dispossessed Saga"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add series status = %d", rec.Code)
+	}
+	var added struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&added); err != nil {
+		t.Fatal(err)
+	}
+	seriesID := added.ID
+	rec = f.post(t, "/api/v1/books/series", map[string]any{"name": "The Dispossessed Saga"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("idempotent add series status = %d", rec.Code)
+	}
+	rec = getJSON(t, h, "/api/v1/books/series", f.token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list series status = %d", rec.Code)
+	}
+	var series []struct {
+		ID   int64  `json:"ID"`
+		Name string `json:"Name"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&series); err != nil {
+		t.Fatal(err)
+	}
+	if len(series) != 1 {
+		t.Fatalf("series = %+v", series)
+	}
+	if rec = getJSON(t, h, fmt.Sprintf("/api/v1/books/series/%d", seriesID), f.token); rec.Code != http.StatusOK {
+		t.Fatalf("get series status = %d", rec.Code)
+	}
+	if rec = getJSON(t, h, "/api/v1/books/series/999999", f.token); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown series status = %d", rec.Code)
+	}
+
+	rec = f.post(t, "/api/v1/books/titles/2/series", map[string]any{"series_id": seriesID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("link title status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = f.post(t, "/api/v1/books/titles/2/series", map[string]any{"series_id": seriesID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("idempotent link status = %d", rec.Code)
+	}
+	rec = getJSON(t, h, "/api/v1/books/titles/2/series", f.token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("title series status = %d", rec.Code)
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&series); err != nil {
+		t.Fatal(err)
+	}
+	if len(series) != 1 || series[0].Name != "The Dispossessed Saga" {
+		t.Fatalf("title series = %+v", series)
+	}
+	rec = getJSON(t, h, fmt.Sprintf("/api/v1/books/series/%d/books", seriesID), f.token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("series books status = %d", rec.Code)
+	}
+	var seriesBooks []struct {
+		Name       string `json:"Name"`
+		AuthorName string `json:"AuthorName"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&seriesBooks); err != nil {
+		t.Fatal(err)
+	}
+	if len(seriesBooks) != 1 || seriesBooks[0].AuthorName != "Ursula K. Le Guin" {
+		t.Fatalf("series books = %+v", seriesBooks)
+	}
+	rec = getJSON(t, h, "/api/v1/books/authors/1/series", f.token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("author series status = %d", rec.Code)
+	}
+
+	// Book files: empty for a freshly added (never imported) title.
+	rec = getJSON(t, h, "/api/v1/books/titles/2/files", f.token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("book files status = %d", rec.Code)
+	}
+	var files []struct {
+		Path string `json:"Path"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&files); err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("files = %+v", files)
+	}
+	if rec = getJSON(t, h, "/api/v1/books/titles/999/files", f.token); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown title files status = %d", rec.Code)
+	}
+
+	// Per-author history: 200 (may be non-empty) for a known author, 404 for
+	// an unknown one.
+	if rec = getJSON(t, h, "/api/v1/books/authors/1/history", f.token); rec.Code != http.StatusOK {
+		t.Fatalf("author history status = %d", rec.Code)
+	}
+	if rec = getJSON(t, h, "/api/v1/books/authors/999/history", f.token); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown author history status = %d", rec.Code)
 	}
 }

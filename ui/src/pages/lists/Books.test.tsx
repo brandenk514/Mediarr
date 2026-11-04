@@ -1,135 +1,198 @@
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { render, screen, within } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
-import type { Author, Edition, PageAuthor, Title } from '../../api/types'
+import type { Book, PageAuthor } from '../../api/types'
 import { BooksPage } from './Books'
+import { AuthorDetailPage } from '../books/AuthorDetail'
 
-// Page test for the books list (#41): paginated authors with two-level lazy
-// expansion (author → title → edition).
+// Readarr B1 books library: a dual-view page. The Authors tab (home) is the
+// server-paginated author grid/table; the Books tab is the flat index of
+// every book across all authors. A–Z jump, the grid/list toggle, and the
+// filter menu come from the shared P1 shell (same contracts as the TV page:
+// `{kind}-card-{id}` grid cells, `{menu}-btn`/`{menu}-opt-{value}` filter
+// options, `aria-label`-only A–Z letter buttons). All data is faked.
 vi.mock('../../api/client', () => ({
   client: {
     listAuthors: vi.fn(),
-    listTitles: vi.fn(),
-    listEditions: vi.fn(),
+    listBooks: vi.fn(),
     setAuthorMonitored: vi.fn(),
     setTitleMonitored: vi.fn(),
+    runBooksPipeline: vi.fn(),
+    getAuthor: vi.fn(),
+    listTitles: vi.fn(),
+    listAuthorSeries: vi.fn(),
+    listTitleSeries: vi.fn(),
+    listEditions: vi.fn(),
+    listBookFiles: vi.fn(),
+    listAuthorHistory: vi.fn(),
     setEditionMonitored: vi.fn(),
   },
 }))
 
-function authorPage(items: Author[], total = items.length, pg = 1): PageAuthor {
-  return { items, total, page: pg, page_size: 25 }
+const AUTHORS = [
+  { ID: 1, Name: 'Ursula K. Le Guin', Monitored: true, AddedAt: '2026-11-01T00:00:00Z' },
+  { ID: 2, Name: 'K. William Wilson', Monitored: false, AddedAt: '2026-11-01T00:00:00Z' },
+]
+
+const BOOKS: Book[] = [
+  {
+    ID: 1,
+    AuthorID: 1,
+    Name: 'The Dispossessed',
+    Monitored: true,
+    AddedAt: '2026-11-01T00:00:00Z',
+    AuthorName: 'Ursula K. Le Guin',
+  },
+  {
+    ID: 2,
+    AuthorID: 2,
+    Name: 'The Memory Police',
+    Monitored: false,
+    AddedAt: '2026-11-01T00:00:00Z',
+    AuthorName: 'K. William Wilson',
+  },
+]
+
+function pageOf(items: typeof AUTHORS): PageAuthor {
+  return { items, total: items.length, page: 1, page_size: 25 }
 }
 
-function author(id: number, name: string, monitored = true): Author {
-  return { ID: id, Name: name, Monitored: monitored, AddedAt: '' }
+function renderWithProbe() {
+  function Probe() {
+    const location = useLocation()
+    return <div data-testid="probe-location">{location.pathname}</div>
+  }
+  return render(
+    <MemoryRouter initialEntries={['/books']}>
+      <Routes>
+        <Route path="/books" element={<BooksPage />} />
+        <Route
+          path="/books/:id"
+          element={
+            <>
+              <AuthorDetailPage />
+              <Probe />
+            </>
+          }
+        />
+        <Route
+          path="*"
+          element={
+            <Probe />
+          }
+        />
+      </Routes>
+    </MemoryRouter>,
+  )
 }
 
-function title(id: number, authorId: number, name: string): Title {
-  return { ID: id, AuthorID: authorId, Name: name, Monitored: true, AddedAt: '' }
-}
+describe('BooksPage (Readarr B1 dual view)', () => {
+  it('shows the Authors grid as the home view', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    renderWithProbe()
 
-function edition(id: number, titleId: number, format: string): Edition {
-  return { ID: id, TitleID: titleId, Format: format, Publisher: 'P', ISBN: '978-1', Year: 1984, Pages: 300, Monitored: true, AddedAt: '' }
-}
-
-beforeEach(() => {
-  vi.mocked(client.listAuthors).mockReset()
-  vi.mocked(client.listTitles).mockReset()
-  vi.mocked(client.listEditions).mockReset()
-})
-
-afterEach(() => {
-  vi.clearAllMocks()
-})
-
-describe('BooksPage', () => {
-  it('lazily expands author → title → edition, fetching each level on demand', async () => {
-    vi.mocked(client.listAuthors).mockResolvedValue(authorPage([author(1, 'Aldous Huxley')]))
-    vi.mocked(client.listTitles).mockResolvedValue([title(21, 1, 'Brave New World')])
-    vi.mocked(client.listEditions).mockResolvedValue([edition(311, 21, 'epub'), edition(312, 21, 'pdf')])
-    const user = userEvent.setup()
-    render(
-      <MemoryRouter>
-        <BooksPage />
-      </MemoryRouter>,
-    )
-
-    await screen.findByTestId('author-1')
-
-    expect(client.listTitles).not.toHaveBeenCalled()
-    expect(client.listEditions).not.toHaveBeenCalled()
-
-    // Level 1: expand the author → fetch titles.
-    await user.click(screen.getByTestId('author-toggle-1'))
-    expect(await screen.findByTestId('titles-1')).toBeInTheDocument()
-    expect(client.listTitles).toHaveBeenCalledWith(1)
-    expect(screen.getByTestId('title-toggle-21')).toBeInTheDocument()
-
-    // Level 2: expand the title → fetch editions.
-    await user.click(screen.getByTestId('title-toggle-21'))
-    expect(await screen.findByTestId('editions-21')).toBeInTheDocument()
-    expect(client.listEditions).toHaveBeenCalledWith(21)
-    // Both editions render their format.
-    expect(screen.getAllByText('epub').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('pdf')).toBeInTheDocument()
+    expect(screen.getByTestId('books-tab-authors')).toHaveAttribute('aria-pressed', 'true')
+    const grid = await screen.findByTestId('books-authors-grid')
+    // Card names live in the cell title attribute (poster-grid design, as in TV).
+    expect(within(grid).getByTestId('author-card-1')).toHaveAttribute('title', 'Ursula K. Le Guin')
+    expect(within(grid).getByTestId('author-card-2')).toHaveAttribute('title', 'K. William Wilson')
+    // The A–Z quick-jump renders with the authors.
+    const az = screen.getByTestId('books-authors-az')
+    expect(within(az).getByLabelText('Jump to U')).toBeInTheDocument()
+    expect(within(az).getByLabelText('Jump to K')).toBeInTheDocument()
+    // The flat index is not loaded on the Authors tab.
+    expect(vi.mocked(client.listBooks)).not.toHaveBeenCalled()
   })
 
-  it('shows an empty message when an author has no titles', async () => {
-    vi.mocked(client.listAuthors).mockResolvedValue(authorPage([author(2, 'New Author')]))
-    vi.mocked(client.listTitles).mockResolvedValue([])
+  it('switches to the flat Books index and shows every book with its author', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    vi.mocked(client.listBooks).mockResolvedValue(BOOKS)
     const user = userEvent.setup()
-    render(
-      <MemoryRouter>
-        <BooksPage />
-      </MemoryRouter>,
-    )
-    await screen.findByTestId('author-2')
-    await user.click(screen.getByTestId('author-toggle-2'))
-    expect(await screen.findByText('No titles yet.')).toBeInTheDocument()
+    renderWithProbe()
+
+    await user.click(screen.getByTestId('books-tab-books'))
+
+    const grid = await screen.findByTestId('books-grid')
+    expect(within(grid).getByTestId('book-card-1')).toBeInTheDocument()
+    expect(within(grid).getByTestId('book-card-2')).toBeInTheDocument()
+    // Titles live in the card title attribute; each card's footer shows its
+    // author name (the flat index is every book of every author).
+    expect(within(grid).getByTestId('book-card-1')).toHaveAttribute('title', 'The Dispossessed')
+    expect(within(grid).getByTestId('book-card-2')).toHaveAttribute('title', 'The Memory Police')
+    expect(screen.getAllByText('Ursula K. Le Guin').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('K. William Wilson').length).toBeGreaterThan(0)
+    // "The Dispossessed" jumps under D (leading article skipped, Sonarr-style).
+    const az = screen.getByTestId('books-az')
+    expect(within(az).getByLabelText('Jump to D')).toBeInTheDocument()
   })
 
-  it('toggles an edition monitored optimistically', async () => {
-    vi.mocked(client.listAuthors).mockResolvedValue(authorPage([author(1, 'Aldous Huxley')]))
-    vi.mocked(client.listTitles).mockResolvedValue([title(21, 1, 'Brave New World')])
-    vi.mocked(client.listEditions).mockResolvedValue([edition(311, 21, 'epub')])
-    vi.mocked(client.setEditionMonitored).mockResolvedValue({ id: 311, monitored: false })
+  it('filters the flat Books index to monitored books', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    vi.mocked(client.listBooks).mockResolvedValue(BOOKS)
     const user = userEvent.setup()
-    render(
-      <MemoryRouter>
-        <BooksPage />
-      </MemoryRouter>,
-    )
-    await screen.findByTestId('author-1')
-    await user.click(screen.getByTestId('author-toggle-1'))
-    await user.click(screen.getByTestId('title-toggle-21'))
-    await screen.findByTestId('edition-mon-311')
+    renderWithProbe()
 
-    await user.click(screen.getByTestId('edition-mon-311'))
-    expect(client.setEditionMonitored).toHaveBeenCalledWith(311, false)
-    // Toggling a child does NOT refetch the top-level list.
-    expect(client.listAuthors).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByTestId('books-tab-books'))
+    await user.click(screen.getByTestId('books-index-filter-btn'))
+    await user.click(screen.getByTestId('books-index-filter-opt-monitored'))
+
+    const grid = await screen.findByTestId('books-grid')
+    expect(within(grid).getByTestId('book-card-1')).toBeInTheDocument()
+    expect(within(grid).queryByTestId('book-card-2')).not.toBeInTheDocument()
   })
 
-  it('shows the shared P7 toolbar and updates all authors', async () => {
-    vi.mocked(client.listAuthors).mockResolvedValue(authorPage([author(1, 'Aldous Huxley')]))
-    render(
-      <MemoryRouter>
-        <BooksPage />
-      </MemoryRouter>,
-    )
-    await screen.findByTestId('author-1')
-    // P7 toolbar parity with TV/Movies/Music: the icon-over-label groups.
-    expect(screen.getByTestId('books-update-all')).toBeInTheDocument()
-    expect(screen.getByTestId('books-rss-sync')).toBeDisabled()
-    expect(screen.getByTestId('books-select')).toBeDisabled()
-    expect(screen.getByTestId('books-options')).toBeDisabled()
-    expect(screen.getByTestId('books-filter-btn')).toBeInTheDocument()
+  it('filters the flat Books index to unmonitored books', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    vi.mocked(client.listBooks).mockResolvedValue(BOOKS)
+    const user = userEvent.setup()
+    renderWithProbe()
 
-    await userEvent.click(screen.getByTestId('books-update-all'))
-    expect(await screen.findByTestId('books-status')).toHaveTextContent('Updated 1 authors just now')
-    expect(client.listAuthors).toHaveBeenCalledTimes(2)
+    await user.click(screen.getByTestId('books-tab-books'))
+    await user.click(screen.getByTestId('books-index-filter-btn'))
+    await user.click(screen.getByTestId('books-index-filter-opt-unmonitored'))
+    // K. William Wilson's book is the only unmonitored one.
+    const grid = await screen.findByTestId('books-grid')
+    expect(within(grid).getByTestId('book-card-2')).toBeInTheDocument()
+    expect(within(grid).queryByTestId('book-card-1')).not.toBeInTheDocument()
+  })
+
+  it('shows the flat index empty state when there are no books', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    vi.mocked(client.listBooks).mockResolvedValue([])
+    const user = userEvent.setup()
+    renderWithProbe()
+
+    await user.click(screen.getByTestId('books-tab-books'))
+
+    expect(await screen.findByText('No books')).toBeInTheDocument()
+    expect(screen.getByTestId('books-index-empty-add')).toBeInTheDocument()
+  })
+
+  it('toggles the Authors table view', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    const user = userEvent.setup()
+    renderWithProbe()
+
+    await user.click(screen.getByTestId('books-view-list'))
+
+    const row = await screen.findByTestId('author-1')
+    expect(row).toHaveTextContent('Ursula K. Le Guin')
+    expect(screen.getByTestId('author-mon-1')).toBeInTheDocument()
+    // The grid is gone in table view.
+    expect(screen.queryByTestId('books-authors-grid')).not.toBeInTheDocument()
+  })
+
+  it('navigates to the author detail from an author card', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    const user = userEvent.setup()
+    renderWithProbe()
+
+    const grid = await screen.findByTestId('books-authors-grid')
+    const card = within(grid).getByTestId('author-card-1')
+    await user.click(within(card).getByRole('button'))
+
+    expect(screen.getByTestId('probe-location')).toHaveTextContent('/books/1')
   })
 })
