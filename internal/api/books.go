@@ -29,7 +29,7 @@ func (s *Server) SetBooks(deps *BooksDeps) {
 	s.register("POST /api/v1/books/authors", s.requireAuth(s.AddAuthor))
 	s.register("GET /api/v1/books/authors", s.requireAuth(s.ListAuthors))
 	s.register("GET /api/v1/books/authors/{id}", s.requireAuth(s.GetAuthor))
-	s.register("PUT /api/v1/books/authors/{id}", s.requireAuth(s.SetAuthorMonitored))
+	s.register("PUT /api/v1/books/authors/{id}", s.requireAuth(s.UpdateAuthor))
 	s.register("POST /api/v1/books/authors/{id}/titles", s.requireAuth(s.AddTitle))
 	s.register("GET /api/v1/books/authors/{id}/titles", s.requireAuth(s.ListTitles))
 	s.register("GET /api/v1/books/authors/{id}/history", s.requireAuth(s.ListAuthorHistory))
@@ -51,19 +51,34 @@ func (s *Server) SetBooks(deps *BooksDeps) {
 	s.register("GET /api/v1/books/series/{id}", s.requireAuth(s.GetBookSeries))
 	s.register("GET /api/v1/books/series/{id}/books", s.requireAuth(s.ListSeriesBooks))
 	s.register("POST /api/v1/books/authors/{id}/pipeline", s.requireAuth(s.RunBooksPipeline))
+	// Combined plain-text books lookup (Readarr B2): one query over authors +
+	// works, kind-tagged, with `added`/`library_id` so the UI navigates
+	// instead of re-adding.
+	s.register("GET /api/v1/search/books/lookup", s.requireAuth(s.lookupBooks))
 }
 
-// addAuthorRequest is the body for POST /api/v1/books/authors. Monitored is a
-// pointer so "omitted" (defaults to monitored) is distinguishable from an
-// explicit false.
+// addAuthorRequest is the body for POST /api/v1/books/authors (Readarr B2 add
+// modal). Monitored is a pointer so "omitted" (defaults to monitored) is
+// distinguishable from an explicit false. The optional B2 fields (monitor
+// policy, quality/metadata profile, root folder, tags) default to their empty
+// (= all / none / server default) values when omitted; start_search (default
+// false) runs the pipeline best-effort after the add.
 type addAuthorRequest struct {
-	Name      string `json:"name"`
-	Monitored *bool  `json:"monitored"`
+	Name            string   `json:"name"`
+	Monitored       *bool    `json:"monitored"`
+	MonitorPolicy   string   `json:"monitor_policy"`
+	QualityProfile  string   `json:"quality_profile"`
+	MetadataProfile string   `json:"metadata_profile"`
+	RootFolder      string   `json:"root_folder"`
+	Tags            []string `json:"tags"`
+	StartSearch     bool     `json:"start_search"`
 }
 
 // AddAuthor handles POST /api/v1/books/authors. An author is monitored by
 // default; an explicit "monitored": false opts out (PLAN §4 author-level
-// monitor).
+// monitor). Omitted monitor_policy / quality_profile / metadata_profile /
+// root_folder / tags store the empty (= all / none / server default / none)
+// defaults; start_search (default false) runs the pipeline best-effort.
 func (s *Server) AddAuthor(w http.ResponseWriter, r *http.Request) {
 	var req addAuthorRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -78,12 +93,79 @@ func (s *Server) AddAuthor(w http.ResponseWriter, r *http.Request) {
 	if req.Monitored != nil {
 		monitored = *req.Monitored
 	}
-	id, err := s.booksDeps.Svc.AddAuthor(r.Context(), req.Name, monitored)
+	id, err := s.booksDeps.Svc.AddAuthor(r.Context(), bookssvc.AddAuthorInput{
+		Name:            req.Name,
+		Monitored:       monitored,
+		MonitorPolicy:   req.MonitorPolicy,
+		QualityProfile:  req.QualityProfile,
+		MetadataProfile: req.MetadataProfile,
+		RootFolder:      req.RootFolder,
+		Tags:            req.Tags,
+		StartSearch:     req.StartSearch,
+	})
 	if err != nil {
+		if errors.Is(err, bookssvc.ErrInvalidAddParams) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+// bookLookupResult is the wire shape of one combined books lookup hit
+// (Readarr B2). Fields mirror the spec's BookLookupResult (snake_case);
+// `kind` is "author" or "book", `added`/`library_id` let the UI navigate to an
+// already-added author/book instead of re-adding it.
+type bookLookupResult struct {
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Author    string `json:"author"`
+	Year      int    `json:"year"`
+	Added     bool   `json:"added"`
+	LibraryID int64  `json:"library_id"`
+	AuthorID  int64  `json:"author_id"`
+}
+
+func toLookupWire(results []booksdom.LookupResult) []bookLookupResult {
+	out := make([]bookLookupResult, 0, len(results))
+	for _, r := range results {
+		out = append(out, bookLookupResult{
+			Kind:      string(r.Kind),
+			Name:      r.Name,
+			Author:    r.Author,
+			Year:      r.Year,
+			Added:     r.Added,
+			LibraryID: r.LibraryID,
+			AuthorID:  r.AuthorID,
+		})
+	}
+	return out
+}
+
+// lookupBooks handles GET /api/v1/search/books/lookup (Readarr B2 combined
+// plain-text lookup). One query fans out to the Open Library author + work
+// search; the response is a kind-tagged list (author hits first, then book
+// hits) each carrying `added`/`library_id`. No searcher wired (no Open Library
+// provider) answers 503; an upstream failure answers 502 (the keyless-adapter
+// convention).
+func (s *Server) lookupBooks(w http.ResponseWriter, r *http.Request) {
+	if s.booksDeps == nil || s.booksDeps.Svc == nil {
+		writeError(w, http.StatusServiceUnavailable, "books is not configured")
+		return
+	}
+	q := r.URL.Query().Get("query")
+	results, err := s.booksDeps.Svc.BooksLookup(r.Context(), q)
+	if err != nil {
+		if errors.Is(err, bookssvc.ErrSearcherNotConfigured) {
+			writeError(w, http.StatusServiceUnavailable, "openlibrary is not configured")
+			return
+		}
+		writeSearchError(w, "openlibrary", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toLookupWire(results))
 }
 
 // ListAuthors handles GET /api/v1/books/authors. It returns a server-side
@@ -507,23 +589,54 @@ func writeBooksNotFound(w http.ResponseWriter, err error) {
 	writeError(w, status, err.Error())
 }
 
-// SetAuthorMonitored handles PUT /api/v1/books/authors/{id}. It toggles the
-// author-level monitor, which fans out to the author's known titles (PLAN §4).
-func (s *Server) SetAuthorMonitored(w http.ResponseWriter, r *http.Request) {
+// updateAuthorRequest is the body for PUT /api/v1/books/authors/{id} (Readarr
+// B2 Edit Author modal, mirroring Lidarr L2's UpdateArtistRequest). Every
+// field is optional; omitted = keep the current value. When `monitored` is
+// provided and differs from the current state, the change fans out to the
+// author's known titles (PLAN §4). The pre-B2 monitored-only toggle
+// ({"monitored": bool}) is a subset and keeps working.
+type updateAuthorRequest struct {
+	Monitored       *bool     `json:"monitored"`
+	MonitorPolicy   *string   `json:"monitor_policy"`
+	QualityProfile  *string   `json:"quality_profile"`
+	MetadataProfile *string   `json:"metadata_profile"`
+	RootFolder      *string   `json:"root_folder"`
+	Tags            *[]string `json:"tags"`
+}
+
+// UpdateAuthor handles PUT /api/v1/books/authors/{id}. It applies the Edit
+// Author modal fields (Readarr B2) — all optional, omitted = keep current —
+// and, when the monitored state changed, propagates it to the author's known
+// titles (PLAN §4). Responds with the updated monitored state (the
+// MonitoredResult the L1 toggle and the spec declare), mirroring music's
+// SetArtistMonitored.
+func (s *Server) UpdateAuthor(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
-	var req monitoredRequest
+	var req updateAuthorRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if err := s.booksDeps.Svc.SetAuthorMonitored(r.Context(), id, req.Monitored); err != nil {
+	author, err := s.booksDeps.Svc.UpdateAuthor(r.Context(), id, bookssvc.UpdateAuthorInput{
+		Monitored:       req.Monitored,
+		MonitorPolicy:   req.MonitorPolicy,
+		QualityProfile:  req.QualityProfile,
+		MetadataProfile: req.MetadataProfile,
+		RootFolder:      req.RootFolder,
+		Tags:            req.Tags,
+	})
+	if err != nil {
+		if errors.Is(err, bookssvc.ErrInvalidAddParams) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeBooksMonitoredError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "monitored": req.Monitored})
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "monitored": author.Monitored})
 }
 
 // SetTitleMonitored handles PUT /api/v1/books/titles/{id}. It toggles a single

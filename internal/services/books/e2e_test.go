@@ -109,6 +109,18 @@ func (r *memRepo) SetAuthorMonitored(ctx context.Context, id int64, monitored bo
 	return nil
 }
 
+func (r *memRepo) UpdateAuthor(ctx context.Context, a dom.Author) error {
+	if _, ok := r.authors[a.ID]; !ok {
+		return dom.ErrAuthorNotFound
+	}
+	// Keep the id/added-time; the B2 fields (and monitored) come from the
+	// merged author the service passes in.
+	a.ID = r.authors[a.ID].ID
+	a.AddedAt = r.authors[a.ID].AddedAt
+	r.authors[a.ID] = a
+	return nil
+}
+
 func (r *memRepo) CreateTitle(ctx context.Context, t dom.Title) (int64, error) {
 	for _, v := range r.titles {
 		if v.AuthorID == t.AuthorID && v.Name == t.Name {
@@ -513,7 +525,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Add a monitored author + a monitored title (whole-title wanted row).
-	authorID, err := svc.AddAuthor(ctx, "Ursula K. Le Guin", true)
+	authorID, err := svc.AddAuthor(ctx, AddAuthorInput{Name: "Ursula K. Le Guin", Monitored: true})
 	if err != nil {
 		t.Fatalf("add author: %v", err)
 	}
@@ -610,7 +622,7 @@ func TestPipeline_EditionWanted_SatisfiedByTitle(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	authorID, _ := svc.AddAuthor(ctx, "Ursula K. Le Guin", true)
+	authorID, _ := svc.AddAuthor(ctx, AddAuthorInput{Name: "Ursula K. Le Guin", Monitored: true})
 	titleID, _ := svc.AddTitle(ctx, authorID, "The Dispossessed", false)
 	// Add a known edition and monitor it (edition-level wanted, not title-level).
 	editionID, err := svc.AddEdition(ctx, titleID, dom.FormatEPUB, "en", "9780805079181", "Astounding", 1974, 505, true)
@@ -666,7 +678,7 @@ func TestPipeline_TitleMonitor_Acceptance(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	authorID, _ := svc.AddAuthor(ctx, "Bob", true)
+	authorID, _ := svc.AddAuthor(ctx, AddAuthorInput{Name: "Bob", Monitored: true})
 	legendID, _ := svc.AddTitle(ctx, authorID, "Legend", true)
 	uprisingID, _ := svc.AddTitle(ctx, authorID, "Uprising", false)
 
@@ -720,7 +732,7 @@ func TestPipeline_NoMatch(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	authorID, _ := svc.AddAuthor(ctx, "Bob", true)
+	authorID, _ := svc.AddAuthor(ctx, AddAuthorInput{Name: "Bob", Monitored: true})
 	titleID, _ := svc.AddTitle(ctx, authorID, "Legend", true)
 
 	_, err := svc.RunPipeline(ctx, authorID)

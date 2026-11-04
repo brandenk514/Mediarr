@@ -1378,7 +1378,13 @@ paths:
           $ref: "#/components/responses/NotFound"
     put:
       tags: [books]
-      summary: Toggle author-level monitoring (fans out to known titles).
+      summary: Update author (monitored toggle + B2 edit fields).
+      description: |
+        Author-level update (Readarr B2, mirroring L2's artist update). A
+        body with only `monitored` toggles monitoring and fans out to the
+        author's known titles. The edit modal sends `monitored` +
+        `monitor_policy` + `quality_profile` + `metadata_profile` +
+        `root_folder` + `tags`.
       operationId: setAuthorMonitored
       parameters:
         - $ref: "#/components/parameters/PathID"
@@ -1387,7 +1393,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SetMonitored"
+              $ref: "#/components/schemas/UpdateAuthorRequest"
       responses:
         "200":
           description: The toggled state.
@@ -3655,6 +3661,39 @@ paths:
           $ref: "#/components/responses/ServiceUnavailable"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/search/books/lookup:
+    get:
+      tags: [search]
+      summary: Combined plain-text books lookup (authors + works) via Open Library.
+      operationId: lookupBooks
+      description: |
+        Readarr B2: one query fans out to Open Library's author search and
+        work search; the response is a single kind-tagged list (author hits
+        first, then book hits). Each hit carries `added` (true when that
+        author — for kind=author — or that author + title — for kind=book —
+        already exists in the books library, so the UI navigates instead of
+        re-adding) and `library_id` (the matching row id; 0 when not
+        added). Plain-text only: ISBN/ASIN/Goodreads id-lookup syntax is a
+        separate metadata work item (MT1), not part of B2.
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: The kind-tagged hits.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookLookupResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/profiles:
     get:
       tags: [search]
@@ -5523,6 +5562,24 @@ components:
           type: string
         Monitored:
           type: boolean
+        MonitorPolicy:
+          type: string
+          enum: [all, future, missing, existing, first, last, none, '']
+          description: Which titles get monitored; empty = all (legacy rows).
+        RootFolder:
+          type: string
+          description: Root folder path for the author's files; empty = server default.
+        QualityProfile:
+          type: string
+          description: The author's default book quality profile name; empty = none.
+        MetadataProfile:
+          type: string
+          description: The author's metadata profile name; empty = none.
+        Tags:
+          type: array
+          items:
+            type: string
+          description: Free-form tags; empty = none.
         AddedAt:
           type: string
           format: date-time
@@ -5535,6 +5592,90 @@ components:
         monitored:
           type: boolean
           description: Omitted = monitored (default).
+        monitor_policy:
+          type: string
+          enum: [all, future, missing, existing, first, last, none, '']
+          description: Which titles get monitored when the author's books are added (Readarr B2); omitted = all.
+        root_folder:
+          type: string
+          description: Root folder path for the author's files (Readarr B2); empty = server default.
+        quality_profile:
+          type: string
+          description: The author's default book quality profile name (Readarr B2); omitted = none.
+        metadata_profile:
+          type: string
+          description: The author's metadata profile name (Readarr B2; the profile content is B3, this phase only stores the name); omitted = none.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Free-form tags; omitted = none.
+        start_search:
+          type: boolean
+          description: Start a search for the author's monitored titles after adding (Readarr B2); omitted = false. Best-effort — a pipeline failure is recorded, never an add failure.
+    UpdateAuthorRequest:
+      type: object
+      description: >-
+        Update author fields (Readarr B2 Edit Author modal, mirroring L2's
+        UpdateArtistRequest). Omitted fields keep their current value;
+        `monitored` omitted = no change. When `monitored` is provided and
+        differs from the current state, the change fans out to the
+        author's known titles.
+      properties:
+        monitored:
+          type: boolean
+        monitor_policy:
+          type: string
+          enum: [all, future, missing, existing, first, last, none, '']
+          description: Empty = all.
+        root_folder:
+          type: string
+          description: Root folder path for the author's files; empty = server default.
+        quality_profile:
+          type: string
+          description: The author's default book quality profile name; empty = none.
+        metadata_profile:
+          type: string
+          description: The author's metadata profile name; empty = none.
+        tags:
+          type: array
+          items:
+            type: string
+          description: Free-form tags; empty = none.
+    BookLookupResult:
+      type: object
+      description: |
+        One combined books lookup hit (Readarr B2). Kind-tagged: `kind` is
+        "author" (an author-name match) or "book" (a work/title match).
+        `added` is true when the author (kind=author) or the author + title
+        (kind=book) already exists in the books library, so the UI navigates
+        to it instead of re-adding; `library_id` is the matching row id
+        (author id for kind=author, title id for kind=book) and 0 when not
+        added.
+      required: [kind, name, added]
+      properties:
+        kind:
+          type: string
+          enum: [author, book]
+        name:
+          type: string
+          description: The author name (kind=author) or the work title (kind=book).
+        author:
+          type: string
+          description: The work's author (kind=book); empty when unknown. Empty for kind=author hits (the name IS the author).
+        year:
+          type: integer
+          description: The work's first publish year (kind=book); 0 when unknown. 0 for kind=author hits.
+        added:
+          type: boolean
+        library_id:
+          type: integer
+          format: int64
+          description: The matching author id (kind=author) or title id (kind=book); 0 when not added.
+        author_id:
+          type: integer
+          format: int64
+          description: The matching author id for BOTH hit kinds; 0 when not added. For kind=book this is what the UI navigates to (/books/{author_id}).
     BookTitle:
       type: object
       required: [ID, AuthorID, Name, Monitored, AddedAt]

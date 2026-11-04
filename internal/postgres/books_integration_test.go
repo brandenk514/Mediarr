@@ -248,3 +248,103 @@ func TestBooksRepo_CascadeDeletion(t *testing.T) {
 		t.Errorf("authors len = %d, want 0 after cascade delete", len(all))
 	}
 }
+
+// TestBooksRepo_AuthorB2Fields exercises the Readarr B2 add-author fields
+// (monitor policy, quality/metadata profile, root folder, tags) end-to-end
+// against real Postgres: create with all fields, read them back, then edit
+// them through UpdateAuthor (the edit modal, mirroring music's UpdateArtist).
+func TestBooksRepo_AuthorB2Fields(t *testing.T) {
+	r, _ := startBooksPG(t)
+	ctx := context.Background()
+
+	// Create with the full B2 field set.
+	id, err := r.CreateAuthor(ctx, books.Author{
+		Name:            "Ursula K. Le Guin",
+		Monitored:       true,
+		MonitorPolicy:   books.PolicyFirst,
+		QualityProfile:  "Best",
+		MetadataProfile: "Default",
+		RootFolder:      "/media/books",
+		Tags:            []string{"favorites", "sci-fi"},
+	})
+	if err != nil {
+		t.Fatalf("CreateAuthor: %v", err)
+	}
+
+	// Read it all back and assert each field round-trips.
+	got, err := r.GetAuthor(ctx, id)
+	if err != nil {
+		t.Fatalf("GetAuthor: %v", err)
+	}
+	if got.MonitorPolicy != books.PolicyFirst {
+		t.Errorf("MonitorPolicy = %q, want %q", got.MonitorPolicy, books.PolicyFirst)
+	}
+	if got.QualityProfile != "Best" {
+		t.Errorf("QualityProfile = %q, want %q", got.QualityProfile, "Best")
+	}
+	if got.MetadataProfile != "Default" {
+		t.Errorf("MetadataProfile = %q, want %q", got.MetadataProfile, "Default")
+	}
+	if got.RootFolder != "/media/books" {
+		t.Errorf("RootFolder = %q, want %q", got.RootFolder, "/media/books")
+	}
+	if len(got.Tags) != 2 || got.Tags[0] != "favorites" || got.Tags[1] != "sci-fi" {
+		t.Errorf("Tags = %v, want [favorites sci-fi]", got.Tags)
+	}
+
+	// Edit via UpdateAuthor: change the policy + tags, keep the rest.
+	got.MonitorPolicy = books.PolicyAll
+	got.QualityProfile = "Good"
+	got.Tags = []string{"sci-fi"}
+	if err := r.UpdateAuthor(ctx, *got); err != nil {
+		t.Fatalf("UpdateAuthor: %v", err)
+	}
+	after, err := r.GetAuthor(ctx, id)
+	if err != nil {
+		t.Fatalf("GetAuthor after update: %v", err)
+	}
+	if after.MonitorPolicy != books.PolicyAll {
+		t.Errorf("after update MonitorPolicy = %q, want %q", after.MonitorPolicy, books.PolicyAll)
+	}
+	if after.QualityProfile != "Good" {
+		t.Errorf("after update QualityProfile = %q, want %q", after.QualityProfile, "Good")
+	}
+	if len(after.Tags) != 1 || after.Tags[0] != "sci-fi" {
+		t.Errorf("after update Tags = %v, want [sci-fi]", after.Tags)
+	}
+	// Untouched fields must survive the edit.
+	if after.MetadataProfile != "Default" || after.RootFolder != "/media/books" || !after.Monitored {
+		t.Errorf("update clobbered untouched fields: %+v", after)
+	}
+
+	// UpdateAuthor on a missing id surfaces ErrAuthorNotFound.
+	if err := r.UpdateAuthor(ctx, books.Author{ID: 999999}); err != books.ErrAuthorNotFound {
+		t.Errorf("UpdateAuthor(missing) = %v, want ErrAuthorNotFound", err)
+	}
+}
+
+// TestBooksRepo_AuthorDefaults verifies that an author created with no B2
+// fields (legacy add) gets the empty defaults: policy "" (= all), no
+// profiles, no root folder, no tags — matching the migration DEFAULTs.
+func TestBooksRepo_AuthorDefaults(t *testing.T) {
+	r, _ := startBooksPG(t)
+	ctx := context.Background()
+
+	id, err := r.CreateAuthor(ctx, books.Author{Name: "Legacy Author"})
+	if err != nil {
+		t.Fatalf("CreateAuthor: %v", err)
+	}
+	got, err := r.GetAuthor(ctx, id)
+	if err != nil {
+		t.Fatalf("GetAuthor: %v", err)
+	}
+	if got.MonitorPolicy != "" {
+		t.Errorf("default MonitorPolicy = %q, want %q (= all)", got.MonitorPolicy, "")
+	}
+	if got.QualityProfile != "" || got.MetadataProfile != "" || got.RootFolder != "" {
+		t.Errorf("default profiles/root should be empty: %+v", got)
+	}
+	if len(got.Tags) != 0 {
+		t.Errorf("default Tags = %v, want empty", got.Tags)
+	}
+}

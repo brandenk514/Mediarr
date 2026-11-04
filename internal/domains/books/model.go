@@ -23,7 +23,13 @@ type Author struct {
 	ID        int64
 	Name      string
 	Monitored bool // author-level monitor toggle
-	AddedAt   time.Time
+	// Readarr B2 add-flow fields:
+	MonitorPolicy   string   // which titles get monitored (PolicyAll/...); "" = all
+	QualityProfile  string   // the author's default book quality profile name; "" = none
+	MetadataProfile string   // the author's metadata profile name; "" = none
+	RootFolder      string   // root folder path for the author's files; "" = server default
+	Tags            []string // free-form tag labels; empty = none
+	AddedAt         time.Time
 }
 
 // Title is a book title (a logical book, e.g. "The Dispossessed") within an
@@ -182,6 +188,9 @@ type Repo interface {
 	GetAuthor(ctx context.Context, id int64) (*Author, error)
 	ListAuthors(ctx context.Context) ([]Author, error)
 	SetAuthorMonitored(ctx context.Context, id int64, monitored bool) error
+	// UpdateAuthor writes the author's B2 editable fields (the full merged
+	// author; the service passes current values plus the edits).
+	UpdateAuthor(ctx context.Context, a Author) error
 
 	// Titles
 	CreateTitle(ctx context.Context, t Title) (int64, error)

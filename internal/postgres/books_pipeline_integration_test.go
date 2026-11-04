@@ -152,7 +152,7 @@ func TestBooksPipeline_EndToEnd_Postgres(t *testing.T) {
 	})
 
 	// 1. Add the author (monitored) and a monitored title (whole-title wanted).
-	authorID, err := svc.AddAuthor(ctx, "Ursula K. Le Guin", true)
+	authorID, err := svc.AddAuthor(ctx, bookssvc.AddAuthorInput{Name: "Ursula K. Le Guin", Monitored: true})
 	if err != nil {
 		t.Fatalf("add author: %v", err)
 	}

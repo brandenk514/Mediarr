@@ -32,11 +32,14 @@ func (r *BooksRepo) CreateAuthor(ctx context.Context, a books.Author) (int64, er
 	if err != sql.ErrNoRows {
 		return 0, fmt.Errorf("books: create author: %w", err)
 	}
+	tags := nullSafeTags(a.Tags)
 	err = r.db.QueryRowContext(ctx, `
-		INSERT INTO book_authors (name, monitored)
-		VALUES ($1, $2)
+		INSERT INTO book_authors (name, monitored, monitor_policy, quality_profile,
+		                             metadata_profile, root_folder, tags)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id`,
-		a.Name, a.Monitored,
+		a.Name, a.Monitored, a.MonitorPolicy, a.QualityProfile,
+		a.MetadataProfile, a.RootFolder, tags,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("books: create author: %w", err)
@@ -44,26 +47,49 @@ func (r *BooksRepo) CreateAuthor(ctx context.Context, a books.Author) (int64, er
 	return id, nil
 }
 
+// rowScanner is the surface scanAuthor needs; both *sql.Row and *sql.Rows
+// satisfy it.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanAuthor scans one book_authors row (id, name, monitored, monitor_policy,
+// quality_profile, metadata_profile, root_folder, tags, added_at) into an
+// Author.
+func scanAuthor(sc rowScanner) (books.Author, error) {
+	var a books.Author
+	var tags []string
+	if err := sc.Scan(&a.ID, &a.Name, &a.Monitored, &a.MonitorPolicy,
+		&a.QualityProfile, &a.MetadataProfile, &a.RootFolder, &tags, &a.AddedAt); err != nil {
+		return a, err
+	}
+	a.Tags = nullSafeTags(tags)
+	return a, nil
+}
+
 // GetAuthor loads an author by id.
 func (r *BooksRepo) GetAuthor(ctx context.Context, id int64) (*books.Author, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, name, monitored, added_at
+		SELECT id, name, monitored, monitor_policy, quality_profile,
+		       metadata_profile, root_folder, tags, added_at
 		FROM book_authors WHERE id = $1`, id)
-	a := &books.Author{}
-	err := row.Scan(&a.ID, &a.Name, &a.Monitored, &a.AddedAt)
+	a, err := scanAuthor(row)
 	if err == sql.ErrNoRows {
 		return nil, books.ErrAuthorNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("books: get author: %w", err)
 	}
-	return a, nil
+	return &a, nil
 }
+
+const authorColumns = `id, name, monitored, monitor_policy, quality_profile,
+	                   metadata_profile, root_folder, tags, added_at`
 
 // ListAuthors returns all authors, oldest first.
 func (r *BooksRepo) ListAuthors(ctx context.Context) ([]books.Author, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, monitored, added_at
+		SELECT `+authorColumns+`
 		FROM book_authors ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("books: list authors: %w", err)
@@ -71,8 +97,8 @@ func (r *BooksRepo) ListAuthors(ctx context.Context) ([]books.Author, error) {
 	defer func() { _ = rows.Close() }() // rows consumed by the loop above
 	var out []books.Author
 	for rows.Next() {
-		var a books.Author
-		if err := rows.Scan(&a.ID, &a.Name, &a.Monitored, &a.AddedAt); err != nil {
+		a, err := scanAuthor(rows)
+		if err != nil {
 			return nil, fmt.Errorf("books: scan author: %w", err)
 		}
 		out = append(out, a)
@@ -86,6 +112,28 @@ func (r *BooksRepo) SetAuthorMonitored(ctx context.Context, id int64, monitored 
 		UPDATE book_authors SET monitored = $2 WHERE id = $1`, id, monitored)
 	if err != nil {
 		return fmt.Errorf("books: set author monitored: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return books.ErrAuthorNotFound
+	}
+	return nil
+}
+
+// UpdateAuthor writes the author's B2 editable fields in one row (Readarr B2
+// edit modal, mirroring music's UpdateArtist). The caller passes the full
+// merged author (current values plus the edits); the name is not writable.
+func (r *BooksRepo) UpdateAuthor(ctx context.Context, a books.Author) error {
+	tags := nullSafeTags(a.Tags)
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE book_authors
+		SET monitored = $2, monitor_policy = $3, quality_profile = $4,
+		    metadata_profile = $5, root_folder = $6, tags = $7
+		WHERE id = $1`,
+		a.ID, a.Monitored, a.MonitorPolicy, a.QualityProfile,
+		a.MetadataProfile, a.RootFolder, tags,
+	)
+	if err != nil {
+		return fmt.Errorf("books: update author: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return books.ErrAuthorNotFound
