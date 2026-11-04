@@ -751,7 +751,14 @@ export interface paths {
         };
         /** Get one author. */
         get: operations["getAuthor"];
-        /** Toggle author-level monitoring (fans out to known titles). */
+        /**
+         * Update author (monitored toggle + B2 edit fields).
+         * @description Author-level update (Readarr B2, mirroring L2's artist update). A
+         *     body with only `monitored` toggles monitoring and fans out to the
+         *     author's known titles. The edit modal sends `monitored` +
+         *     `monitor_policy` + `quality_profile` + `metadata_profile` +
+         *     `root_folder` + `tags`.
+         */
         put: operations["setAuthorMonitored"];
         post?: never;
         delete?: never;
@@ -2144,6 +2151,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search/books/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Combined plain-text books lookup (authors + works) via Open Library.
+         * @description Readarr B2: one query fans out to Open Library's author search and
+         *     work search; the response is a single kind-tagged list (author hits
+         *     first, then book hits). Each hit carries `added` (true when that
+         *     author — for kind=author — or that author + title — for kind=book —
+         *     already exists in the books library, so the UI navigates instead of
+         *     re-adding) and `library_id` (the matching row id; 0 when not
+         *     added). Plain-text only: ISBN/ASIN/Goodreads id-lookup syntax is a
+         *     separate metadata work item (MT1), not part of B2.
+         */
+        get: operations["lookupBooks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/profiles": {
         parameters: {
             query?: never;
@@ -3295,6 +3329,19 @@ export interface components {
             ID: number;
             Name: string;
             Monitored: boolean;
+            /**
+             * @description Which titles get monitored; empty = all (legacy rows).
+             * @enum {string}
+             */
+            MonitorPolicy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none" | "";
+            /** @description Root folder path for the author's files; empty = server default. */
+            RootFolder?: string;
+            /** @description The author's default book quality profile name; empty = none. */
+            QualityProfile?: string;
+            /** @description The author's metadata profile name; empty = none. */
+            MetadataProfile?: string;
+            /** @description Free-form tags; empty = none. */
+            Tags?: string[];
             /** Format: date-time */
             AddedAt: string;
         };
@@ -3302,6 +3349,63 @@ export interface components {
             name: string;
             /** @description Omitted = monitored (default). */
             monitored?: boolean;
+            /**
+             * @description Which titles get monitored when the author's books are added (Readarr B2); omitted = all.
+             * @enum {string}
+             */
+            monitor_policy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none" | "";
+            /** @description Root folder path for the author's files (Readarr B2); empty = server default. */
+            root_folder?: string;
+            /** @description The author's default book quality profile name (Readarr B2); omitted = none. */
+            quality_profile?: string;
+            /** @description The author's metadata profile name (Readarr B2; the profile content is B3, this phase only stores the name); omitted = none. */
+            metadata_profile?: string;
+            /** @description Free-form tags; omitted = none. */
+            tags?: string[];
+            /** @description Start a search for the author's monitored titles after adding (Readarr B2); omitted = false. Best-effort — a pipeline failure is recorded, never an add failure. */
+            start_search?: boolean;
+        };
+        /** @description Update author fields (Readarr B2 Edit Author modal, mirroring L2's UpdateArtistRequest). Omitted fields keep their current value; `monitored` omitted = no change. When `monitored` is provided and differs from the current state, the change fans out to the author's known titles. */
+        UpdateAuthorRequest: {
+            monitored?: boolean;
+            /**
+             * @description Empty = all.
+             * @enum {string}
+             */
+            monitor_policy?: "all" | "future" | "missing" | "existing" | "first" | "last" | "none" | "";
+            /** @description Root folder path for the author's files; empty = server default. */
+            root_folder?: string;
+            /** @description The author's default book quality profile name; empty = none. */
+            quality_profile?: string;
+            /** @description The author's metadata profile name; empty = none. */
+            metadata_profile?: string;
+            /** @description Free-form tags; empty = none. */
+            tags?: string[];
+        };
+        /**
+         * @description One combined books lookup hit (Readarr B2). Kind-tagged: `kind` is
+         *     "author" (an author-name match) or "book" (a work/title match).
+         *     `added` is true when the author (kind=author) or the author + title
+         *     (kind=book) already exists in the books library, so the UI navigates
+         *     to it instead of re-adding; `library_id` is the matching row id
+         *     (author id for kind=author, title id for kind=book) and 0 when not
+         *     added.
+         */
+        BookLookupResult: {
+            /** @enum {string} */
+            kind: "author" | "book";
+            /** @description The author name (kind=author) or the work title (kind=book). */
+            name: string;
+            /** @description The work's author (kind=book); empty when unknown. Empty for kind=author hits (the name IS the author). */
+            author?: string;
+            /** @description The work's first publish year (kind=book); 0 when unknown. 0 for kind=author hits. */
+            year?: number;
+            added: boolean;
+            /**
+             * Format: int64
+             * @description The matching author id (kind=author) or title id (kind=book); 0 when not added.
+             */
+            library_id?: number;
         };
         BookTitle: {
             /** Format: int64 */
@@ -6776,7 +6880,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetMonitored"];
+                "application/json": components["schemas"]["UpdateAuthorRequest"];
             };
         };
         responses: {
@@ -8932,6 +9036,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchResult"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    lookupBooks: {
+        parameters: {
+            query: {
+                /** @description Free-text search query. */
+                query: components["parameters"]["SearchQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The kind-tagged hits. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookLookupResult"][];
                 };
             };
             401: components["responses"]["Unauthorized"];
