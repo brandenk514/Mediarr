@@ -50,7 +50,17 @@ beforeEach(() => {
   vi.mocked(client.addSeries).mockResolvedValue({ id: 21 })
   vi.mocked(client.searchMissingEpisodes).mockResolvedValue({ searched: 0 })
   vi.mocked(client.listRootFolders).mockResolvedValue([
-    { ID: 7, Path: '/media/tv', Name: 'TV', CreatedAt: '', FreeSpace: null },
+    {
+      // Readarr B5: the new required root fields (no Calibre config,
+      // hard links allowed).
+      ID: 7,
+      Path: '/media/tv',
+      Name: 'TV',
+      CreatedAt: '',
+      FreeSpace: null,
+      Calibre: null,
+      HardlinksDisabled: false,
+    },
   ])
 })
 

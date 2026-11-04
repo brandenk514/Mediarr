@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
 import type { MediaKind, MetadataConsumer, MetadataSettings } from '../../../api/types'
+import { DEFAULT_BOOK_TAG_WRITE } from '../../../api/books-b5'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
 // MetadataSection is the metadata section of the P5 settings shell: the
@@ -24,6 +25,11 @@ export function MetadataSection() {
   const [tagAudioFiles, setTagAudioFiles] = useState(true)
   const [scrubExistingTags, setScrubExistingTags] = useState(false)
   const [consumers, setConsumers] = useState<MetadataConsumer[]>([])
+  // Readarr B5: the book tag-write block. A pre-B5 document (missing key)
+  // seeds the server defaults at the load boundary, mirroring the L3 fields.
+  const [bookTagWrite, setBookTagWrite] = useState<MetadataSettings['book_tag_write']>(
+    { ...DEFAULT_BOOK_TAG_WRITE },
+  )
   const [saved, setSaved] = useState(false)
   const { busy, error: saveError, submit } = useSubmit()
 
@@ -36,6 +42,11 @@ export function MetadataSection() {
     setTagAudioFiles(doc.tag_audio_files ?? true)
     setScrubExistingTags(doc.scrub_existing_tags ?? false)
     setConsumers(doc.consumers ?? [])
+    // Readarr B5: seed the book tag-write block (defaults for pre-B5 docs).
+    setBookTagWrite({
+      book_tag_type: doc.book_tag_write?.book_tag_type ?? DEFAULT_BOOK_TAG_WRITE.book_tag_type,
+      audio_tag_type: doc.book_tag_write?.audio_tag_type ?? DEFAULT_BOOK_TAG_WRITE.audio_tag_type,
+    })
   }, [doc])
 
   if (error) {
@@ -56,6 +67,9 @@ export function MetadataSection() {
         kinds: Object.fromEntries(KINDS.map((k) => [k, kinds[k] ?? false])),
         tag_audio_files: tagAudioFiles,
         scrub_existing_tags: scrubExistingTags,
+        // Readarr B5: the book tag-write block round-trips from the local
+        // state (seeded from the document at the load boundary).
+        book_tag_write: bookTagWrite,
         consumers,
       }
       await client.putSettingsSection<MetadataSettings>('metadata', next)

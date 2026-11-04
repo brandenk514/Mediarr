@@ -75,6 +75,10 @@ describe('MetadataSection', () => {
         // Lidarr L3 music fields round-trip unchanged (the doc's values).
         tag_audio_files: true,
         scrub_existing_tags: false,
+        // Readarr B5: the book tag-write block round-trips the defaults
+        // (the fresh fixture has no book_tag_write — the load boundary
+        // seeds the server defaults).
+        book_tag_write: { book_tag_type: 'all', audio_tag_type: 'no' },
         consumers: [
           { name: 'Kodi (XBMC)/Emby', enabled: false },
           { name: 'Roksbox', enabled: false },

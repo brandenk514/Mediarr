@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
 import type {
+  BooksBookFileManagement,
+  BooksBookNaming,
+  BooksMediaManagementSettings,
+} from '../../../api/books-b5'
+import { DEFAULT_BOOK_FILE_MANAGEMENT, DEFAULT_BOOK_NAMING } from '../../../api/books-b5'
+import type {
   FileManagement,
-  MediaManagementSettings,
   MovieNaming,
   MusicNaming,
   NamingTemplate,
@@ -18,11 +23,13 @@ import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 // Movie Format — separate from the per-kind 'Movie' template row, which is
 // the TV-era NamingTemplate.movie), the Lidarr track-naming block (L3:
 // Rename Tracks / Replace Illegal Characters / Colon Replacement / Standard
-// Format / Multi-Disc Format), the file-management options (including
-// Unmonitor Deleted Movies), remote path mappings (indexer/download paths ->
-// local), and the root-folder list (paths owned by the P2 root-folders
-// domain and the add flow; the per-root default music quality + metadata
-// profile pickers write straight to that registry).
+// Format / Multi-Disc Format), the Readarr book-naming + book file-management
+// blocks and the global Calibre feature flag (B5; the books wire shapes come
+// from books-b5.ts — see its spec-divergence note), the file-management
+// options (including Unmonitor Deleted Movies), remote path mappings
+// (indexer/download paths -> local), and the root-folder list (paths owned by
+// the P2 root-folders domain and the add flow; the per-root default music
+// quality + metadata profile pickers write straight to that registry).
 const TEMPLATE_FIELDS: { field: keyof NamingTemplate; label: string }[] = [
   { field: 'series', label: 'Series' },
   { field: 'episode', label: 'Episode' },
@@ -34,7 +41,7 @@ const TEMPLATE_FIELDS: { field: keyof NamingTemplate; label: string }[] = [
 ]
 
 export function MediaManagementSection() {
-  const { doc, loading, error, authLost, refresh } = useSectionDoc<MediaManagementSettings>('media-management')
+  const { doc, loading, error, authLost, refresh } = useSectionDoc<BooksMediaManagementSettings>('media-management')
 
   const [naming, setNaming] = useState<NamingTemplate | null>(null)
   const [movieNaming, setMovieNaming] = useState<MovieNaming | null>(null)
@@ -42,6 +49,13 @@ export function MediaManagementSection() {
   // documents) seeds null — the block renders its fallbacks and saves
   // pass the stored value through non-destructively.
   const [musicNaming, setMusicNaming] = useState<MusicNaming | null>(null)
+  // Readarr B5: the books naming + file-management blocks and the global
+  // Calibre feature flag. A pre-B5 document (missing keys) seeds the
+  // factory defaults at the load boundary, mirroring the music_naming
+  // fallback pattern.
+  const [bookNaming, setBookNaming] = useState<BooksBookNaming>(DEFAULT_BOOK_NAMING)
+  const [bookMgmt, setBookMgmt] = useState<BooksBookFileManagement>(DEFAULT_BOOK_FILE_MANAGEMENT)
+  const [calibreEnabled, setCalibreEnabled] = useState(false)
   const [fileMgmt, setFileMgmt] = useState<FileManagement | null>(null)
   const [mappings, setMappings] = useState<RemotePathMapping[]>([])
   const [mapSource, setMapSource] = useState('')
@@ -60,6 +74,11 @@ export function MediaManagementSection() {
     setNaming(doc.naming)
     setMovieNaming(doc.movie_naming)
     setMusicNaming(doc.music_naming ?? null)
+    // Readarr B5: seed the books blocks from the loaded document, falling
+    // back to the factory defaults for documents that predate the fields.
+    setBookNaming(doc.book_naming ?? DEFAULT_BOOK_NAMING)
+    setBookMgmt(doc.book_management ?? DEFAULT_BOOK_FILE_MANAGEMENT)
+    setCalibreEnabled(doc.calibre_enabled ?? false)
     // The server defaults unmonitor_deleted_movies to true (R5a); normalise a
     // missing stored value so the toggle round-trips the default explicitly.
     setFileMgmt({
@@ -180,16 +199,21 @@ export function MediaManagementSection() {
     if (!doc) return
     if (!naming || !fileMgmt || !movieNaming) return
     void submit(async () => {
-      const next: MediaManagementSettings = {
+      const next: BooksMediaManagementSettings = {
         naming,
         movie_naming: movieNaming,
         // Lidarr L3: send the local block when present; a pre-L3 doc (no
         // music_naming) passes its stored value through non-destructively.
         music_naming: musicNaming ?? doc.music_naming,
+        // Readarr B5: the books blocks round-trip from the local state
+        // (seeded from the document at the load boundary).
+        book_naming: bookNaming,
+        book_management: bookMgmt,
+        calibre_enabled: calibreEnabled,
         file_management: fileMgmt,
         remote_path_mappings: mappings,
       }
-      await client.putSettingsSection<MediaManagementSettings>('media-management', next)
+      await client.putSettingsSection<BooksMediaManagementSettings>('media-management', next)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     })

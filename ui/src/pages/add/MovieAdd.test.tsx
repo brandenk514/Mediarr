@@ -73,7 +73,17 @@ beforeEach(() => {
   })
   vi.mocked(client.addMovie).mockResolvedValue({ id: 71 })
   vi.mocked(client.listRootFolders).mockResolvedValue([
-    { ID: 3, Path: '/media/movies', Name: 'Movies', CreatedAt: '', FreeSpace: 500 * 1024 ** 3 },
+    {
+      ID: 3,
+      Path: '/media/movies',
+      Name: 'Movies',
+      CreatedAt: '',
+      FreeSpace: 500 * 1024 ** 3,
+      // Readarr B5: the new required root fields (no Calibre config,
+      // hard links allowed).
+      Calibre: null,
+      HardlinksDisabled: false,
+    },
   ])
 })
 
