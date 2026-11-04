@@ -2978,8 +2978,52 @@ export interface components {
              *     unset. Must be one of the seeded metadata profile names.
              */
             DefaultMetadataProfile?: string;
+            /**
+             * @description Per-root Calibre Content Server config (Readarr B5); null when
+             *     the root has no Calibre config (the disabled default). The
+             *     password is masked on read (never echoed) — only
+             *     password_set comes back.
+             */
+            Calibre: components["schemas"]["CalibreSettings"] | null;
+            /**
+             * @description True when this root's Calibre is enabled: Calibre needs real
+             *     files, not hard links, so hard-link imports are forced off for
+             *     this root (the B5 rule).
+             */
+            HardlinksDisabled: boolean;
         };
-        /** @description Omitted path/name keep their stored values (PUT); omitted default profiles keep their stored values. */
+        CalibreSettings: {
+            /** @description This root's "Use Calibre" toggle (also gated by the global calibre_enabled feature flag). */
+            enabled: boolean;
+            /** @description Content Server host; required when enabled. */
+            host: string;
+            /** @description Content Server port (1-65535); required when enabled. */
+            port: number;
+            /** @description Optional path prefix on the Content Server (e.g. /calibre). */
+            url_base: string;
+            /** @description Content Server user; required when enabled. */
+            username: string;
+            /** @description Write-only; masked on read. A blank value on write keeps the stored key. */
+            password: string;
+            password_set: boolean;
+            /** @description The Calibre library name this root maps to. */
+            library: string;
+            /** @description Use an HTTPS Content Server connection. */
+            use_ssl: boolean;
+            /** @description Comma-separated "Convert to" formats (MOBI, EPUB, AZW3, ...); "" = import without conversion. */
+            output_format: string;
+            /** @description Calibre output (device) profile index; 0 = default. */
+            output_profile: number;
+            /** @description Auto-import this root's books into Calibre on import. */
+            monitor: boolean;
+            /** @description Name of the seeded book quality profile applied to this root's books; "" = app default. */
+            quality_profile: string;
+            /** @description Name of the seeded book metadata profile applied to this root's books; "" = app default. */
+            metadata_profile: string;
+            /** @description Tag ids written to this root's books. */
+            default_tags: number[];
+        };
+        /** @description Omitted path/name keep their stored values (PUT); omitted default profiles keep their stored values; an omitted Calibre block keeps the stored one. */
         RootFolderRequest: {
             path?: string;
             name?: string;
@@ -2987,6 +3031,8 @@ export interface components {
             default_quality_profile?: string;
             /** @description Per-root default metadata profile name; "" = unset/keep. Non-empty must be a seeded metadata profile name. */
             default_metadata_profile?: string;
+            /** @description Per-root Calibre config (B5). A blank password inside keeps the stored key. */
+            calibre?: components["schemas"]["CalibreSettings"];
         };
         Episode: {
             /** Format: int64 */
@@ -4577,8 +4623,8 @@ export interface components {
          * @description The generic per-section slugs (indexers and download-clients keep their dedicated endpoints).
          * @enum {string}
          */
-        SettingsSection: "general" | "ui" | "quality" | "profiles" | "tags" | "media-management" | "custom-formats" | "connect" | "metadata" | "metadata-source" | "import-lists";
-        SettingsSectionDocument: components["schemas"]["GeneralSettings"] | components["schemas"]["UISettings"] | components["schemas"]["QualitySettings"] | components["schemas"]["ProfilesSettings"] | components["schemas"]["TagsSettings"] | components["schemas"]["MediaManagementSettings"] | components["schemas"]["CustomFormatsSettings"] | components["schemas"]["ConnectSettings"] | components["schemas"]["MetadataSettings"] | components["schemas"]["MetadataSourceSettings"] | components["schemas"]["ImportListsSettings"];
+        SettingsSection: "general" | "ui" | "quality" | "profiles" | "tags" | "media-management" | "custom-formats" | "connect" | "metadata" | "metadata-source" | "import-lists" | "book-import-lists";
+        SettingsSectionDocument: components["schemas"]["GeneralSettings"] | components["schemas"]["UISettings"] | components["schemas"]["QualitySettings"] | components["schemas"]["ProfilesSettings"] | components["schemas"]["TagsSettings"] | components["schemas"]["MediaManagementSettings"] | components["schemas"]["CustomFormatsSettings"] | components["schemas"]["ConnectSettings"] | components["schemas"]["MetadataSettings"] | components["schemas"]["MetadataSourceSettings"] | components["schemas"]["ImportListsSettings"] | components["schemas"]["BookImportListsSettings"];
         /**
          * @description App-level settings, reconciled with the env-based boot config.
          *     host/port/base_url/ssl are persisted here for display and for the
@@ -4977,6 +5023,10 @@ export interface components {
             naming: components["schemas"]["NamingTemplate"];
             movie_naming: components["schemas"]["MovieNaming"];
             music_naming: components["schemas"]["MusicNaming"];
+            book_naming: components["schemas"]["BookNaming"];
+            book_management: components["schemas"]["BookFileManagement"];
+            /** @description Global Calibre feature flag (Readarr B5; off by default). Per-root Calibre config lives on the root-folder registry. */
+            calibre_enabled: boolean;
             file_management: components["schemas"]["FileManagement"];
             remote_path_mappings: components["schemas"]["RemotePathMapping"][];
         };
@@ -5072,6 +5122,7 @@ export interface components {
             tag_audio_files: boolean;
             /** @description Scrub existing tags from the files when tagging (L3; defaults to false). */
             scrub_existing_tags: boolean;
+            book_tag_write: components["schemas"]["BookTagWrite"];
             /** @description Metadata consumers to run against the generated files (L3). */
             consumers: components["schemas"]["MetadataConsumer"][];
         };
@@ -5124,6 +5175,144 @@ export interface components {
         };
         ImportListsSettings: {
             lists: components["schemas"]["ImportList"][];
+        };
+        BookTagWrite: {
+            /**
+             * @description Which tags to write to (e-book) files; all by default.
+             * @enum {string}
+             */
+            book_tag_type: "no" | "all" | "book";
+            /**
+             * @description Which tags to write to a-book (audio) files; no by default.
+             * @enum {string}
+             */
+            audio_tag_type: "no" | "all" | "audio";
+        };
+        /**
+         * @description Readarr book naming block (B5). standard_format is the book file
+         *     naming template and author_format the author-folder template, both in
+         *     the same brace-token style as the rest of the naming document.
+         */
+        BookNaming: {
+            /** @description Rename book files to the standard template; false keeps the original release filename. */
+            rename_books: boolean;
+            /** @description Replace characters the filesystem rejects. */
+            replace_illegal_characters: boolean;
+            /** @description Single character (or empty) used for ':' in titles. */
+            colon_replacement: string;
+            /** @description Book file-naming template (brace tokens), e.g. "{Author Name} - {Book Title} ({Release Year})". */
+            standard_format: string;
+            /** @description Author-folder template (brace tokens), e.g. "{Author Name}". */
+            author_format: string;
+            /**
+             * @description How whitespace in rendered names is handled; space by default.
+             * @enum {string}
+             */
+            space_handling: "space" | "period" | "underscore" | "dash";
+            /**
+             * @description Case transform applied to rendered names; default by default.
+             * @enum {string}
+             */
+            case_handling: "default" | "uppercase" | "lowercase";
+        };
+        /**
+         * @description Readarr book file-management block (B5): author-folder handling,
+         *     import behavior (free space, hard links, extra files), file
+         *     management (rescan, fingerprint, recycle bin) and Linux permissions.
+         */
+        BookFileManagement: {
+            /** @description Stop monitoring a book once a file for it has been imported; true by default. */
+            unmonitor_downloaded: boolean;
+            /** @description Ignore book files that are deleted on disk; false by default. */
+            ignore_deleted_files: boolean;
+            /**
+             * @description Propers/repacks handling; include by default.
+             * @enum {string}
+             */
+            download_propers_and_repacks: "ignore" | "include" | "upgrade";
+            /** @description Create an author's folder even when it has no imported books yet; true by default. */
+            create_empty_author_folders: boolean;
+            /** @description Remove author folders that end up empty; false by default. */
+            delete_empty_folders: boolean;
+            /**
+             * @description File mtime on import — the original file date or the release date; original by default.
+             * @enum {string}
+             */
+            file_date: "original" | "release";
+            /** @description Rescan a root folder for changes; true by default. */
+            watch_library_for_changes: boolean;
+            /**
+             * @description Rescan after refresh — no, changed, or all; no by default.
+             * @enum {string}
+             */
+            rescan_after_refresh: "no" | "changed" | "all";
+            /**
+             * @description Write the file-fingerprint tag; no by default.
+             * @enum {string}
+             */
+            allow_fingerprinting: "no" | "yes";
+            /** @description Recycle-bin path for deleted files; empty (direct delete) by default. */
+            recycle_bin: string;
+            /** @description How long recycle-bin items stay before purge (days); 14 by default. */
+            recycle_bin_cleanup_days: number;
+            /** @description Apply the Linux permissions on import; false by default. */
+            set_permissions_linux: boolean;
+            /** @description chmod mode for imported folders; empty by default. */
+            chmod_folder: string;
+            /** @description chown user for imported files; empty by default. */
+            chown_user: string;
+            /** @description chown group for imported files; empty by default. */
+            chown_group: string;
+            /** @description Skip the destination free-space check when importing; false by default. */
+            skip_free_space_check: boolean;
+            /** @description Minimum free space (GB) required at the destination; 0 by default. */
+            min_free_space_gb: number;
+            /** @description Hard-link instead of copy when possible; true by default. Auto-disabled per root folder when Calibre is enabled for that root. */
+            copy_using_hardlinks: boolean;
+            /** @description Copy extra (non-book) files on import; false by default. */
+            import_extra_files: boolean;
+            /** @description Allowed extra-file extensions; empty (all) by default. */
+            extra_file_extensions: string;
+        };
+        BookImportList: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            /**
+             * @description goodreads: a list on the public Goodreads site (list_id +
+             *     base_url, no key). lazylibrarian / readarr: a self-hosted
+             *     instance (base_url + api_key).
+             * @enum {string}
+             */
+            kind: "goodreads" | "lazylibrarian" | "readarr";
+            /** @description Whether this list is active for imports. */
+            enabled: boolean;
+            /** @description Goodreads list id (goodreads kind only; 0 for other kinds). */
+            list_id: number;
+            /** @description The Goodreads site, or the lazylibrarian/readarr instance URL. */
+            base_url: string;
+            /** @description lazylibrarian / readarr API key; masked on read, empty string when unset. */
+            api_key: string;
+            /** @description True when an API key is stored for this list. */
+            api_key_set: boolean;
+            /** @description Readarr-instance filter: profile ids (readarr kind only; empty = all). */
+            profile_ids: number[];
+            /** @description Readarr-instance filter: tag ids (readarr kind only; empty = all). */
+            tag_ids: number[];
+            /** @description Readarr-instance filter: root-folder paths (readarr kind only; empty = all). */
+            root_folder_paths: string[];
+        };
+        BookImportListExclusion: {
+            /** @description The source's book foreign id to skip. */
+            foreign_id: string;
+            /** @description The book title/name to skip. */
+            name: string;
+        };
+        BookImportListsSettings: {
+            /** @description The books import lists (goodreads / lazylibrarian / readarr kinds). */
+            lists: components["schemas"]["BookImportList"][];
+            /** @description Books no list should ever import (document-level). */
+            exclusions: components["schemas"]["BookImportListExclusion"][];
         };
         ImportRunRequest: {
             /** @description The import list to run. */

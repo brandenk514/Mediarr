@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
 import type { MediaKind, MetadataConsumer, MetadataSettings } from '../../../api/types'
+import type { components } from '../../../api/types.gen'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
 // MetadataSection is the metadata section of the P5 settings shell: the
@@ -10,6 +11,17 @@ import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from '
 // existing tags, and the metadata consumers (Kodi (XBMC)/Emby, Roksbox,
 // WDTV) that run against the generated files. The NFO toggle gates the
 // metawrite.Writer wired into the wanted manual-import flow (P5 wave 2).
+// Readarr B5: the books tag-writing options (generated BookTagWrite; the
+// state type is MetadataSettings['book_tag_write'], the same shape).
+type BookTagWrite = components['schemas']['BookTagWrite']
+type BookTagType = BookTagWrite['book_tag_type']
+type AudioTagType = BookTagWrite['audio_tag_type']
+
+const BOOK_TAG_TYPES: BookTagType[] = ['no', 'all', 'book']
+const AUDIO_TAG_TYPES: AudioTagType[] = ['no', 'all', 'audio']
+// The server's default (settings.DefaultBookTagWrite).
+const DEFAULT_BOOK_TAG_WRITE: BookTagWrite = { book_tag_type: 'all', audio_tag_type: 'no' }
+
 const KINDS: MediaKind[] = ['movie', 'tv', 'music', 'book']
 
 export function MetadataSection() {
@@ -24,6 +36,11 @@ export function MetadataSection() {
   const [tagAudioFiles, setTagAudioFiles] = useState(true)
   const [scrubExistingTags, setScrubExistingTags] = useState(false)
   const [consumers, setConsumers] = useState<MetadataConsumer[]>([])
+  // Readarr B5: the book tag-write block. A pre-B5 document (missing key)
+  // seeds the server defaults at the load boundary, mirroring the L3 fields.
+  const [bookTagWrite, setBookTagWrite] = useState<MetadataSettings['book_tag_write']>(
+    { ...DEFAULT_BOOK_TAG_WRITE },
+  )
   const [saved, setSaved] = useState(false)
   const { busy, error: saveError, submit } = useSubmit()
 
@@ -36,6 +53,11 @@ export function MetadataSection() {
     setTagAudioFiles(doc.tag_audio_files ?? true)
     setScrubExistingTags(doc.scrub_existing_tags ?? false)
     setConsumers(doc.consumers ?? [])
+    // Readarr B5: seed the book tag-write block (defaults for pre-B5 docs).
+    setBookTagWrite({
+      book_tag_type: doc.book_tag_write?.book_tag_type ?? DEFAULT_BOOK_TAG_WRITE.book_tag_type,
+      audio_tag_type: doc.book_tag_write?.audio_tag_type ?? DEFAULT_BOOK_TAG_WRITE.audio_tag_type,
+    })
   }, [doc])
 
   if (error) {
@@ -56,6 +78,9 @@ export function MetadataSection() {
         kinds: Object.fromEntries(KINDS.map((k) => [k, kinds[k] ?? false])),
         tag_audio_files: tagAudioFiles,
         scrub_existing_tags: scrubExistingTags,
+        // Readarr B5: the book tag-write block round-trips from the local
+        // state (seeded from the document at the load boundary).
+        book_tag_write: bookTagWrite,
         consumers,
       }
       await client.putSettingsSection<MetadataSettings>('metadata', next)
@@ -142,6 +167,41 @@ export function MetadataSection() {
             {c.name}
           </label>
         ))}
+      </div>
+
+      {/* Readarr B5: write tags to book files (e-book + a-book modes). */}
+      <h4>Book tag writing</h4>
+      <div data-testid="md-book-tag">
+        <label htmlFor="md-book-tag-type">Book tag type</label>
+        <select
+          id="md-book-tag-type"
+          value={bookTagWrite.book_tag_type}
+          onChange={(e) =>
+            setBookTagWrite({ ...bookTagWrite, book_tag_type: e.target.value as BookTagType })
+          }
+          data-testid="md-book-tag-type"
+        >
+          {BOOK_TAG_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        <label htmlFor="md-audio-tag-type">Audio tag type</label>
+        <select
+          id="md-audio-tag-type"
+          value={bookTagWrite.audio_tag_type}
+          onChange={(e) =>
+            setBookTagWrite({ ...bookTagWrite, audio_tag_type: e.target.value as AudioTagType })
+          }
+          data-testid="md-audio-tag-type"
+        >
+          {AUDIO_TAG_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
       </div>
       {saved && (
         <p className="pill pill-ok" data-testid="metadata-saved">

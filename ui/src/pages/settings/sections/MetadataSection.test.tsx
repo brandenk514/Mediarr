@@ -75,6 +75,10 @@ describe('MetadataSection', () => {
         // Lidarr L3 music fields round-trip unchanged (the doc's values).
         tag_audio_files: true,
         scrub_existing_tags: false,
+        // Readarr B5: the book tag-write block round-trips the defaults
+        // (the fresh fixture has no book_tag_write — the load boundary
+        // seeds the server defaults).
+        book_tag_write: { book_tag_type: 'all', audio_tag_type: 'no' },
         consumers: [
           { name: 'Kodi (XBMC)/Emby', enabled: false },
           { name: 'Roksbox', enabled: false },
@@ -110,6 +114,32 @@ describe('MetadataSection', () => {
             { name: 'Roksbox', enabled: true },
             { name: 'WDTV', enabled: false },
           ],
+        }),
+      ),
+    )
+  })
+
+  it('renders the book tag-writing block defaults (B5)', async () => {
+    renderSection()
+    await screen.findByTestId('md-book-tag')
+    // The fresh fixture has no book_tag_write — the load boundary seeds the
+    // server defaults (all / no).
+    expect(screen.getByTestId('md-book-tag-type')).toHaveValue('all')
+    expect(screen.getByTestId('md-audio-tag-type')).toHaveValue('no')
+  })
+
+  it('changes the book tag types and saves the doc (B5)', async () => {
+    const user = userEvent.setup()
+    renderSection()
+    await screen.findByTestId('md-book-tag')
+    await user.selectOptions(screen.getByTestId('md-book-tag-type'), 'book')
+    await user.selectOptions(screen.getByTestId('md-audio-tag-type'), 'audio')
+    await user.click(screen.getByTestId('metadata-save'))
+    await vi.waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'metadata',
+        expect.objectContaining({
+          book_tag_write: { book_tag_type: 'book', audio_tag_type: 'audio' },
         }),
       ),
     )

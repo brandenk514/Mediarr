@@ -1118,4 +1118,213 @@ describe('MediaManagementSection', () => {
       }),
     )
   })
+
+  it('renders the Readarr book naming block and saves its edits (B5)', async () => {
+    const user = userEvent.setup()
+    renderSection(<MediaManagementSection />)
+    const format = await screen.findByTestId('mm-book-format')
+    // A pre-B5 document (no book_naming) seeds the factory defaults.
+    await waitFor(() =>
+      expect(format).toHaveValue('{Author Name} - {Book Title} ({Release Year})'),
+    )
+    expect(screen.getByTestId('mm-book-rename')).toBeChecked()
+    expect(screen.getByTestId('mm-book-illegal')).toBeChecked()
+    expect(screen.getByTestId('mm-book-author')).toHaveValue('{Author Name}')
+    expect(screen.getByTestId('mm-book-space')).toHaveValue('space')
+
+    // Uncheck rename, swap the template (braces break userEvent key-sequence
+    // parsing — set it directly), and change the space handling.
+    await user.click(screen.getByTestId('mm-book-rename'))
+    fireEvent.change(format, { target: { value: '{Author Name} - {Book Title}' } })
+    await user.selectOptions(screen.getByTestId('mm-book-space'), 'underscore')
+    await user.selectOptions(screen.getByTestId('mm-book-case'), 'uppercase')
+    await user.click(screen.getByTestId('media-management-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'media-management',
+        expect.objectContaining({
+          book_naming: {
+            rename_books: false,
+            replace_illegal_characters: true,
+            colon_replacement: '',
+            standard_format: '{Author Name} - {Book Title}',
+            author_format: '{Author Name}',
+            space_handling: 'underscore',
+            case_handling: 'uppercase',
+          },
+        }),
+      ),
+    )
+  })
+
+  it('edits the book file management block + global Calibre flag and saves (B5)', async () => {
+    const user = userEvent.setup()
+    renderSection(<MediaManagementSection />)
+    // Seeded factory defaults: unmonitor on, ignore-deleted off, propers
+    // include, recycle empty, hardlinks on, Calibre off.
+    expect(await screen.findByTestId('mm-book-unmonitor')).toBeChecked()
+    expect(screen.getByTestId('mm-book-ignore-deleted')).not.toBeChecked()
+    expect(screen.getByTestId('mm-book-propers')).toHaveValue('include')
+    expect(screen.getByTestId('mm-book-recycle')).toHaveValue('')
+    expect(screen.getByTestId('mm-book-hardlinks')).toBeChecked()
+    expect(screen.getByTestId('mm-calibre-enabled')).not.toBeChecked()
+
+    // Unmonitor off, propers upgrade, file date release, a recycle path,
+    // and flip the global Calibre flag on.
+    await user.click(screen.getByTestId('mm-book-unmonitor'))
+    await user.selectOptions(screen.getByTestId('mm-book-propers'), 'upgrade')
+    await user.selectOptions(screen.getByTestId('mm-book-file-date'), 'release')
+    await user.type(screen.getByTestId('mm-book-recycle'), '/tmp/recycle')
+    await user.click(screen.getByTestId('mm-calibre-enabled'))
+    await user.click(screen.getByTestId('media-management-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'media-management',
+        expect.objectContaining({
+          book_management: expect.objectContaining({
+            unmonitor_downloaded: false,
+            download_propers_and_repacks: 'upgrade',
+            file_date: 'release',
+            recycle_bin: '/tmp/recycle',
+          }),
+          calibre_enabled: true,
+        }),
+      ),
+    )
+  })
+
+  it('opens the per-root Calibre editor, saves an enabled block, and shows the hardlinks indicator (B5)', async () => {
+    const user = userEvent.setup()
+    // One books root with no Calibre config yet.
+    ;(client.listRootFolders as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        ID: 1,
+        Path: '/srv/books',
+        Name: 'Books',
+        CreatedAt: '2026-01-01T00:00:00Z',
+        FreeSpace: null,
+        Calibre: null,
+        HardlinksDisabled: false,
+      },
+    ])
+    // The registry echo returns the full B5 wire shape: the requested block
+    // (password masked) and the computed hard-links rule.
+    ;(client.updateRootFolder as ReturnType<typeof vi.fn>).mockImplementation(
+      async (id: number, req: { calibre?: unknown }) => {
+        const c = req.calibre as Record<string, unknown> | undefined
+        return {
+          ID: id,
+          Path: '/srv/books',
+          Name: 'Books',
+          CreatedAt: '2026-01-01T00:00:00Z',
+          FreeSpace: null,
+          DefaultQualityProfile: '',
+          DefaultMetadataProfile: '',
+          Calibre: c ? { ...c, password: '' } : null,
+          HardlinksDisabled: !!c?.enabled,
+        } as never
+      },
+    )
+    renderSection(<MediaManagementSection />)
+    await screen.findByTestId('rfc-cell-1')
+    // No hardlinks pill while Calibre is unset.
+    expect(screen.queryByTestId('rfc-hardlinks-1')).not.toBeInTheDocument()
+
+    // Open the editor and configure an enabled Content Server.
+    await user.click(screen.getByTestId('rfc-toggle-1'))
+    await screen.findByTestId('rfc-form')
+    await user.click(screen.getByTestId('rfc-enabled'))
+    await user.type(screen.getByTestId('rfc-host'), 'calibre.lan')
+    fireEvent.change(screen.getByTestId('rfc-port'), { target: { value: '8080' } })
+    await user.type(screen.getByTestId('rfc-user'), 'mediarr')
+    await user.type(screen.getByTestId('rfc-pass'), 'sekrit')
+    await user.type(screen.getByTestId('rfc-library'), 'Books')
+    fireEvent.change(screen.getByTestId('rfc-tags'), { target: { value: '1, 2' } })
+    await user.click(screen.getByTestId('rfc-save'))
+
+    // The full block goes to the registry (tags parsed to ints).
+    await waitFor(() =>
+      expect(client.updateRootFolder).toHaveBeenCalledWith(1, {
+        calibre: expect.objectContaining({
+          enabled: true,
+          host: 'calibre.lan',
+          port: 8080,
+          username: 'mediarr',
+          password: 'sekrit',
+          password_set: false,
+          library: 'Books',
+          monitor: false,
+          default_tags: [1, 2],
+        }),
+      }),
+    )
+    // The echo flips the computed rule: the row now shows the indicator.
+    await waitFor(() => expect(screen.getByTestId('rfc-hardlinks-1')).toBeInTheDocument())
+    // The editor closed after the save.
+    expect(screen.queryByTestId('rfc-form')).not.toBeInTheDocument()
+  })
+
+  it('keeps the stored password when the Calibre field is left blank (B5 masked round-trip)', async () => {
+    const user = userEvent.setup()
+    // A root whose Calibre is already enabled with a stored (masked) key.
+    const stored = {
+      enabled: true,
+      host: 'old.lan',
+      port: 1234,
+      url_base: '',
+      username: 'olduser',
+      password: '', // masked on read
+      password_set: true,
+      library: 'Lib',
+      use_ssl: false,
+      output_format: '',
+      output_profile: 0,
+      monitor: true,
+      quality_profile: '',
+      metadata_profile: '',
+      default_tags: [5],
+    }
+    ;(client.listRootFolders as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        ID: 1,
+        Path: '/srv/books',
+        Name: 'Books',
+        CreatedAt: '2026-01-01T00:00:00Z',
+        FreeSpace: null,
+        Calibre: stored,
+        HardlinksDisabled: true,
+      },
+    ])
+    renderSection(<MediaManagementSection />)
+    // The seeded rule shows the indicator on load.
+    expect(await screen.findByTestId('rfc-hardlinks-1')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('rfc-toggle-1'))
+    const form = await screen.findByTestId('rfc-form')
+    // The draft is pre-filled from the stored block, the password stays
+    // blank, and the label hints the stored key is kept.
+    expect(screen.getByTestId('rfc-enabled')).toBeChecked()
+    expect(screen.getByTestId('rfc-host')).toHaveValue('old.lan')
+    expect(screen.getByTestId('rfc-pass')).toHaveValue('')
+    expect(form).toHaveTextContent('(stored — blank to keep)')
+
+    // Change only the host; leave the password blank and save.
+    await user.clear(screen.getByTestId('rfc-host'))
+    await user.type(screen.getByTestId('rfc-host'), 'new.lan')
+    await user.click(screen.getByTestId('rfc-save'))
+    await waitFor(() =>
+      expect(client.updateRootFolder).toHaveBeenCalledWith(1, {
+        calibre: expect.objectContaining({
+          enabled: true,
+          host: 'new.lan',
+          port: 1234,
+          username: 'olduser',
+          password: '', // blank -> the server keeps the stored key
+          password_set: true,
+          monitor: true,
+          default_tags: [5],
+        }),
+      }),
+    )
+  })
 })
