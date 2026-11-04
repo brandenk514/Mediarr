@@ -36,6 +36,7 @@ const (
 	SectionMetadata        Section = "metadata"
 	SectionMetadataSource  Section = "metadata-source"
 	SectionImportLists     Section = "import-lists"
+	SectionBookImportLists Section = "book-import-lists"
 )
 
 // AllSections is the fixed, ordered set of generic section slugs (the order
@@ -52,6 +53,7 @@ var AllSections = []Section{
 	SectionMetadata,
 	SectionMetadataSource,
 	SectionImportLists,
+	SectionBookImportLists,
 }
 
 // ParseSection reports whether slug is a generic section slug. indexers and
@@ -1139,6 +1141,9 @@ func (s Section) DecodeDocument(b []byte) (any, error) {
 	case SectionImportLists:
 		d := DefaultImportLists()
 		out = &d
+	case SectionBookImportLists:
+		d := DefaultBookImportLists()
+		out = &d
 	default:
 		return nil, fmt.Errorf("settings: unknown section %q", s)
 	}
@@ -1231,6 +1236,13 @@ func (s Section) ValidateDocument(doc any) string {
 		case *ImportListsSettings:
 			return i.Validate()
 		}
+	case BookImportListsSettings, *BookImportListsSettings:
+		switch i := any(v).(type) {
+		case BookImportListsSettings:
+			return i.Validate()
+		case *BookImportListsSettings:
+			return i.Validate()
+		}
 	}
 	return fmt.Sprintf("settings: cannot validate %T", doc)
 }
@@ -1256,6 +1268,14 @@ func (s Section) MaskDocument(doc any) any {
 			out.Lists[i].APIKey = ""
 		}
 		return &out
+	case *BookImportListsSettings:
+		out := *v
+		out.Lists = make([]BookImportList, len(v.Lists))
+		copy(out.Lists, v.Lists)
+		for i := range out.Lists {
+			out.Lists[i].APIKey = ""
+		}
+		return &out
 	case ConnectSettings:
 		out := v
 		out.Notifications = make([]Notification, len(v.Notifications))
@@ -1267,6 +1287,14 @@ func (s Section) MaskDocument(doc any) any {
 	case ImportListsSettings:
 		out := v
 		out.Lists = make([]ImportList, len(v.Lists))
+		copy(out.Lists, v.Lists)
+		for i := range out.Lists {
+			out.Lists[i].APIKey = ""
+		}
+		return out
+	case BookImportListsSettings:
+		out := v
+		out.Lists = make([]BookImportList, len(v.Lists))
 		copy(out.Lists, v.Lists)
 		for i := range out.Lists {
 			out.Lists[i].APIKey = ""
@@ -1331,6 +1359,31 @@ func (s Section) MergeSecrets(stored, incoming any) {
 			if l.APIKey != "" {
 				l.APIKeySet = true
 			} else if old, ok := keys[l.ID]; ok {
+				l.APIKey = old
+				l.APIKeySet = true
+			}
+			in.Lists[i] = l
+		}
+	case SectionBookImportLists:
+		st, ok := stored.(*BookImportListsSettings)
+		if !ok {
+			return
+		}
+		in, ok := incoming.(*BookImportListsSettings)
+		if !ok {
+			return
+		}
+		keys := map[int]string{}
+		for _, l := range st.Lists {
+			keys[l.ID] = l.APIKey
+		}
+		for i := range in.Lists {
+			l := in.Lists[i]
+			if l.APIKey != "" {
+				l.APIKeySet = true
+			} else if old, ok := keys[l.ID]; ok && old != "" {
+				// A keyless stored list has no secret to restore (a
+				// blank key keeps the list keyless, *_set stays false).
 				l.APIKey = old
 				l.APIKeySet = true
 			}
