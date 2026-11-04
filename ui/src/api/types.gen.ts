@@ -3519,6 +3519,10 @@ export interface components {
             /** Format: date-time */
             AddedAt: string;
             AuthorName: string;
+            /** @description Whether the book has at least one imported file; false = missing (Readarr B4 bookshelves rollup). */
+            HasFile: boolean;
+            /** @description The book's resolvable quality — the newest imported file's format, else the newest edition's format, empty = unknown (Readarr B4 bookshelves rollup). */
+            Format: string;
         };
         /** @description An imported e-book file and its media info (Readarr B1). */
         BookFile: {
@@ -3565,6 +3569,10 @@ export interface components {
             /** Format: date-time */
             AddedAt: string;
             AuthorName: string;
+            /** @description Whether the book has at least one imported file; false = missing (Readarr B4 series rollup). */
+            HasFile: boolean;
+            /** @description The book's resolvable quality — the newest imported file's format, else the newest edition's format, empty = unknown (Readarr B4 series rollup). */
+            Format: string;
         };
         /** @description A series the author's books belong to, with the member titles by this author. */
         BookAuthorSeries: {

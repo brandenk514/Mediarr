@@ -92,16 +92,28 @@ type Series struct {
 
 // Book is one row of the flat Books index: a title joined with its author's
 // name (GET /api/v1/books).
+//
+// Readarr B4 adds the two rollup fields the bookshelves page needs without an
+// N+1 fan-out per title: HasFile (does the title have at least one imported
+// book file? false = "missing") and Format (the book's resolvable quality —
+// the imported file's format when one exists, else the newest edition's
+// format; "" = no file and no edition, i.e. unknown).
 type Book struct {
 	Title
 	AuthorName string
+	HasFile    bool
+	Format     string
 }
 
 // SeriesBook is a book in a series, with its author's name (the series read
-// surface: list the books in a series).
+// surface: list the books in a series). Readarr B4 adds the same rollup pair
+// as Book (HasFile / Format) so a series' member list can show each member's
+// missing state and quality inline.
 type SeriesBook struct {
 	Title
 	AuthorName string
+	HasFile    bool
+	Format     string
 }
 
 // AuthorSeries is a series the author's books belong to, with the names of
