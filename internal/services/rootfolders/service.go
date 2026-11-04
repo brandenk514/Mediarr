@@ -52,6 +52,11 @@ func (s *Service) Create(rf rfdom.RootFolder) (int64, error) {
 		return 0, rfdom.ErrDuplicate
 	}
 	rf.Path = cleaned
+	if rf.Calibre != nil && rf.Calibre.Password != "" {
+		c := *rf.Calibre
+		c.PasswordSet = true
+		rf.Calibre = &c
+	}
 	return s.repo.Create(rf)
 }
 
@@ -85,6 +90,22 @@ func (s *Service) Update(rf rfdom.RootFolder) (*rfdom.RootFolder, error) {
 	}
 	if rf.DefaultMetadataProfile == "" {
 		rf.DefaultMetadataProfile = existing.DefaultMetadataProfile
+	}
+	// B5: an omitted Calibre block keeps the stored one; a provided block
+	// replaces it, with a blank password keeping the stored (plaintext) key
+	// — the masked round-trip (the API never sends back the stored
+	// password).
+	if rf.Calibre == nil {
+		rf.Calibre = existing.Calibre
+	} else if rf.Calibre.Password == "" && existing.Calibre != nil && existing.Calibre.Password != "" {
+		c := *rf.Calibre
+		c.Password = existing.Calibre.Password
+		c.PasswordSet = true
+		rf.Calibre = &c
+	} else if rf.Calibre.Password != "" {
+		c := *rf.Calibre
+		c.PasswordSet = true
+		rf.Calibre = &c
 	}
 	if err := s.repo.Update(rf); err != nil {
 		return nil, err

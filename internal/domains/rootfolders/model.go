@@ -8,6 +8,8 @@ package rootfolders
 import (
 	"errors"
 	"time"
+
+	"github.com/brandenk514/mediarr/internal/settings"
 )
 
 // RootFolder is one registered media root: a path on disk that series (or
@@ -25,6 +27,18 @@ type RootFolder struct {
 	// "" = unset (the app-level default applies).
 	DefaultQualityProfile  string
 	DefaultMetadataProfile string
+	// Readarr B5: this root's per-root Calibre Content Server config (nil =
+	// not configured — the disabled default). The password inside is
+	// write-only: the API masks it on read and a blank one on write keeps
+	// the stored key (the masked round-trip).
+	Calibre *settings.CalibreSettings
+}
+
+// HardlinksDisabled (B5) surfaces the Calibre rule at the model level: an
+// enabled per-root Calibre config forces hard links OFF for this root
+// (Calibre needs real files, not hard links, or its library gets corrupted).
+func (rf RootFolder) HardlinksDisabled() bool {
+	return rf.Calibre != nil && rf.Calibre.HardlinksDisabled()
 }
 
 // Sentinel errors for the registry.
