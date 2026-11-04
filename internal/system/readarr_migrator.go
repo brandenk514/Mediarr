@@ -62,10 +62,11 @@ type ReadarrBookIdentity struct {
 
 // ReadarrMigrationState persists which source books a run has already
 // migrated, so an interrupted run resumes across process restarts.
-// The real target implements it in Postgres; tests use a map.
+// The real target implements it in Postgres; tests use a map. Keys are
+// (sourceURL, key): a state row belongs to the run's source instance.
 type ReadarrMigrationState interface {
-	IsMigrated(ctx context.Context, key string) (bool, error)
-	MarkMigrated(ctx context.Context, key string) error
+	IsMigrated(ctx context.Context, sourceURL, key string) (bool, error)
+	MarkMigrated(ctx context.Context, sourceURL, key string) error
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +136,7 @@ type ReadarrMigrationTarget interface {
 	TagLabels(ctx context.Context, ids []int) ([]string, error)
 	EnsureIndexer(ctx context.Context, ix ReadarrIndexer) (id int64, action TargetAction, err error)
 	SetDownloadClient(ctx context.Context, c ReadarrDownloadClient) (action TargetAction, err error)
-	EnsureRootFolder(ctx context.Context, rf ReadarrRootFolder) (id int64, action TargetAction, err error)
+	EnsureRootFolder(ctx context.Context, rf ReadarrRootFolder, defaultQuality, defaultMetadata string) (id int64, action TargetAction, err error)
 	// ApplyMediaManagement maps the best-effort media-management subset and
 	// returns the number of fields written.
 	ApplyMediaManagement(ctx context.Context, mm ReadarrMediaManagement) (int, error)
@@ -422,7 +423,9 @@ func (m *ReadarrMigrator) runLocked(ctx context.Context, req MigrationRequest) (
 				result.Counts.Total++
 				continue
 			}
-			id, action, err := m.Target.EnsureRootFolder(ctx, rf)
+			id, action, err := m.Target.EnsureRootFolder(ctx, rf,
+				profileNamesByID[rf.DefaultQualityProfileID],
+				metadataNamesByID[rf.DefaultMetadataProfileID])
 			if err != nil {
 				result.Counts.Total++
 				result.Counts.Errors++
@@ -566,7 +569,7 @@ func (m *ReadarrMigrator) runLocked(ctx context.Context, req MigrationRequest) (
 			m.mu.Lock()
 			migrated := m.migrated[key]
 			if m.State != nil {
-				if ok, err := m.State.IsMigrated(ctx, key); err == nil {
+				if ok, err := m.State.IsMigrated(ctx, req.SourceURL, key); err == nil {
 					migrated = ok
 				}
 			}
@@ -624,7 +627,7 @@ func (m *ReadarrMigrator) runLocked(ctx context.Context, req MigrationRequest) (
 				}
 			}
 
-			if err := m.markBookMigrated(ctx, key); err != nil {
+			if err := m.markBookMigrated(ctx, req.SourceURL, key); err != nil {
 				return result, err
 			}
 		}
@@ -791,9 +794,9 @@ func (m *ReadarrMigrator) ensureBookExtras(ctx context.Context, b ReadarrBook, t
 
 // markBookMigrated records the book key in the state seam (Postgres in the
 // real target) and the in-memory twin.
-func (m *ReadarrMigrator) markBookMigrated(ctx context.Context, key string) error {
+func (m *ReadarrMigrator) markBookMigrated(ctx context.Context, sourceURL, key string) error {
 	if m.State != nil {
-		if err := m.State.MarkMigrated(ctx, key); err != nil {
+		if err := m.State.MarkMigrated(ctx, sourceURL, key); err != nil {
 			return fmt.Errorf("migration: record migrated book %q: %w", key, err)
 		}
 	}

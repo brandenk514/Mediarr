@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -107,6 +108,21 @@ func (r *RootFoldersRepo) Get(id int64) (*rfdom.RootFolder, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("rootfolders: get %d: %w", id, err)
+	}
+	return rf, nil
+}
+
+// FindByPath returns the root folder at path, or sql.ErrNoRows (the Readarr
+// B6 migration's root-folder identity lookup).
+func (r *RootFoldersRepo) FindByPath(ctx context.Context, path string) (*rfdom.RootFolder, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+rootFolderColumns+` FROM root_folders WHERE path = $1`, path)
+	rf, err := scanRootFolder(row)
+	if err == sql.ErrNoRows {
+		return nil, sql.ErrNoRows
+	}
+	if err != nil {
+		return nil, fmt.Errorf("rootfolders: find by path %q: %w", path, err)
 	}
 	return rf, nil
 }

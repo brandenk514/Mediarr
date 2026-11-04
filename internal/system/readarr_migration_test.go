@@ -130,21 +130,22 @@ func sampleReadarrSource() *fakeReadarrSource {
 type fakeReadarrTarget struct {
 	writes int
 
-	profiles     map[string]int64 // name -> id
-	metadatas    map[string]int64
-	tags         map[int]TagRef   // source id -> label
-	indexers     map[string]int64 // name -> id
-	download     map[string]int64 // name -> id
-	rootFolders  map[string]int64 // path -> id
-	authors      map[string]int64 // name -> id
-	titles       map[string]int64 // authorName|title -> id
-	titlesOLID   map[int64]string // title id -> OL key
-	editions     map[string]int64 // titleID|format|isbn -> id
-	bookFiles    map[string]int64 // titleID|path -> id
-	series       map[string]int64 // name -> id
-	seriesLinks  map[string]bool  // seriesID|titleID -> linked
-	mediaApplied int
-	mediaCalls   int
+	profiles           map[string]int64 // name -> id
+	metadatas          map[string]int64
+	tags               map[int]TagRef    // source id -> label
+	indexers           map[string]int64  // name -> id
+	download           map[string]int64  // name -> id
+	rootFolders        map[string]int64  // path -> id
+	rootFolderDefaults map[string]string // path -> "quality|metadata" (resolved names)
+	authors            map[string]int64  // name -> id
+	titles             map[string]int64  // authorName|title -> id
+	titlesOLID         map[int64]string  // title id -> OL key
+	editions           map[string]int64  // titleID|format|isbn -> id
+	bookFiles          map[string]int64  // titleID|path -> id
+	series             map[string]int64  // name -> id
+	seriesLinks        map[string]bool   // seriesID|titleID -> linked
+	mediaApplied       int
+	mediaCalls         int
 }
 
 type TagRef struct {
@@ -154,19 +155,20 @@ type TagRef struct {
 
 func newFakeReadarrTarget() *fakeReadarrTarget {
 	return &fakeReadarrTarget{
-		profiles:    map[string]int64{},
-		metadatas:   map[string]int64{},
-		tags:        map[int]TagRef{},
-		indexers:    map[string]int64{},
-		download:    map[string]int64{},
-		rootFolders: map[string]int64{},
-		authors:     map[string]int64{},
-		titles:      map[string]int64{},
-		titlesOLID:  map[int64]string{},
-		editions:    map[string]int64{},
-		bookFiles:   map[string]int64{},
-		series:      map[string]int64{},
-		seriesLinks: map[string]bool{},
+		profiles:           map[string]int64{},
+		metadatas:          map[string]int64{},
+		tags:               map[int]TagRef{},
+		indexers:           map[string]int64{},
+		download:           map[string]int64{},
+		rootFolders:        map[string]int64{},
+		rootFolderDefaults: map[string]string{},
+		authors:            map[string]int64{},
+		titles:             map[string]int64{},
+		titlesOLID:         map[int64]string{},
+		editions:           map[string]int64{},
+		bookFiles:          map[string]int64{},
+		series:             map[string]int64{},
+		seriesLinks:        map[string]bool{},
 	}
 }
 
@@ -196,7 +198,7 @@ func (t *fakeReadarrTarget) EnsureTag(ctx context.Context, tag ReadarrTag) (int6
 		return int64(tag.ID), ActionExists, nil
 	}
 	t.touch()
-	t.tags[tag.ID] = TagRef{tag.ID, tag.Label}
+	t.tags[tag.ID] = TagRef(tag)
 	return int64(tag.ID), ActionCreated, nil
 }
 
@@ -228,7 +230,8 @@ func (t *fakeReadarrTarget) SetDownloadClient(ctx context.Context, c ReadarrDown
 	return ActionCreated, nil
 }
 
-func (t *fakeReadarrTarget) EnsureRootFolder(ctx context.Context, rf ReadarrRootFolder) (int64, TargetAction, error) {
+func (t *fakeReadarrTarget) EnsureRootFolder(ctx context.Context, rf ReadarrRootFolder, defaultQuality, defaultMetadata string) (int64, TargetAction, error) {
+	t.rootFolderDefaults[rf.Path] = defaultQuality + "|" + defaultMetadata
 	if id, ok := t.rootFolders[rf.Path]; ok {
 		return id, ActionExists, nil
 	}
@@ -316,14 +319,13 @@ type memReadarrState struct {
 }
 
 func newMemReadarrState() *memReadarrState { return &memReadarrState{keys: map[string]bool{}} }
-func (s *memReadarrState) IsMigrated(_ context.Context, key string) (bool, error) {
+func (s *memReadarrState) IsMigrated(_ context.Context, _, key string) (bool, error) {
 	return s.keys[key], nil
 }
-func (s *memReadarrState) MarkMigrated(_ context.Context, key string) error {
+func (s *memReadarrState) MarkMigrated(_ context.Context, _, key string) error {
 	s.keys[key] = true
 	return nil
 }
-func (s *memReadarrState) migrated(key string) bool { return s.keys[key] }
 
 // fakeOLResolver resolves by explicit rule: foreignBookID wins when it
 // looks like an OL key, else ISBN/ASIN/title through a lookup table.
@@ -658,7 +660,6 @@ func TestReadarrServiceRouting(t *testing.T) {
 
 type readarrRoutingRunner struct {
 	run     func() *MigrationResult
-	status  string
 	lastRes *MigrationResult
 }
 

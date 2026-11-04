@@ -27,7 +27,9 @@ func newFakeReadarrServer(t *testing.T, apiKey string) (*fakeReadarrServer, *htt
 				f.Errorf("%s: X-Api-Key = %q, want %q", path, got, f.apiKey)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(payload))
+			if _, err := w.Write([]byte(payload)); err != nil {
+				f.Errorf("write %s: %v", path, err)
+			}
 		})
 	}
 	fake("/api/v1/author", `[
@@ -255,10 +257,10 @@ func TestReadarrClientContractError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Api-Key") != "k" {
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(`{"status":"403","error":"Forbidden","message":"Invalid API key"}`))
+			_, _ = w.Write([]byte(`{"status":"403","error":"Forbidden","message":"Invalid API key"}`))
 			return
 		}
-		w.Write([]byte(`[]`))
+		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer srv.Close()
 	c := NewReadarrClient(srv.URL, "wrong")
@@ -269,17 +271,23 @@ func TestReadarrClientContractError(t *testing.T) {
 
 func TestReadarrFieldString(t *testing.T) {
 	stringField := ReadarrField{Name: "host"}
-	json.Unmarshal([]byte(`"sickchill.example"`), &stringField.Value)
+	if err := json.Unmarshal([]byte(`"sickchill.example"`), &stringField.Value); err != nil {
+		t.Fatalf("unmarshal string: %v", err)
+	}
 	if got := stringField.String(); got != "sickchill.example" {
 		t.Fatalf("string field = %q", got)
 	}
 	numField := ReadarrField{Name: "port"}
-	json.Unmarshal([]byte(`8081`), &numField.Value)
+	if err := json.Unmarshal([]byte(`8081`), &numField.Value); err != nil {
+		t.Fatalf("unmarshal number: %v", err)
+	}
 	if got := numField.String(); got != "8081" {
 		t.Fatalf("number field = %q", got)
 	}
 	nullField := ReadarrField{Name: "password"}
-	json.Unmarshal([]byte(`null`), &nullField.Value)
+	if err := json.Unmarshal([]byte(`null`), &nullField.Value); err != nil {
+		t.Fatalf("unmarshal null: %v", err)
+	}
 	if got := nullField.String(); got != "" {
 		t.Fatalf("null field = %q", got)
 	}
