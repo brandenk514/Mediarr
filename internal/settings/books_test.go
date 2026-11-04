@@ -182,9 +182,34 @@ func TestB3_BookProfileNames(t *testing.T) {
 	}
 }
 
+// TestB3_BookMetadataProfileDefaults covers the seeded book metadata
+// profile: a single "Default" with no filters (every book eligible) and a
+// non-nil allowed_languages (the required JSON field).
+func TestB3_BookMetadataProfileDefaults(t *testing.T) {
+	profiles := DefaultBookMetadataProfiles()
+	if len(profiles) != 1 {
+		t.Fatalf("want 1 book metadata profile, got %d", len(profiles))
+	}
+	p := profiles[0]
+	if p.ID != 1 || p.Name != "Default" {
+		t.Errorf("book metadata profile = (id=%d name=%q), want (id=1 name=Default)", p.ID, p.Name)
+	}
+	if p.MinimumPopularity != 0 || p.SkipMissingReleaseDate || p.SkipNoISBNASIN ||
+		p.SkipBrokenParts || p.SkipSecondarySeries {
+		t.Errorf("Default book metadata profile must carry no filters: %+v", p)
+	}
+	if p.AllowedLanguages == nil {
+		t.Error("Default book metadata profile: allowed_languages must be non-nil (required JSON field)")
+	}
+	names := BookMetadataProfileNames()
+	if len(names) != 1 || !names["Default"] {
+		t.Errorf("BookMetadataProfileNames = %v, want {Default:true}", names)
+	}
+}
+
 // TestB3_BookProfilesValidation covers the book-side rules of
 // ProfilesSettings.Validate: the seeded default document is valid, and each
-// book-profile violation is rejected.
+// book-profile / book-metadata-profile violation is rejected.
 func TestB3_BookProfilesValidation(t *testing.T) {
 	if msg := DefaultProfiles().Validate(); msg != "" {
 		t.Fatalf("DefaultProfiles().Validate() = %q, want empty", msg)
@@ -239,6 +264,22 @@ func TestB3_BookProfilesValidation(t *testing.T) {
 				p.BookProfiles[2].Items = nil
 			},
 			want: "book_profiles[2]: at least one quality item is required",
+		},
+		{
+			name: "negative minimum popularity",
+			mut: func(p *ProfilesSettings) {
+				p.BookMetadataProfiles[0].MinimumPopularity = -1
+			},
+			want: "book_metadata_profiles[0]: minimum_popularity must be >= 0",
+		},
+		{
+			name: "duplicate book metadata profile name",
+			mut: func(p *ProfilesSettings) {
+				dup := p.BookMetadataProfiles[0]
+				dup.ID = 2
+				p.BookMetadataProfiles = append(p.BookMetadataProfiles, dup)
+			},
+			want: `book_metadata_profiles[1]: duplicate name "Default"`,
 		},
 	}
 	for _, c := range cases {

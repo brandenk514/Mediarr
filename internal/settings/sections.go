@@ -316,15 +316,16 @@ type QualityProfile struct {
 // ProfilesSettings is the quality-profiles document. Profiles is the TV
 // document (P5); the Radarr movie/delay/release arrays are additive (R5a);
 // the music + metadata arrays are the additive Lidarr set (L3); the book
-// quality array is the additive Readarr set (B3).
+// quality + book metadata arrays are the additive Readarr set (B3).
 type ProfilesSettings struct {
-	Profiles         []QualityProfile  `json:"profiles"`
-	MovieProfiles    []QualityProfile  `json:"movie_profiles"`
-	MusicProfiles    []QualityProfile  `json:"music_profiles"`
-	MetadataProfiles []MetadataProfile `json:"metadata_profiles"`
-	BookProfiles     []QualityProfile  `json:"book_profiles"`
-	DelayProfiles    []DelayProfile    `json:"delay_profiles"`
-	ReleaseProfiles  []ReleaseProfile  `json:"release_profiles"`
+	Profiles             []QualityProfile      `json:"profiles"`
+	MovieProfiles        []QualityProfile      `json:"movie_profiles"`
+	MusicProfiles        []QualityProfile      `json:"music_profiles"`
+	MetadataProfiles     []MetadataProfile     `json:"metadata_profiles"`
+	BookProfiles         []QualityProfile      `json:"book_profiles"`
+	BookMetadataProfiles []BookMetadataProfile `json:"book_metadata_profiles"`
+	DelayProfiles        []DelayProfile        `json:"delay_profiles"`
+	ReleaseProfiles      []ReleaseProfile      `json:"release_profiles"`
 }
 
 // DefaultProfiles returns the single default TV profile (every TV level
@@ -332,7 +333,8 @@ type ProfilesSettings struct {
 // the 14 Radarr v6 movie profiles, one empty delay profile, one all-inclusive
 // release profile (R5a), the seeded Lidarr documents: the 4 default music
 // profiles and the 3 metadata profiles (L3), and the seeded Readarr
-// document: the 4 default book quality profiles (B3).
+// documents: the 4 default book quality profiles and the 1 book metadata
+// profile (B3).
 func DefaultProfiles() ProfilesSettings {
 	levels := DefaultQuality().Levels
 	prof := QualityProfile{ID: 1, Name: "Default", Cutoff: levels[len(levels)-1].ID}
@@ -341,13 +343,14 @@ func DefaultProfiles() ProfilesSettings {
 		prof.Items = append(prof.Items, QualityProfileItem{Quality: l.ID, Approved: true})
 	}
 	return ProfilesSettings{
-		Profiles:         []QualityProfile{prof},
-		MovieProfiles:    DefaultMovieProfiles(),
-		MusicProfiles:    DefaultMusicProfiles(),
-		MetadataProfiles: DefaultMetadataProfiles(),
-		BookProfiles:     DefaultBookProfiles(),
-		DelayProfiles:    DefaultDelayProfiles(),
-		ReleaseProfiles:  DefaultReleaseProfiles(),
+		Profiles:             []QualityProfile{prof},
+		MovieProfiles:        DefaultMovieProfiles(),
+		MusicProfiles:        DefaultMusicProfiles(),
+		MetadataProfiles:     DefaultMetadataProfiles(),
+		BookProfiles:         DefaultBookProfiles(),
+		BookMetadataProfiles: DefaultBookMetadataProfiles(),
+		DelayProfiles:        DefaultDelayProfiles(),
+		ReleaseProfiles:      DefaultReleaseProfiles(),
 	}
 }
 
@@ -504,6 +507,12 @@ func (p ProfilesSettings) Validate() string {
 			}
 			seen[it.Quality] = true
 		}
+	}
+
+	// Readarr B3: book metadata profiles — id/name rules via the shared
+	// helper + non-negative minimum popularity.
+	if msg := validateBookMetadataProfiles(p.BookMetadataProfiles); msg != "" {
+		return msg
 	}
 
 	// Delay/release profiles: id/name rules per array (booleans need none).

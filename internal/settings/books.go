@@ -1,9 +1,12 @@
 package settings
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // ---------------------------------------------------------------------------
-// Readarr B3: book quality definitions + book quality profiles
+// Readarr B3: book quality definitions + book quality/metadata profiles
 //
 // DATA, NOT TYPES (the L3 convention): the book quality model is a seeded
 // data table — book QualityLevel rows and book profile documents — not
@@ -173,4 +176,79 @@ func BookProfileNames() map[string]bool {
 		out[p.Name] = true
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// Readarr B3: book metadata profiles (the Readarr "metadata profile"
+// content filters)
+//
+// Unlike the Lidarr metadata profiles (which metadata FILES to generate),
+// a book metadata profile filters which BOOKS are eligible: minimum
+// popularity, skip no-release-date / no-ISBN-ASIN / broken parts /
+// secondary-series books, allowed languages. B3 ships the model + listing
+// (seeded in the profiles document, like the music metadata profiles);
+// applying the filters to search results is the separate MT4 work item.
+// ---------------------------------------------------------------------------
+
+// BookMetadataProfile is one named set of book metadata filters.
+type BookMetadataProfile struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// MinimumPopularity is the lowest book popularity score accepted;
+	// 0 = no minimum.
+	MinimumPopularity int `json:"minimum_popularity"`
+	// SkipMissingReleaseDate skips books with no release date.
+	SkipMissingReleaseDate bool `json:"skip_missing_release_date"`
+	// SkipNoISBNASIN skips books with no ISBN/ASIN.
+	SkipNoISBNASIN bool `json:"skip_no_isbn_asin"`
+	// SkipBrokenParts skips books that are a part of a broken (incomplete)
+	// set.
+	SkipBrokenParts bool `json:"skip_broken_parts"`
+	// SkipSecondarySeries skips books whose series membership is only
+	// secondary.
+	SkipSecondarySeries bool `json:"skip_secondary_series"`
+	// AllowedLanguages restricts to these languages (ISO codes); empty =
+	// any language.
+	AllowedLanguages []string `json:"allowed_languages"`
+}
+
+// DefaultBookMetadataProfiles returns the seeded book metadata profile: a
+// single "Default" with no filters (every book eligible) — matching Readarr's
+// factory default and the author rows that already store "Default".
+func DefaultBookMetadataProfiles() []BookMetadataProfile {
+	return []BookMetadataProfile{{
+		ID:               1,
+		Name:             "Default",
+		Description:      "No filters: every book is eligible.",
+		AllowedLanguages: []string{},
+	}}
+}
+
+// BookMetadataProfileNames returns the seeded book metadata profile names —
+// the set an add-author metadata_profile parameter is validated against
+// (B3).
+func BookMetadataProfileNames() map[string]bool {
+	out := map[string]bool{}
+	for _, p := range DefaultBookMetadataProfiles() {
+		out[p.Name] = true
+	}
+	return out
+}
+
+// validateBookMetadataProfiles applies the per-profile rules of a
+// book-metadata-profiles array and returns a prefixed error message ("" when
+// valid).
+func validateBookMetadataProfiles(profiles []BookMetadataProfile) string {
+	if msg := validateNamedIDs("book_metadata_profiles", len(profiles), func(i int) (int, string) {
+		return profiles[i].ID, profiles[i].Name
+	}); msg != "" {
+		return msg
+	}
+	for i, p := range profiles {
+		if p.MinimumPopularity < 0 {
+			return fmt.Sprintf("book_metadata_profiles[%d]: minimum_popularity must be >= 0", i)
+		}
+	}
+	return ""
 }
