@@ -358,6 +358,16 @@ func (r *kindsBooksRepo) SetAuthorMonitored(_ context.Context, id int64, monitor
 	return nil
 }
 
+func (r *kindsBooksRepo) UpdateAuthor(_ context.Context, a booksdom.Author) error {
+	if _, ok := r.authors[a.ID]; !ok {
+		return booksdom.ErrAuthorNotFound
+	}
+	a.ID = r.authors[a.ID].ID
+	a.AddedAt = r.authors[a.ID].AddedAt
+	r.authors[a.ID] = a
+	return nil
+}
+
 func (r *kindsBooksRepo) CreateTitle(_ context.Context, t booksdom.Title) (int64, error) {
 	id := r.nextID
 	r.nextID++

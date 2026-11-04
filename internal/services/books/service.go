@@ -67,7 +67,21 @@ type Deps struct {
 	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
 	// Nil-safe: the pipeline runs identically without it.
 	Metrics *metrics.Metrics
+	// Searcher, when non-nil, backs the combined plain-text books lookup
+	// (Readarr B2). It is the keyless Open Library adapter in production; nil
+	// (tests, no provider) makes the lookup answer a not-configured error the
+	// API maps to 503.
+	Searcher dom.BookSearcher
 }
+
+// ErrSearcherNotConfigured is returned by BooksLookup when no metadata
+// searcher is wired (the API maps it to 503, the keyless-adapter convention).
+var ErrSearcherNotConfigured = fmt.Errorf("books: metadata searcher not configured")
+
+// ErrInvalidAddParams is returned when an add/update request carries a value
+// that is not one of the known enum values (Readarr B2); the API maps it to
+// a 400.
+var ErrInvalidAddParams = fmt.Errorf("books: invalid add-author parameter")
 
 // Service implements the books use-cases.
 type Service struct {
@@ -82,23 +96,57 @@ func New(deps Deps) *Service {
 	return &Service{deps: deps}
 }
 
-// AddAuthor creates an author (if new) and records the add in history. The
-// monitored flag sets the author-level monitor toggle (PLAN §4): a monitored
-// author has its titles wanted by default; an unmonitored author is added
-// quietly. Returns the author id.
-func (s *Service) AddAuthor(ctx context.Context, name string, monitored bool) (int64, error) {
-	if strings.TrimSpace(name) == "" {
+// AddAuthorInput is the add-author use-case input (Readarr B2 add modal).
+// Omitted optional fields keep pre-B2 behavior: an empty monitor policy
+// stores "" (= all), an empty quality/metadata profile stores "" (= none), an
+// empty root folder uses the server default, and empty tags store none.
+// StartSearch runs the pipeline best-effort after the add.
+type AddAuthorInput struct {
+	Name            string
+	Monitored       bool
+	MonitorPolicy   string   // PolicyAll/...; "" = all
+	QualityProfile  string   // author's default book quality profile name; "" = none
+	MetadataProfile string   // the author's metadata profile name; "" = none
+	RootFolder      string   // root folder path; "" = server default
+	Tags            []string // free-form tags; empty = none
+	StartSearch     bool     // run the pipeline best-effort after the add
+}
+
+// AddAuthor creates an author (if new), records the add in history, and — with
+// StartSearch — runs the pipeline best-effort: a pipeline failure is recorded
+// in history and never fails the add (the author stays in the library, Radarr
+// R2 / Readarr B2). Returns the author id.
+//
+// The monitor policy is validated against the known enum (Readarr B2); an
+// unknown value returns ErrInvalidAddParams (the API maps it to 400).
+func (s *Service) AddAuthor(ctx context.Context, in AddAuthorInput) (int64, error) {
+	if strings.TrimSpace(in.Name) == "" {
 		return 0, fmt.Errorf("books: author name is required")
 	}
+	if !dom.ValidMonitorPolicy(in.MonitorPolicy) {
+		return 0, fmt.Errorf("%w: monitor_policy %q", ErrInvalidAddParams, in.MonitorPolicy)
+	}
 	a := dom.Author{
-		Name:      strings.TrimSpace(name),
-		Monitored: monitored,
+		Name:            strings.TrimSpace(in.Name),
+		Monitored:       in.Monitored,
+		MonitorPolicy:   in.MonitorPolicy,
+		QualityProfile:  in.QualityProfile,
+		MetadataProfile: in.MetadataProfile,
+		RootFolder:      in.RootFolder,
+		Tags:            in.Tags,
 	}
 	id, err := s.deps.Repo.CreateAuthor(ctx, a)
 	if err != nil {
 		return 0, err
 	}
 	s.record(ctx, id, "added", "author added to library")
+	if in.StartSearch {
+		// Best-effort pipeline run (B2): the add already succeeded, so a
+		// failure here is only recorded — the author stays in the library.
+		if _, perr := s.RunPipeline(ctx, id); perr != nil {
+			s.record(ctx, id, "start-search-failed", perr.Error())
+		}
+	}
 	return id, nil
 }
 
@@ -178,6 +226,79 @@ func (s *Service) ListAuthorsQuery(ctx context.Context, q paging.Query) (paging.
 // GetAuthor loads an author (used by GET /api/v1/books/{id}).
 func (s *Service) GetAuthor(ctx context.Context, id int64) (*dom.Author, error) {
 	return s.deps.Repo.GetAuthor(ctx, id)
+}
+
+// BooksLookup is the combined plain-text books lookup (Readarr B2). It fans
+// out to the metadata searcher's author search and work search and returns a
+// single kind-tagged list (author hits first, then book hits). Each hit
+// carries `added` (true when that author — kind=author — or that author +
+// title — kind=book — already exists in the books library, so the UI
+// navigates instead of re-adding) and `library_id` (the matching row id; 0
+// when not added).
+//
+// One failing search leg degrades gracefully: the other leg's hits are still
+// returned (best-effort, like the other keyless search endpoints). Both legs
+// failing — or a nil searcher (no provider wired) — surfaces an error the API
+// maps to 502/503.
+func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult, error) {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return []dom.LookupResult{}, nil
+	}
+	if s.deps.Searcher == nil {
+		return nil, ErrSearcherNotConfigured
+	}
+	authorHits, aerr := s.deps.Searcher.SearchAuthors(ctx, q)
+	workHits, werr := s.deps.Searcher.SearchWorks(ctx, "", q)
+	if aerr != nil && werr != nil {
+		return nil, fmt.Errorf("books: lookup: %w", aerr)
+	}
+
+	// Index the library for the `added` flag (case-insensitive, trimmed).
+	authors, aerr2 := s.deps.Repo.ListAuthors(ctx)
+	if aerr2 != nil {
+		return nil, fmt.Errorf("books: lookup: list authors: %w", aerr2)
+	}
+	authorID := make(map[string]int64, len(authors))
+	for _, a := range authors {
+		authorID[foldName(a.Name)] = a.ID
+	}
+	books, berr := s.deps.Repo.ListBooks(ctx)
+	if berr != nil {
+		return nil, fmt.Errorf("books: lookup: list books: %w", berr)
+	}
+	titleID := make(map[string]int64, len(books))
+	for _, b := range books {
+		titleID[foldName(b.AuthorName)+"\x00"+foldName(b.Name)] = b.ID
+	}
+
+	out := make([]dom.LookupResult, 0, len(authorHits)+len(workHits))
+	for _, h := range authorHits {
+		id, ok := authorID[foldName(h.Name)]
+		out = append(out, dom.LookupResult{
+			Kind:      dom.LookupAuthor,
+			Name:      h.Name,
+			Added:     ok,
+			LibraryID: id,
+		})
+	}
+	for _, h := range workHits {
+		id, ok := titleID[foldName(h.Author)+"\x00"+foldName(h.Name)]
+		out = append(out, dom.LookupResult{
+			Kind:      dom.LookupBook,
+			Name:      h.Name,
+			Author:    h.Author,
+			Year:      h.Year,
+			Added:     ok,
+			LibraryID: id,
+		})
+	}
+	return out, nil
+}
+
+// foldName normalizes a name for case-insensitive library matching.
+func foldName(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
 }
 
 // ListTitles returns an author's known titles (used by
@@ -298,6 +419,64 @@ func (s *Service) LinkTitleToSeries(ctx context.Context, titleID, seriesID int64
 	s.record(ctx, title.AuthorID, "series-linked",
 		fmt.Sprintf("%q linked to %q", title.Name, series.Name))
 	return nil
+}
+
+// UpdateAuthorInput is the Edit Author modal input (Readarr B2, mirroring
+// Lidarr L2's UpdateArtistInput). Pointer fields mean "apply this value"; nil
+// means "keep the current value" — the pre-B2 monitored toggle sends only
+// Monitored and must not clobber the other fields. When Monitored is applied
+// and differs from the current state it fans out to the author's known titles
+// (the PLAN §4 author-level toggle).
+type UpdateAuthorInput struct {
+	Monitored       *bool
+	MonitorPolicy   *string
+	QualityProfile  *string
+	MetadataProfile *string
+	RootFolder      *string
+	Tags            *[]string
+}
+
+// UpdateAuthor applies the Edit Author modal fields to one author and, when
+// the monitored state changed, propagates it to every known title (the PLAN
+// §4 author-level fan-out). It returns the updated author (the API responds
+// with the full row). A monitor policy change is validated; an unknown value
+// returns ErrInvalidAddParams (the API maps it to 400).
+func (s *Service) UpdateAuthor(ctx context.Context, id int64, in UpdateAuthorInput) (*dom.Author, error) {
+	cur, err := s.deps.Repo.GetAuthor(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	a := *cur
+	if in.MonitorPolicy != nil && !dom.ValidMonitorPolicy(*in.MonitorPolicy) {
+		return nil, fmt.Errorf("%w: monitor_policy %q", ErrInvalidAddParams, *in.MonitorPolicy)
+	}
+	if in.Monitored != nil {
+		a.Monitored = *in.Monitored
+	}
+	if in.MonitorPolicy != nil {
+		a.MonitorPolicy = *in.MonitorPolicy
+	}
+	if in.QualityProfile != nil {
+		a.QualityProfile = *in.QualityProfile
+	}
+	if in.MetadataProfile != nil {
+		a.MetadataProfile = *in.MetadataProfile
+	}
+	if in.RootFolder != nil {
+		a.RootFolder = *in.RootFolder
+	}
+	if in.Tags != nil {
+		a.Tags = *in.Tags
+	}
+	if err := s.deps.Repo.UpdateAuthor(ctx, a); err != nil {
+		return nil, err
+	}
+	if in.Monitored != nil && *in.Monitored != cur.Monitored {
+		if err := s.SetAuthorMonitored(ctx, id, *in.Monitored); err != nil {
+			return nil, err
+		}
+	}
+	return &a, nil
 }
 
 // SetAuthorMonitored toggles the author-level monitor (PLAN §4) and propagates

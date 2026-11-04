@@ -19,7 +19,7 @@ func TestService_ReadMethods(t *testing.T) {
 	svc := New(Deps{Repo: repo, DefaultProfile: "Best"})
 	ctx := context.Background()
 
-	authorID, _ := svc.AddAuthor(ctx, "Ursula K. Le Guin", true)
+	authorID, _ := svc.AddAuthor(ctx, AddAuthorInput{Name: "Ursula K. Le Guin", Monitored: true})
 	titleID, _ := svc.AddTitle(ctx, authorID, "The Dispossessed", true)
 	editionID, _ := svc.AddEdition(ctx, titleID, dom.FormatEPUB, "en", "9780805079181", "Astounding", 1974, 505, true)
 
@@ -89,7 +89,7 @@ func TestService_B1ReadSurface(t *testing.T) {
 	svc := New(Deps{Repo: repo, DefaultProfile: "Best"})
 	ctx := context.Background()
 
-	authorID, _ := svc.AddAuthor(ctx, "Ursula K. Le Guin", true)
+	authorID, _ := svc.AddAuthor(ctx, AddAuthorInput{Name: "Ursula K. Le Guin", Monitored: true})
 	titleID, _ := svc.AddTitle(ctx, authorID, "The Dispossessed", true)
 
 	// Flat Books index carries the author name.
@@ -194,7 +194,7 @@ func TestService_MonitorToggles(t *testing.T) {
 	svc := New(Deps{Repo: repo, DefaultProfile: "Best"})
 	ctx := context.Background()
 
-	authorID, _ := svc.AddAuthor(ctx, "A Author", false)
+	authorID, _ := svc.AddAuthor(ctx, AddAuthorInput{Name: "A Author", Monitored: false})
 	titleID, _ := svc.AddTitle(ctx, authorID, "Title", false)
 	editionID, _ := svc.AddEdition(ctx, titleID, dom.FormatEPUB, "en", "", "", 0, 0, false)
 
@@ -247,7 +247,7 @@ func TestService_InputGuards(t *testing.T) {
 	svc := New(Deps{Repo: newMemRepo()})
 	ctx := context.Background()
 
-	if _, err := svc.AddAuthor(ctx, "  ", true); err == nil {
+	if _, err := svc.AddAuthor(ctx, AddAuthorInput{Name: "  ", Monitored: true}); err == nil {
 		t.Error("AddAuthor with blank name should fail")
 	}
 	if _, err := svc.AddTitle(ctx, 1, "\t", true); err == nil {
@@ -273,7 +273,7 @@ func TestService_RunPipeline_NoClient(t *testing.T) {
 	repo := newMemRepo()
 	svc := New(Deps{Repo: repo, DefaultProfile: "Best"}) // no Client
 	ctx := context.Background()
-	authorID, _ := svc.AddAuthor(ctx, "A Author", true)
+	authorID, _ := svc.AddAuthor(ctx, AddAuthorInput{Name: "A Author", Monitored: true})
 	if _, err := svc.AddTitle(ctx, authorID, "Title", true); err != nil {
 		t.Fatalf("add title: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestService_RunPipeline_NoMatch(t *testing.T) {
 		DefaultProfile: "Best",
 	})
 	ctx := context.Background()
-	authorID, _ := svc.AddAuthor(ctx, "A Author", true)
+	authorID, _ := svc.AddAuthor(ctx, AddAuthorInput{Name: "A Author", Monitored: true})
 	if _, err := svc.AddTitle(ctx, authorID, "Title", true); err != nil {
 		t.Fatalf("add title: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestService_RunPipeline_NoWanted(t *testing.T) {
 	svc := New(Deps{Repo: newMemRepo(), DefaultProfile: "Best"})
 	ctx := context.Background()
 	// An unmonitored author → no wanted rows.
-	authorID, _ := svc.AddAuthor(ctx, "A Author", false)
+	authorID, _ := svc.AddAuthor(ctx, AddAuthorInput{Name: "A Author", Monitored: false})
 
 	_, err := svc.RunPipeline(ctx, authorID)
 	if !errors.Is(err, ErrNoWanted) {

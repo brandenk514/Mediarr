@@ -72,7 +72,7 @@ func TestPipeline_EmitsEvents(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	authorID, err := svc.AddAuthor(ctx, "Ursula K. Le Guin", true)
+	authorID, err := svc.AddAuthor(ctx, AddAuthorInput{Name: "Ursula K. Le Guin", Monitored: true})
 	if err != nil {
 		t.Fatalf("add author: %v", err)
 	}

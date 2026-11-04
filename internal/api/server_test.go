@@ -277,6 +277,9 @@ func (stubBooksRepo) ListAuthors(context.Context) ([]booksdom.Author, error) {
 func (stubBooksRepo) SetAuthorMonitored(context.Context, int64, bool) error {
 	panic("stubBooksRepo.SetAuthorMonitored should not be called")
 }
+func (stubBooksRepo) UpdateAuthor(context.Context, booksdom.Author) error {
+	panic("stubBooksRepo.UpdateAuthor should not be called")
+}
 func (stubBooksRepo) CreateTitle(context.Context, booksdom.Title) (int64, error) {
 	panic("stubBooksRepo.CreateTitle should not be called")
 }

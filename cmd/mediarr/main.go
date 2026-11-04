@@ -604,6 +604,11 @@ func run(logSvc *system.LogService) error {
 	booksFake.AddRelease(indexers.SearchResult{Title: "Aldous Huxley - Brave New World [MOBI]", SizeBytes: 900_000})
 
 	booksMediaRoot := booksMediaRoot(cfg.MediaRoot)
+	// The keyless Open Library adapter backs both the add-flow search
+	// endpoints (SetSearch) and the combined books lookup (Readarr B2); share
+	// one instance so the lookup and the author/work searches use the same
+	// (optionally overridden) base URL.
+	olProvider := providers.NewOpenLibrary()
 	booksSvc := bookssvc.New(bookssvc.Deps{
 		Repo:           postgres.NewBooksRepo(pg.DB()),
 		Indexers:       indexersFor(booksFake),
@@ -611,6 +616,7 @@ func run(logSvc *system.LogService) error {
 		MediaRoot:      booksMediaRoot,
 		DefaultProfile: "Best",
 		Metrics:        m,
+		Searcher:       bookssvc.NewOpenLibrarySearcher(olProvider),
 	})
 	srv.SetBooks(&api.BooksDeps{Svc: booksSvc})
 	logger.Info("books pipeline ready",
@@ -631,7 +637,7 @@ func run(logSvc *system.LogService) error {
 		TMDB:        providers.NewTMDB(cfg.Providers.TMDBAPIKey),
 		TVDB:        providers.NewTVDB(cfg.Providers.TVDBAPIKey),
 		MusicBrainz: providers.NewMusicBrainz(),
-		OpenLibrary: providers.NewOpenLibrary(),
+		OpenLibrary: olProvider,
 	})
 	if cfg.Providers.TMDBAPIKey == "" || cfg.Providers.TVDBAPIKey == "" {
 		logger.Warn("metadata providers partially configured",
