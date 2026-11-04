@@ -1021,6 +1021,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/books/unmapped": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List book files not mapped to a monitored author (Readarr "Unmapped Files", B3).
+         * @description Read-only walk of the configured books media root (Readarr's "Unmapped Files" page): lists the book files that are NOT mapped to a monitored author, with the columns Path, Size, Date Added and Quality. A file under a top-level folder named after a monitored author is considered mapped and excluded; files in any other folder, or loose directly under the root, are unmapped. Unmonitoring an author surfaces its files here (the Readarr semantic). The walk is bounded to the configured media root and performs no moves or deletions.
+         */
+        get: operations["listBooksUnmappedFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/indexers": {
         parameters: {
             query?: never;
@@ -3288,6 +3308,23 @@ export interface components {
             /** @description Codec inferred from the file extension (e.g. FLAC, MP3); empty when unknown. */
             quality: string;
         };
+        /** @description A book file under a books root that is not mapped to a monitored author (Readarr "Unmapped Files", B3). */
+        BookUnmappedFile: {
+            /** @description Absolute filesystem path to the file. */
+            path: string;
+            /**
+             * Format: int64
+             * @description File size in bytes.
+             */
+            size: number;
+            /**
+             * Format: date-time
+             * @description The file's modification time (when it landed on disk).
+             */
+            date_added: string;
+            /** @description The book format inferred from the file extension (EPUB, AZW3, MOBI); empty when unknown. */
+            quality: string;
+        };
         MusicLibrarySummary: {
             /** Format: int64 */
             artists: number;
@@ -4621,6 +4658,18 @@ export interface components {
              *     Lidarr ladder, best first.
              */
             music_levels: components["schemas"]["QualityLevel"][];
+            /**
+             * @description Readarr book quality definitions (Readarr B3). A separate ID
+             *     space from the TV, movie and music levels, starting at 300, so
+             *     book quality profile items can't collide with any other kind's
+             *     level ids. One unified table: the e-book format-preference
+             *     entries (EPUB, AZW3, MOBI — e-books have no lossless/lossy
+             *     axis) followed by the a-book (audiobook) lossless/lossy ladder,
+             *     which shares its seed values 1:1 with the music ladder (L3) —
+             *     same names, groups and size limits — so books a-books and music
+             *     speak the same quality language. Best first.
+             */
+            book_levels: components["schemas"]["QualityLevel"][];
         };
         QualityProfileItem: {
             /** @description QualityLevel id. */
@@ -4675,6 +4724,29 @@ export interface components {
              */
             items: string[];
         };
+        /**
+         * @description A named set of server-side book metadata filters (Readarr B3; the
+         *     Readarr "metadata profile" content fields). B3 ships the model and
+         *     listing; applying the filters to search results is the separate MT4
+         *     metadata work item.
+         */
+        BookMetadataProfile: {
+            id: number;
+            name: string;
+            description: string;
+            /** @description Only books with a popularity score at or above this value; 0 = no minimum. */
+            minimum_popularity: number;
+            /** @description Skip books with no release date. */
+            skip_missing_release_date: boolean;
+            /** @description Skip books with no ISBN/ASIN. */
+            skip_no_isbn_asin: boolean;
+            /** @description Skip books that are a part of a broken (incomplete) set. */
+            skip_broken_parts: boolean;
+            /** @description Skip books whose series membership is only secondary. */
+            skip_secondary_series: boolean;
+            /** @description Restrict to these languages (ISO codes); empty = any language. */
+            allowed_languages: string[];
+        };
         ProfilesSettings: {
             profiles: components["schemas"]["QualityProfile"][];
             /**
@@ -4696,6 +4768,23 @@ export interface components {
              *     Studio).
              */
             metadata_profiles: components["schemas"]["MetadataProfile"][];
+            /**
+             * @description Readarr book quality profiles (Readarr B3). Seeded with the 4
+             *     Readarr defaults (Best first); profile ids live in a separate
+             *     space from the TV, movie and music profiles (300+). Items
+             *     reference book quality level ids (the e-book format entries and
+             *     the a-book ladder); the cutoff is the minimum quality an author
+             *     will accept.
+             */
+            book_profiles: components["schemas"]["QualityProfile"][];
+            /**
+             * @description Readarr book metadata profiles (B3): the server-side book
+             *     metadata filters (minimum popularity, skip missing release
+             *     date, skip no-ISBN/ASIN, skip broken parts/sets, skip secondary
+             *     series books, allowed languages). Seeded with the Default
+             *     profile (no filters).
+             */
+            book_metadata_profiles: components["schemas"]["BookMetadataProfile"][];
             delay_profiles: components["schemas"]["DelayProfile"][];
             release_profiles: components["schemas"]["ReleaseProfile"][];
         };
@@ -7437,6 +7526,46 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listBooksUnmappedFiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The unmapped files (an empty list when nothing is unmapped). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookUnmappedFile"][];
+                };
+            };
+            /** @description Bad request (root is not a directory). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The root folder does not exist. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["Internal"];
         };
     };
