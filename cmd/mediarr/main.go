@@ -813,7 +813,10 @@ func run(logSvc *system.LogService) error {
 		radarrMigrator := system.NewRadarrMigrator(radarrTarget)
 		lidarrMigrator := system.NewLidarrMigrator(lidarrTarget)
 		prowlarrMigrator := system.NewProwlarrMigrator(prowlarrTarget)
-		migrationSvc := system.NewMigrationService(migrator, radarrMigrator, lidarrMigrator, prowlarrMigrator)
+		// Readarr B6: the live Readarr v0.4 client into the books domain
+		// (nil target: wired below once the books target is constructed).
+		readarrMigrator := system.NewReadarrMigrator(nil, nil)
+		migrationSvc := system.NewMigrationService(migrator, radarrMigrator, lidarrMigrator, prowlarrMigrator, readarrMigrator)
 
 		srv.SetSystem(&api.SystemDeps{
 			Health:       system.NewHealth(probes),

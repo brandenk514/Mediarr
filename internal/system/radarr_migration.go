@@ -827,14 +827,15 @@ type MigrationRunner interface {
 
 // MigrationService routes the drop-in migration endpoints to the source
 // selected by MigrationRequest.source (R6: 'sonarr' by default, 'radarr',
-// Lidarr L5: 'lidarr', or Prowlarr PR6: 'prowlarr'). Status reflects the
-// most recently run source, so GET /system/migration/status shows the run
-// the user just kicked off.
+// Lidarr L5: 'lidarr', Prowlarr PR6: 'prowlarr', Readarr B6: 'readarr').
+// Status reflects the most recently run source, so GET /system/migration/
+// status shows the run the user just kicked off.
 type MigrationService struct {
 	Sonarr   MigrationRunner
 	Radarr   MigrationRunner
 	Lidarr   MigrationRunner
 	Prowlarr MigrationRunner
+	Readarr  MigrationRunner
 
 	mu   sync.Mutex
 	last MigrationRunner
@@ -842,9 +843,9 @@ type MigrationService struct {
 
 // NewMigrationService builds the router. A nil runner for a source answers a
 // validation error (400 at the API) when that source is selected — main.go
-// wires all four.
-func NewMigrationService(sonarr, radarr, lidarr, prowlarr MigrationRunner) *MigrationService {
-	return &MigrationService{Sonarr: sonarr, Radarr: radarr, Lidarr: lidarr, Prowlarr: prowlarr, last: sonarr}
+// wires all five.
+func NewMigrationService(sonarr, radarr, lidarr, prowlarr, readarr MigrationRunner) *MigrationService {
+	return &MigrationService{Sonarr: sonarr, Radarr: radarr, Lidarr: lidarr, Prowlarr: prowlarr, Readarr: readarr, last: sonarr}
 }
 
 // Run validates the source, routes to that source's runner, and records it
@@ -863,8 +864,10 @@ func (s *MigrationService) Run(ctx context.Context, req MigrationRequest) (*Migr
 		r = s.Lidarr
 	case SourceProwlarr:
 		r = s.Prowlarr
+	case SourceReadarr:
+		r = s.Readarr
 	default:
-		return nil, fmt.Errorf("migration: unknown source %q (want sonarr, radarr, lidarr, or prowlarr)", req.Source)
+		return nil, fmt.Errorf("migration: unknown source %q (want sonarr, radarr, lidarr, prowlarr, or readarr)", req.Source)
 	}
 	if r == nil {
 		return nil, fmt.Errorf("migration: the %s migration is not wired", req.Source)
