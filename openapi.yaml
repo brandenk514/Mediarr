@@ -4153,6 +4153,86 @@ paths:
                 $ref: '#/components/schemas/MigrationStatus'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/migration/readarr:
+    post:
+      tags: [system]
+      summary: Readarr drop-in dry-run (read-only mapping report).
+      operationId: runReadarrMigration
+      description: |
+        The Readarr (B6) drop-in, dry-run only: pulls a live Readarr
+        v0.4.18.2805 instance (the /api/v1 contract, X-Api-Key header) and
+        reports the mapping into Mediarr WITHOUT writing anything. Safe to
+        repeat. The generic POST /api/v1/system/migration with source
+        "readarr" and dry_run true performs the same run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadarrMigrationRequest'
+      responses:
+        '200':
+          description: The mapping report (dry_run true).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MigrationResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/migration/readarr/execute:
+    post:
+      tags: [system]
+      summary: Run the Readarr drop-in import (resumable).
+      operationId: executeReadarrMigration
+      description: |
+        The Readarr (B6) drop-in import: pulls the live Readarr v0.4.18.2805
+        instance and imports it into Mediarr's books domain — authors, books
+        (keyed by their OpenLibrary work key, the one-time id swap), editions,
+        book files, series links, book quality + metadata profiles, tags,
+        indexers, the download client, root folders (with the per-root
+        Calibre block), and a best-effort media-management subset. Idempotent:
+        re-running reports the existing entities. A partial run can be
+        continued with resume true (the migrated book keys are tracked in
+        Postgres, so a restart continues).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadarrMigrationRequest'
+      responses:
+        '200':
+          description: The mapping report (a partial run returns 200 with
+            resumable true).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MigrationResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /api/v1/system/migration/readarr/status:
+    get:
+      tags: [system]
+      summary: Readarr migration progress and last result.
+      operationId: getReadarrMigrationStatus
+      description: The Readarr run's status (idle / running / completed /
+        partial / failed), progress counter, and last mapping report —
+        source-scoped, so it reports the Readarr run even when another
+        source migrated most recently (the generic /status reflects the most
+        recently run source).
+      responses:
+        '200':
+          description: The Readarr migration status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MigrationStatus'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/Internal' }
 components:
   securitySchemes:
     bearerAuth:
@@ -9062,7 +9142,7 @@ components:
       properties:
         entity:
           type: string
-          enum: [quality_profile, tag, indexer, download_client, series, episode]
+          enum: [quality_profile, quality_definition, metadata_profile, tag, indexer, indexer_proxy, download_client, root_folder, settings, series, episode, movie, edition, artist, album, track, author, book, book_file, series_link]
         external_id:
           type: string
           description: Stable source key (Sonarr id or slug).
@@ -9141,9 +9221,9 @@ components:
           description: Base URL of the source instance (e.g. http://sonarr.local:8989, https://radarr.local:7878, or https://prowlarr.local:9696).
         source:
           type: string
-          enum: [sonarr, radarr, lidarr, prowlarr]
+          enum: [sonarr, radarr, lidarr, prowlarr, readarr]
           default: sonarr
-          description: "The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance; Lidarr L5: 'lidarr' pulls artists + albums from a live Lidarr v6 instance; Prowlarr PR6: 'prowlarr' pulls indexers + download clients + tags + indexer proxies from a live Prowlarr v1 instance — the Prowlarr Apps section is NOT imported; Mediarr replaces it with per-kind settings)."
+          description: "The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance; Lidarr L5: 'lidarr' pulls artists + albums from a live Lidarr v6 instance; Prowlarr PR6: 'prowlarr' pulls indexers + download clients + tags + indexer proxies from a live Prowlarr v1 instance — the Prowlarr Apps section is NOT imported; Mediarr replaces it with per-kind settings; Readarr B6: 'readarr' pulls authors + books + editions + book files + series + quality/metadata profiles + tags + root folders (with the Calibre block) from a live Readarr v0.4.18.2805 instance — the final release before the project was archived)."
         api_key:
           type: string
           description: Source API key (sent as X-Api-Key).
@@ -9155,6 +9235,22 @@ components:
           description: Resume a previously partial run (skips already-migrated series).
         include:
           $ref: "#/components/schemas/MigrationInclude"
+    ReadarrMigrationRequest:
+      type: object
+      required: [base_url]
+      description: "The Readarr (B6) drop-in request. The dedicated /system/migration/readarr endpoints pin the source to readarr; the same pull is available through the generic endpoint with source \"readarr\"."
+      properties:
+        base_url:
+          type: string
+          description: Base URL of the Readarr instance (e.g. http://readarr.local:8888; a trailing /api or /api/v1 is accepted).
+        api_key:
+          type: string
+          description: Source API key (sent as X-Api-Key).
+        resume:
+          type: boolean
+          description: "Execute only: continue a previously partial run (skips already-migrated books; the migrated book keys are tracked in Postgres)."
+        include:
+          $ref: '#/components/schemas/MigrationInclude'
     MigrationStatus:
       type: object
       required: [status, running, done, total]
