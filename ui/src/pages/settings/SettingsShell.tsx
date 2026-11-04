@@ -15,6 +15,7 @@ import { AppsSection } from './sections/AppsSection'
 import { MetadataSection } from './sections/MetadataSection'
 import { MetadataSourceSection } from './sections/MetadataSourceSection'
 import { ImportListsSection } from './sections/ImportListsSection'
+import { BookImportListsSection } from './sections/BookImportListsSection'
 
 // The 15 Sonarr settings sections (the settings IA contract, P1), plus the
 // two Prowlarr PR4 additions: the `indexers` slug becomes the Indexer Proxies
@@ -33,6 +34,9 @@ export const SETTINGS_SECTIONS: { slug: string; label: string }[] = [
   { slug: 'indexers', label: 'Indexer Proxies' },
   { slug: 'download-clients', label: 'Download Clients' },
   { slug: 'import-lists', label: 'Import Lists' },
+  // Readarr B5: the books import-lists section (goodreads / lazylibrarian /
+  // readarr bridge lists + exclusions).
+  { slug: 'book-import-lists', label: 'Books Import Lists' },
   { slug: 'connect', label: 'Connect' },
   { slug: 'notifications', label: 'Notifications' },
   { slug: 'apps', label: 'Apps' },
@@ -81,6 +85,10 @@ function renderSection(slug: string) {
       return <MetadataSourceSection />
     case 'import-lists':
       return <ImportListsSection />
+    // Readarr B5: the books import lists (goodreads / lazylibrarian /
+    // readarr bridge + exclusions).
+    case 'book-import-lists':
+      return <BookImportListsSection />
     default:
       return (
         <div className="empty-state" data-testid={`settings-empty-${slug}`}>

@@ -88,11 +88,12 @@ function renderShell(path = '/settings/media-management') {
 }
 
 describe('SettingsShell', () => {
-  it('renders the 15-section nav (the P5 + PR4 settings IA contract)', () => {
+  it('renders the 16-section nav (the P5 + PR4 + B5 settings IA contract)', () => {
     renderShell()
-    // All 15 sections are present as nav items (13 Sonarr + notifications +
-    // apps; the indexers slug is now the Indexer Proxies section).
-    expect(SETTINGS_SECTIONS).toHaveLength(15)
+    // All 16 sections are present as nav items (13 Sonarr + notifications +
+    // apps + the Readarr B5 books import lists; the indexers slug is now the
+    // Indexer Proxies section).
+    expect(SETTINGS_SECTIONS).toHaveLength(16)
     for (const s of SETTINGS_SECTIONS) {
       expect(screen.getByTestId(`settings-nav-${s.slug}`)).toHaveTextContent(s.label)
     }
@@ -123,6 +124,8 @@ describe('SettingsShell', () => {
       ['/settings/metadata', 'metadata-card'],
       ['/settings/metadata-source', 'ms-card'],
       ['/settings/import-lists', 'import-lists-card'],
+      // Readarr B5: the books import-lists section.
+      ['/settings/book-import-lists', 'blb-card'],
     ]
     for (const [path, card] of cases) {
       const { unmount } = renderShell(path)
