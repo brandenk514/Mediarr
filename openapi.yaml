@@ -1868,6 +1868,45 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/books/unmapped:
+    get:
+      tags: [books]
+      summary: List book files not mapped to a monitored author (Readarr "Unmapped Files", B3).
+      operationId: listBooksUnmappedFiles
+      description: >-
+        Read-only walk of the configured books media root (Readarr's
+        "Unmapped Files" page): lists the book files that are NOT mapped to a
+        monitored author, with the columns Path, Size, Date Added and Quality.
+        A file under a top-level folder named after a monitored author is
+        considered mapped and excluded; files in any other folder, or loose
+        directly under the root, are unmapped. Unmonitoring an author
+        surfaces its files here (the Readarr semantic). The walk is bounded
+        to the configured media root and performs no moves or deletions.
+      responses:
+        "200":
+          description: The unmapped files (an empty list when nothing is unmapped).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookUnmappedFile"
+        "400":
+          description: Bad request (root is not a directory).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The root folder does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/indexers:
     get:
       tags: [indexers]
@@ -5500,6 +5539,25 @@ components:
         quality:
           type: string
           description: Codec inferred from the file extension (e.g. FLAC, MP3); empty when unknown.
+    BookUnmappedFile:
+      type: object
+      required: [path, size, date_added, quality]
+      description: A book file under a books root that is not mapped to a monitored author (Readarr "Unmapped Files", B3).
+      properties:
+        path:
+          type: string
+          description: Absolute filesystem path to the file.
+        size:
+          type: integer
+          format: int64
+          description: File size in bytes.
+        date_added:
+          type: string
+          format: date-time
+          description: The file's modification time (when it landed on disk).
+        quality:
+          type: string
+          description: The book format inferred from the file extension (EPUB, AZW3, MOBI); empty when unknown.
     MusicLibrarySummary:
       type: object
       required: [artists, inactive, continuing, monitored, unmonitored, tracks, files, total_file_size]
@@ -7619,7 +7677,7 @@ components:
           description: "0 = unlimited."
     QualitySettings:
       type: object
-      required: [levels, movie_levels, music_levels]
+      required: [levels, movie_levels, music_levels, book_levels]
       properties:
         levels:
           type: array
@@ -7641,6 +7699,20 @@ components:
             Lidarr quality id), so music quality profile items can't
             collide with TV or movie level ids. Seeded with the 38-row
             Lidarr ladder, best first.
+          items:
+            $ref: "#/components/schemas/QualityLevel"
+        book_levels:
+          type: array
+          description: |
+            Readarr book quality definitions (Readarr B3). A separate ID
+            space from the TV, movie and music levels, starting at 300, so
+            book quality profile items can't collide with any other kind's
+            level ids. One unified table: the e-book format-preference
+            entries (EPUB, AZW3, MOBI — e-books have no lossless/lossy
+            axis) followed by the a-book (audiobook) lossless/lossy ladder,
+            which shares its seed values 1:1 with the music ladder (L3) —
+            same names, groups and size limits — so books a-books and music
+            speak the same quality language. Best first.
           items:
             $ref: "#/components/schemas/QualityLevel"
     QualityProfileItem:
@@ -7735,9 +7807,44 @@ components:
             The metadata files this profile generates (free-form names the
             UI renders read-mostly), e.g. ["Embedded", "Music XML", "Music
             Image"].
+    BookMetadataProfile:
+      type: object
+      required: [id, name, description, minimum_popularity, skip_missing_release_date, skip_no_isbn_asin, skip_broken_parts, skip_secondary_series, allowed_languages]
+      description: |
+        A named set of server-side book metadata filters (Readarr B3; the
+        Readarr "metadata profile" content fields). B3 ships the model and
+        listing; applying the filters to search results is the separate MT4
+        metadata work item.
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        minimum_popularity:
+          type: integer
+          description: Only books with a popularity score at or above this value; 0 = no minimum.
+        skip_missing_release_date:
+          type: boolean
+          description: Skip books with no release date.
+        skip_no_isbn_asin:
+          type: boolean
+          description: Skip books with no ISBN/ASIN.
+        skip_broken_parts:
+          type: boolean
+          description: Skip books that are a part of a broken (incomplete) set.
+        skip_secondary_series:
+          type: boolean
+          description: Skip books whose series membership is only secondary.
+        allowed_languages:
+          type: array
+          items:
+            type: string
+          description: Restrict to these languages (ISO codes); empty = any language.
     ProfilesSettings:
       type: object
-      required: [profiles, movie_profiles, music_profiles, metadata_profiles, delay_profiles, release_profiles]
+      required: [profiles, movie_profiles, music_profiles, metadata_profiles, book_profiles, book_metadata_profiles, delay_profiles, release_profiles]
       properties:
         profiles:
           type: array
@@ -7768,6 +7875,27 @@ components:
             Studio).
           items:
             $ref: "#/components/schemas/MetadataProfile"
+        book_profiles:
+          type: array
+          description: |
+            Readarr book quality profiles (Readarr B3). Seeded with the 4
+            Readarr defaults (Best first); profile ids live in a separate
+            space from the TV, movie and music profiles (300+). Items
+            reference book quality level ids (the e-book format entries and
+            the a-book ladder); the cutoff is the minimum quality an author
+            will accept.
+          items:
+            $ref: "#/components/schemas/QualityProfile"
+        book_metadata_profiles:
+          type: array
+          description: |
+            Readarr book metadata profiles (B3): the server-side book
+            metadata filters (minimum popularity, skip missing release
+            date, skip no-ISBN/ASIN, skip broken parts/sets, skip secondary
+            series books, allowed languages). Seeded with the Default
+            profile (no filters).
+          items:
+            $ref: "#/components/schemas/BookMetadataProfile"
         delay_profiles:
           type: array
           items:
