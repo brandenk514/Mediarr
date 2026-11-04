@@ -8,10 +8,13 @@ import type {
   BookSeries,
   Edition,
   Author,
+  ProfilesResponse,
+  RootFolder,
   Title,
+  UpdateAuthorRequest,
 } from '../../api/types'
 import { posterText } from '../../components/poster'
-import { relTime } from '../../components/music'
+import { MONITOR_POLICY_OPTIONS, relTime } from '../../components/music'
 import { MonitoredToggle } from '../../components/list'
 import {
   Badge,
@@ -41,8 +44,10 @@ function humanBytes(n: number): string {
 // analogue of Radarr's edition model, the (format, language, monitored)
 // triple — and below the editions the imported book files with their media
 // info (pages, size, format, language, added date). A toolbar carries
-// Refresh & Scan, Search (the author pipeline), History (modal), and the
-// not-yet-built Edit/Delete.
+// Refresh & Scan, Search (the author pipeline), History (modal), and Edit
+// (the Readarr B2 Edit Author modal: monitored · monitor policy · root
+// folder · quality profile · metadata profile (B3 stub) · tags, persisted
+// through the full author-update PUT) and the not-yet-built Delete.
 export function AuthorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const authorId = Number(id)
@@ -53,7 +58,21 @@ export function AuthorDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
-  const [modal, setModal] = useState<null | 'history'>(null)
+  const [modal, setModal] = useState<null | 'history' | 'edit'>(null)
+  // Readarr B2 Edit Author modal: the author's current fields, pre-filled
+  // when the modal opens and persisted as a full UpdateAuthorRequest.
+  const [edit, setEdit] = useState<{
+    monitored: boolean
+    monitorPolicy: NonNullable<UpdateAuthorRequest['monitor_policy']>
+    rootFolder: string
+    profile: string
+    tags: string[]
+    tagDraft: string
+  } | null>(null)
+  // The Edit modal's pickers load lazily when the modal opens (the music
+  // Edit Artist pattern).
+  const [editRootFolders, setEditRootFolders] = useState<RootFolder[] | null>(null)
+  const [editProfiles, setEditProfiles] = useState<ProfilesResponse | null>(null)
 
   const reload = useCallback(() => {
     setError(null)
@@ -75,6 +94,22 @@ export function AuthorDetailPage() {
   useEffect(() => {
     reload()
   }, [reload])
+
+  // The Edit modal's pickers load the root-folder list and book quality
+  // profiles lazily, only while the modal is open.
+  useEffect(() => {
+    if (modal !== 'edit') return
+    setEditRootFolders(null)
+    setEditProfiles(null)
+    client
+      .listRootFolders()
+      .then(setEditRootFolders)
+      .catch(() => setEditRootFolders([]))
+    client
+      .getProfiles('books')
+      .then(setEditProfiles)
+      .catch(() => setEditProfiles(null))
+  }, [modal])
 
   // Search runs the author's indexer pipeline (the books analogue of Radarr's
   // "Search" command) and reports the import result.
@@ -145,8 +180,20 @@ export function AuthorDetailPage() {
               icon="✏"
               label="Edit"
               testId="author-detail-edit"
-              disabled
-              title="Author editing lands in a later phase"
+              onClick={() => {
+                // '' is the wire form of "all" for authors added before the
+                // UI offers a choice — coerce so the select shows a selected
+                // option.
+                setEdit({
+                  monitored: author.Monitored,
+                  monitorPolicy: author.MonitorPolicy || 'all',
+                  rootFolder: author.RootFolder ?? '',
+                  profile: author.QualityProfile ?? '',
+                  tags: author.Tags ?? [],
+                  tagDraft: '',
+                })
+                setModal('edit')
+              }}
             />
             <TbButton
               icon="🗑"
@@ -225,6 +272,175 @@ export function AuthorDetailPage() {
       {/* History modal (the per-author history feed; books don't flow into
           the global feed yet). */}
       {modal === 'history' && <HistoryModal authorId={authorId} onClose={() => setModal(null)} />}
+
+      {/* Edit Author modal (Readarr B2). Persists through PUT
+          /books/authors/{id} (UpdateAuthorRequest): Monitored · Monitor
+          Policy · Root Folder · Quality Profile · Metadata Profile (B3
+          stub — disabled) · Tags. A monitored change fans out to the
+          author's known titles server-side. */}
+      {modal === 'edit' && edit && (
+        <Modal
+          title="Edit Author"
+          onClose={() => setModal(null)}
+          testId="edit-modal"
+          footer={
+            <>
+              <button type="button" className="ghost" onClick={() => setModal(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="edit-save"
+                onClick={() => {
+                  void (async () => {
+                    await client.updateAuthor(authorId, {
+                      monitored: edit.monitored,
+                      monitor_policy: edit.monitorPolicy,
+                      root_folder: edit.rootFolder,
+                      quality_profile: edit.profile,
+                      tags: edit.tags,
+                    })
+                    setModal(null)
+                    setAuthor({ ...author, Monitored: edit.monitored })
+                    setStatus('Author updated.')
+                    void reload()
+                  })()
+                }}
+              >
+                Save
+              </button>
+            </>
+          }
+        >
+          <label className="check" htmlFor="edit-monitored" style={{ marginBottom: '0.6rem' }}>
+            <input
+              id="edit-monitored"
+              type="checkbox"
+              checked={edit.monitored}
+              onChange={(e) => setEdit({ ...edit, monitored: e.target.checked })}
+              data-testid="edit-monitored"
+            />
+            Monitored
+          </label>
+          <p className="dim small" style={{ marginTop: '0' }}>
+            Monitor this author's books
+          </p>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span className="dim small">Monitor Policy</span>
+            <select
+              value={edit.monitorPolicy}
+              onChange={(e) =>
+                setEdit({ ...edit, monitorPolicy: e.target.value as NonNullable<UpdateAuthorRequest['monitor_policy']> })
+              }
+              data-testid="edit-monitor-policy"
+            >
+              {MONITOR_POLICY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
+            Which books should be monitored (one-time adjustment)
+          </p>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span className="dim small">Root Folder</span>
+            <select
+              value={edit.rootFolder}
+              onChange={(e) => setEdit({ ...edit, rootFolder: e.target.value })}
+              data-testid="edit-root-folder"
+            >
+              {!(editRootFolders ?? []).some((rf) => rf.Path === edit.rootFolder) && (
+                <option value={edit.rootFolder}>
+                  {edit.rootFolder === '' ? '— Server default —' : edit.rootFolder}
+                </option>
+              )}
+              {(editRootFolders ?? []).map((rf) => (
+                <option key={rf.Path} value={rf.Path}>
+                  {rf.Name ? `[${rf.Name}] ${rf.Path}` : rf.Path}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
+            Where this author's files are stored (empty = server default)
+          </p>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span className="dim small">Quality Profile</span>
+            <select
+              value={edit.profile}
+              onChange={(e) => setEdit({ ...edit, profile: e.target.value })}
+              data-testid="edit-profile"
+            >
+              <option value="">— None —</option>
+              {(editProfiles?.profiles ?? []).map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                  {editProfiles?.default === p ? ' (default)' : ''}
+                </option>
+              ))}
+              {editProfiles !== null &&
+                edit.profile !== '' &&
+                !(editProfiles.profiles ?? []).includes(edit.profile) && (
+                  <option value={edit.profile}>{edit.profile}</option>
+                )}
+            </select>
+          </label>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span className="dim small">Metadata Profile</span>
+            <select value="none" disabled data-testid="edit-metadata-profile">
+              <option value="none">— None —</option>
+            </select>
+          </label>
+          <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
+            Metadata profiles land in a later phase (B3).
+          </p>
+
+          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+            <span className="dim small">Tags</span>
+            <input
+              type="text"
+              value={edit.tagDraft}
+              onChange={(e) => setEdit({ ...edit, tagDraft: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                  e.preventDefault()
+                  const t = edit.tagDraft.trim().replace(/,+$/, '')
+                  if (t && !edit.tags.includes(t)) setEdit({ ...edit, tags: [...edit.tags, t], tagDraft: '' })
+                }
+              }}
+              onBlur={() => {
+                const t = edit.tagDraft.trim().replace(/,+$/, '')
+                if (t && !edit.tags.includes(t)) setEdit({ ...edit, tags: [...edit.tags, t], tagDraft: '' })
+              }}
+              placeholder="Add a tag, press Enter"
+              data-testid="edit-tags-input"
+            />
+          </label>
+          {edit.tags.length > 0 && (
+            <span className="tag-chips" data-testid="edit-tags-chips">
+              {edit.tags.map((t) => (
+                <span className="tag-chip" key={t}>
+                  {t}
+                  <button
+                    type="button"
+                    aria-label={`Remove tag ${t}`}
+                    onClick={() => setEdit({ ...edit, tags: edit.tags.filter((x) => x !== t) })}
+                    data-testid={`edit-tag-remove-${t}`}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </span>
+          )}
+        </Modal>
+      )}
     </div>
   )
 }
