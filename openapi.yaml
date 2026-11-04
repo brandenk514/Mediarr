@@ -7677,7 +7677,7 @@ components:
           description: "0 = unlimited."
     QualitySettings:
       type: object
-      required: [levels, movie_levels, music_levels, book_levels]
+      required: [levels, movie_levels, music_levels]
       properties:
         levels:
           type: array
@@ -7712,7 +7712,9 @@ components:
             axis) followed by the a-book (audiobook) lossless/lossy ladder,
             which shares its seed values 1:1 with the music ladder (L3) —
             same names, groups and size limits — so books a-books and music
-            speak the same quality language. Best first.
+            speak the same quality language. Best first. Optional in the
+            settings document: a PUT that omits it keeps the seeded table
+            (section defaults apply to missing fields).
           items:
             $ref: "#/components/schemas/QualityLevel"
     QualityProfileItem:
@@ -7844,7 +7846,7 @@ components:
           description: Restrict to these languages (ISO codes); empty = any language.
     ProfilesSettings:
       type: object
-      required: [profiles, movie_profiles, music_profiles, metadata_profiles, book_profiles, book_metadata_profiles, delay_profiles, release_profiles]
+      required: [profiles, movie_profiles, music_profiles, metadata_profiles, delay_profiles, release_profiles]
       properties:
         profiles:
           type: array
@@ -7883,7 +7885,9 @@ components:
             space from the TV, movie and music profiles (300+). Items
             reference book quality level ids (the e-book format entries and
             the a-book ladder); the cutoff is the minimum quality an author
-            will accept.
+            will accept. Optional in the settings document: a PUT that
+            omits it keeps the seeded profiles (section defaults apply to
+            missing fields).
           items:
             $ref: "#/components/schemas/QualityProfile"
         book_metadata_profiles:
@@ -7892,8 +7896,10 @@ components:
             Readarr book metadata profiles (B3): the server-side book
             metadata filters (minimum popularity, skip missing release
             date, skip no-ISBN/ASIN, skip broken parts/sets, skip secondary
-            series books, allowed languages). Seeded with the Default
-            profile (no filters).
+            series books, allowed languages). Seeded with the
+            Default profile (no filters). Optional in the settings document:
+            a PUT that omits it keeps the seeded profile (section defaults
+            apply to missing fields).
           items:
             $ref: "#/components/schemas/BookMetadataProfile"
         delay_profiles:

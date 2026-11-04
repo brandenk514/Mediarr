@@ -4667,9 +4667,11 @@ export interface components {
              *     axis) followed by the a-book (audiobook) lossless/lossy ladder,
              *     which shares its seed values 1:1 with the music ladder (L3) —
              *     same names, groups and size limits — so books a-books and music
-             *     speak the same quality language. Best first.
+             *     speak the same quality language. Best first. Optional in the
+             *     settings document: a PUT that omits it keeps the seeded table
+             *     (section defaults apply to missing fields).
              */
-            book_levels: components["schemas"]["QualityLevel"][];
+            book_levels?: components["schemas"]["QualityLevel"][];
         };
         QualityProfileItem: {
             /** @description QualityLevel id. */
@@ -4774,17 +4776,21 @@ export interface components {
              *     space from the TV, movie and music profiles (300+). Items
              *     reference book quality level ids (the e-book format entries and
              *     the a-book ladder); the cutoff is the minimum quality an author
-             *     will accept.
+             *     will accept. Optional in the settings document: a PUT that
+             *     omits it keeps the seeded profiles (section defaults apply to
+             *     missing fields).
              */
-            book_profiles: components["schemas"]["QualityProfile"][];
+            book_profiles?: components["schemas"]["QualityProfile"][];
             /**
              * @description Readarr book metadata profiles (B3): the server-side book
              *     metadata filters (minimum popularity, skip missing release
              *     date, skip no-ISBN/ASIN, skip broken parts/sets, skip secondary
-             *     series books, allowed languages). Seeded with the Default
-             *     profile (no filters).
+             *     series books, allowed languages). Seeded with the
+             *     Default profile (no filters). Optional in the settings document:
+             *     a PUT that omits it keeps the seeded profile (section defaults
+             *     apply to missing fields).
              */
-            book_metadata_profiles: components["schemas"]["BookMetadataProfile"][];
+            book_metadata_profiles?: components["schemas"]["BookMetadataProfile"][];
             delay_profiles: components["schemas"]["DelayProfile"][];
             release_profiles: components["schemas"]["ReleaseProfile"][];
         };
