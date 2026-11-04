@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
-import type { MigrationInclude, MigrationRequest, MigrationResult, MigrationStatus } from '../../api/types'
+import type {
+  MigrationInclude,
+  MigrationRequest,
+  MigrationResult,
+  MigrationStatus,
+  ReadarrMigrationRequest,
+} from '../../api/types'
 
 // MigrationPanel is System > Import: the drop-in migration (P6: Sonarr;
-// R6: + Radarr). Point it at a Sonarr or Radarr instance (base URL + API
-// key), dry-run first, then run for real. The mapping report shows every
-// entity's action (created / exists / updated / skipped / error / dry-run)
-// and whether the run is resumable.
+// R6: + Radarr; L5: + Lidarr; PR6: + Prowlarr; B6: + Readarr). Point it at a
+// live instance (base URL + API key), dry-run first, then run for real. The
+// mapping report shows every entity's action (created / exists / updated /
+// skipped / error / dry-run) and whether the run is resumable.
+//
+// Readarr (B6) is driven through the dedicated /system/migration/readarr
+// endpoints: a fixed dry-run (read-only), an explicit execute (with a
+// confirm — it writes for real), and a source-scoped status that reports the
+// Readarr run even when another source migrated most recently. The other
+// sources keep the P6 generic endpoint + most-recently-run status.
 const ENTITIES: { key: keyof MigrationInclude; label: string }[] = [
   { key: 'series', label: 'series' },
   { key: 'episodes', label: 'episodes' },
@@ -15,12 +27,23 @@ const ENTITIES: { key: keyof MigrationInclude; label: string }[] = [
   { key: 'indexers', label: 'indexers' },
   { key: 'download_client', label: 'download client' },
   // Lidarr-only: import the source's root folders with their derived
-  // per-root default profiles (L5). Ignored by the Sonarr/Radarr migrators.
+  // per-root default profiles (L5). Readarr (B6) imports them too — with
+  // the Calibre block. Ignored by the Sonarr/Radarr migrators.
   { key: 'root_folders', label: 'root folders' },
   // Prowlarr-only: the indexer proxies (FlareSolverr endpoints, PR6).
-  // Ignored by the Sonarr/Radarr/Lidarr migrators.
+  // Ignored by the Sonarr/Radarr/Lidarr/Readarr migrators.
   { key: 'indexer_proxies', label: 'indexer proxies' },
 ]
+
+// B6: the shared include keys map onto Readarr's own entity classes —
+// series -> authors + books, episodes -> editions + book files, and the
+// quality_profiles flag covers both book quality and metadata profiles.
+const READARR_LABELS: Partial<Record<keyof MigrationInclude, string>> = {
+  series: 'authors + books',
+  episodes: 'editions + book files',
+  quality_profiles: 'quality + metadata profiles',
+  root_folders: 'root folders (Calibre block)',
+}
 
 type MigrationAction = MigrationResult['items'][number]['action']
 
@@ -39,6 +62,77 @@ const STATUS_PILL: Record<MigrationStatus['status'], string> = {
   completed: 'pill-ok',
   partial: 'pill-warn',
   failed: 'pill-err',
+}
+
+// Per-source copy: labels, the done/total noun, the include filter, and the
+// include labels (readarr re-labels the shared keys, see READARR_LABELS).
+const SOURCE_COPY: Record<
+  MigrationRequest['source'],
+  {
+    name: string
+    blurb: string
+    placeholder: string
+    unit: string
+    include: (key: keyof MigrationInclude) => boolean
+  }
+> = {
+  sonarr: {
+    name: 'Sonarr',
+    blurb:
+      'Drop-in migration from a Sonarr instance: series + episodes, quality profiles, tags, indexers, and the download client.',
+    placeholder: 'http://sonarr.local:8989',
+    unit: 'series',
+    include: (key) => key !== 'root_folders' && key !== 'indexer_proxies',
+  },
+  radarr: {
+    name: 'Radarr',
+    blurb:
+      'Drop-in migration from a Radarr instance: movies + editions, quality profiles, tags, indexers, the download client, and a best-effort settings subset.',
+    placeholder: 'https://radarr.local:7878',
+    unit: 'movies',
+    include: (key) => key !== 'root_folders' && key !== 'indexer_proxies',
+  },
+  lidarr: {
+    name: 'Lidarr',
+    blurb:
+      'Drop-in migration from a Lidarr instance: artists + albums (type, monitoring, tracks), quality profiles + definitions, metadata profiles, tags, root folders (with default profiles), indexers, and the download client.',
+    placeholder: 'https://lidarr.local:8666',
+    unit: 'artists',
+    include: (key) => key !== 'indexer_proxies',
+  },
+  prowlarr: {
+    name: 'Prowlarr',
+    blurb:
+      'Drop-in migration from a Prowlarr instance: indexers (credentials are re-encrypted at rest), download clients, tags, and indexer proxies. The Prowlarr Apps section is not imported — Mediarr replaces it with per-kind settings.',
+    placeholder: 'https://prowlarr.local:9696',
+    unit: 'entities',
+    // Prowlarr (PR6) migrates exactly four entity classes — indexers,
+    // download clients, tags, indexer proxies. No root folders, no apps.
+    include: (key) =>
+      key === 'indexers' ||
+      key === 'download_client' ||
+      key === 'tags' ||
+      key === 'indexer_proxies',
+  },
+  readarr: {
+    name: 'Readarr',
+    blurb:
+      'Drop-in migration from a Readarr instance: authors + books (editions, book files), quality + metadata profiles, tags, indexers, the download client, and root folders (with the Calibre block).',
+    placeholder: 'http://readarr.local:8888',
+    unit: 'books',
+    // The Readarr migrator (B6) pulls the shared include classes — no
+    // indexer proxies. Root folders come with the Calibre block.
+    include: (key) => key !== 'indexer_proxies',
+  },
+}
+
+// includeLabel resolves the display label for an include checkbox: the
+// source-specific override (readarr) or the shared entity label.
+function includeLabel(source: MigrationRequest['source'], key: keyof MigrationInclude): string {
+  if (source === 'readarr') {
+    return READARR_LABELS[key] ?? ENTITIES.find((e) => e.key === key)?.label ?? key
+  }
+  return ENTITIES.find((e) => e.key === key)?.label ?? key
 }
 
 export function MigrationPanel() {
@@ -65,14 +159,24 @@ export function MigrationPanel() {
   const [runError, setRunError] = useState<string | null>(null)
   const [result, setResult] = useState<MigrationResult | null>(null)
 
+  const copy = SOURCE_COPY[source]
+  const isReadarr = source === 'readarr'
+
+  // B6: Readarr's status is source-scoped (the dedicated endpoint), so it
+  // reports the Readarr run even when another source migrated most recently;
+  // the other sources share the generic most-recently-run status.
   const load = useCallback(async () => {
     setError(null)
     try {
-      setStatus(await client.getMigrationStatus())
+      setStatus(
+        source === 'readarr'
+          ? await client.getReadarrMigrationStatus()
+          : await client.getMigrationStatus(),
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load migration status')
     }
-  }, [])
+  }, [source])
 
   useEffect(() => {
     void load()
@@ -98,23 +202,45 @@ export function MigrationPanel() {
   }
 
   async function handleRun() {
+    // B6: the dedicated execute writes for real — confirm before running.
+    // (Dry runs are read-only and safe to repeat, so they need no confirm.)
+    if (!dryRun && isReadarr) {
+      const ok = window.confirm(
+        'Run the Readarr migration for real? Authors, books, and settings will be imported into Mediarr. A dry run changes nothing.',
+      )
+      if (!ok) return
+    }
     setRunning(true)
     setRunError(null)
     try {
-      setResult(
-        await client.runMigration({
-          source_url: sourceUrl.trim(),
-          source,
+      if (isReadarr) {
+        const req: ReadarrMigrationRequest = {
+          base_url: sourceUrl.trim(),
           api_key: apiKey.trim() || undefined,
-          dry_run: dryRun,
-          resume: resume || undefined,
           include,
-        }),
-      )
+        }
+        setResult(
+          dryRun
+            ? await client.runReadarrMigration(req)
+            : await client.executeReadarrMigration({ ...req, resume: resume || undefined }),
+        )
+      } else {
+        setResult(
+          await client.runMigration({
+            source_url: sourceUrl.trim(),
+            source,
+            api_key: apiKey.trim() || undefined,
+            dry_run: dryRun,
+            resume: resume || undefined,
+            include,
+          }),
+        )
+      }
     } catch (e) {
       setRunError(e instanceof Error ? e.message : 'migration run failed')
     } finally {
       setRunning(false)
+      void load()
     }
   }
 
@@ -125,13 +251,7 @@ export function MigrationPanel() {
       <div className="card">
         <h3 style={{ margin: '0 0 0.5rem' }}>Migration</h3>
         <p className="dim" style={{ marginTop: 0 }}>
-          {source === 'lidarr'
-            ? 'Drop-in migration from a Lidarr instance: artists + albums (type, monitoring, tracks), quality profiles + definitions, metadata profiles, tags, root folders (with default profiles), indexers, and the download client.'
-            : source === 'radarr'
-              ? 'Drop-in migration from a Radarr instance: movies + editions, quality profiles, tags, indexers, the download client, and a best-effort settings subset.'
-              : source === 'prowlarr'
-                ? 'Drop-in migration from a Prowlarr instance: indexers (credentials are re-encrypted at rest), download clients, tags, and indexer proxies. The Prowlarr Apps section is not imported — Mediarr replaces it with per-kind settings.'
-                : 'Drop-in migration from a Sonarr instance: series + episodes, quality profiles, tags, indexers, and the download client.'}{' '}
+          {copy.blurb}{' '}
           Idempotent and resumable — a dry run changes nothing.
         </p>
         <div className="list-table" data-testid="migration-status">
@@ -140,7 +260,7 @@ export function MigrationPanel() {
               <span className={`pill ${STATUS_PILL[status.status]}`}>{status.status}</span>
             </span>
             <span className="lt-dim">
-              {status.done}/{status.total} {source === 'lidarr' ? 'artists' : source === 'radarr' ? 'movies' : source === 'prowlarr' ? 'entities' : 'series'}
+              {status.done}/{status.total} {copy.unit}
             </span>
             <span className="lt-dim">
               {status.started_at ? `started ${new Date(status.started_at).toLocaleString()}` : ''}
@@ -148,6 +268,12 @@ export function MigrationPanel() {
             </span>
           </div>
         </div>
+        {status.status === 'failed' && (
+          <div className="banner-danger" data-testid="migration-failed">
+            The last run failed — the source could not be reached or returned no data. Check the
+            base URL and API key, then try again.
+          </div>
+        )}
       </div>
 
       <div className="card">
@@ -163,49 +289,24 @@ export function MigrationPanel() {
             <option value="radarr">Radarr</option>
             <option value="lidarr">Lidarr</option>
             <option value="prowlarr">Prowlarr</option>
+            <option value="readarr">Readarr</option>
           </select>
         </label>
         <p className="dim" data-testid="migration-source-help" style={{ marginTop: 0 }}>
-          {source === 'lidarr'
-            ? 'Base URL of the Lidarr instance.'
-            : source === 'radarr'
-              ? 'Base URL of the Radarr instance.'
-              : source === 'prowlarr'
-                ? 'Base URL of the Prowlarr instance.'
-                : 'Base URL of the Sonarr instance.'}
+          Base URL of the {copy.name} instance.
         </p>
         <label>
-          {source === 'lidarr'
-            ? 'Lidarr base URL'
-            : source === 'radarr'
-              ? 'Radarr base URL'
-              : source === 'prowlarr'
-                ? 'Prowlarr base URL'
-                : 'Sonarr base URL'}
+          {copy.name} base URL
           <input
             data-testid="migration-source-url"
             type="url"
-            placeholder={
-              source === 'lidarr'
-                ? 'https://lidarr.local:8666'
-                : source === 'radarr'
-                  ? 'https://radarr.local:7878'
-                  : source === 'prowlarr'
-                    ? 'https://prowlarr.local:9696'
-                    : 'http://sonarr.local:8989'
-            }
+            placeholder={copy.placeholder}
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}
           />
         </label>
         <label>
-          {source === 'lidarr'
-            ? 'Lidarr API key'
-            : source === 'radarr'
-              ? 'Radarr API key'
-              : source === 'prowlarr'
-                ? 'Prowlarr API key'
-                : 'Sonarr API key'}
+          {copy.name} API key
           <input
             data-testid="migration-api-key"
             type="password"
@@ -230,30 +331,25 @@ export function MigrationPanel() {
             checked={resume}
             onChange={(e) => setResume(e.target.checked)}
           />{' '}
-          resume a partial run (skip already-migrated series)
+          resume a partial run (skip already-migrated {copy.unit})
         </label>
         <div className="dim" style={{ marginTop: '0.8rem' }}>
           Include
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1.25rem' }}>
-          {ENTITIES.filter((e) => {
-            // Prowlarr (PR6) migrates exactly four entity classes — indexers,
-            // download clients, tags, indexer proxies. No root folders, no
-            // apps (replaced by per-kind settings).
-            if (source === 'prowlarr') {
-              return e.key === 'indexers' || e.key === 'download_client' || e.key === 'tags' || e.key === 'indexer_proxies'
-            }
-            // root_folders is Lidarr-only (L5).
-            return e.key !== 'root_folders' || source === 'lidarr'
-          }).map(({ key, label }) => (
-            <label key={key} className="dim" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginTop: 0 }}>
+          {ENTITIES.filter((e) => copy.include(e.key)).map(({ key }) => (
+            <label
+              key={key}
+              className="dim"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginTop: 0 }}
+            >
               <input
                 type="checkbox"
                 data-testid={`migration-include-${key}`}
                 checked={include[key]}
                 onChange={(e) => setInclude((inc) => ({ ...inc, [key]: e.target.checked }))}
               />{' '}
-              {label}
+              {includeLabel(source, key)}
             </label>
           ))}
         </div>
@@ -294,7 +390,7 @@ export function MigrationPanel() {
               This run was partial — enable “resume” and run again to continue.
             </div>
           )}
-          {report.items.length > 0 && (
+          {report.items.length > 0 ? (
             <div className="list-table">
               <div className="lt-head">
                 <span>Entity</span>
@@ -319,6 +415,13 @@ export function MigrationPanel() {
                 </div>
               ))}
             </div>
+          ) : (
+            // The unreachable-source contract: a 200 with an empty report
+            // (status 'failed'). Nothing was imported.
+            <p className="dim" data-testid="migration-empty-report">
+              No entities were mapped. If the source is unreachable or empty, check the base URL
+              and API key, then run again.
+            </p>
           )}
         </div>
       )}
