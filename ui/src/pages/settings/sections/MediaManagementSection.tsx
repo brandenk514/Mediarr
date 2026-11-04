@@ -5,7 +5,24 @@ import type {
   BooksBookNaming,
   BooksMediaManagementSettings,
 } from '../../../api/books-b5'
-import { DEFAULT_BOOK_FILE_MANAGEMENT, DEFAULT_BOOK_NAMING } from '../../../api/books-b5'
+import type {
+  BookCaseHandling,
+  BookFileDate,
+  BookFingerprint,
+  BookProperRepacks,
+  BookRescan,
+  BookSpaceHandling,
+} from '../../../api/books-b5'
+import {
+  BOOK_CASE_HANDLINGS,
+  BOOK_FILE_DATES,
+  BOOK_FINGERPRINTS,
+  BOOK_PROPER_REPACKS,
+  BOOK_RESCANS,
+  BOOK_SPACE_HANDLINGS,
+  DEFAULT_BOOK_FILE_MANAGEMENT,
+  DEFAULT_BOOK_NAMING,
+} from '../../../api/books-b5'
 import type {
   FileManagement,
   MovieNaming,
@@ -153,6 +170,16 @@ export function MediaManagementSection() {
   function patchMusicNaming(patch: Partial<MusicNaming>) {
     if (!musicNaming) return
     setMusicNaming({ ...musicNaming, ...patch })
+  }
+
+  // Readarr B5: the books naming / file-management patches (the blocks are
+  // always non-null — they seed the factory defaults at the load boundary).
+  function patchBookNaming(patch: Partial<BooksBookNaming>) {
+    setBookNaming({ ...bookNaming, ...patch })
+  }
+
+  function patchBookMgmt(patch: Partial<BooksBookFileManagement>) {
+    setBookMgmt({ ...bookMgmt, ...patch })
   }
 
   function patchFileMgmt(patch: Partial<FileManagement>) {
@@ -325,6 +352,303 @@ export function MediaManagementSection() {
           onChange={(e) => patchMusicNaming({ multi_disc_format: e.target.value })}
           data-testid="mm-track-multidisc"
         />
+      </div>
+
+      {/* Readarr B5: the books naming block (wire shape from books-b5.ts —
+          the backend's BookNaming, which openapi.yaml documents differently). */}
+      <h4>Book naming</h4>
+      <div data-testid="mm-book-naming">
+        <label className="check" htmlFor="mm-book-rename">
+          <input
+            id="mm-book-rename"
+            type="checkbox"
+            checked={bookNaming.rename_books}
+            onChange={(e) => patchBookNaming({ rename_books: e.target.checked })}
+            data-testid="mm-book-rename"
+          />
+          Rename Books
+        </label>
+        <label className="check" htmlFor="mm-book-illegal">
+          <input
+            id="mm-book-illegal"
+            type="checkbox"
+            checked={bookNaming.replace_illegal_characters}
+            onChange={(e) => patchBookNaming({ replace_illegal_characters: e.target.checked })}
+            data-testid="mm-book-illegal"
+          />
+          Replace Illegal Characters
+        </label>
+        <label htmlFor="mm-book-colon">Colon Replacement</label>
+        <input
+          id="mm-book-colon"
+          value={bookNaming.colon_replacement}
+          maxLength={1}
+          placeholder="e.g. '"
+          onChange={(e) => patchBookNaming({ colon_replacement: e.target.value.slice(-1) })}
+          data-testid="mm-book-colon"
+        />
+        <label htmlFor="mm-book-format">Standard Format</label>
+        <input
+          id="mm-book-format"
+          value={bookNaming.standard_format}
+          onChange={(e) => patchBookNaming({ standard_format: e.target.value })}
+          data-testid="mm-book-format"
+        />
+        <label htmlFor="mm-book-author">Author Format</label>
+        <input
+          id="mm-book-author"
+          value={bookNaming.author_format}
+          onChange={(e) => patchBookNaming({ author_format: e.target.value })}
+          data-testid="mm-book-author"
+        />
+        <label htmlFor="mm-book-space">Space Handling</label>
+        <select
+          id="mm-book-space"
+          value={bookNaming.space_handling}
+          onChange={(e) => patchBookNaming({ space_handling: e.target.value as BookSpaceHandling })}
+          data-testid="mm-book-space"
+        >
+          {BOOK_SPACE_HANDLINGS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <label htmlFor="mm-book-case">Case Handling</label>
+        <select
+          id="mm-book-case"
+          value={bookNaming.case_handling}
+          onChange={(e) => patchBookNaming({ case_handling: e.target.value as BookCaseHandling })}
+          data-testid="mm-book-case"
+        >
+          {BOOK_CASE_HANDLINGS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Readarr B5: the books file-management block (the backend's
+          BookFileManagement — 20 fields, divergent from the spec). */}
+      <h4>Book file management</h4>
+      <div data-testid="mm-book-management">
+        <label className="check" htmlFor="mm-book-unmonitor">
+          <input
+            id="mm-book-unmonitor"
+            type="checkbox"
+            checked={bookMgmt.unmonitor_downloaded}
+            onChange={(e) => patchBookMgmt({ unmonitor_downloaded: e.target.checked })}
+            data-testid="mm-book-unmonitor"
+          />
+          Unmonitor Downloaded Books
+        </label>
+        <label className="check" htmlFor="mm-book-ignore-deleted">
+          <input
+            id="mm-book-ignore-deleted"
+            type="checkbox"
+            checked={bookMgmt.ignore_deleted_files}
+            onChange={(e) => patchBookMgmt({ ignore_deleted_files: e.target.checked })}
+            data-testid="mm-book-ignore-deleted"
+          />
+          Ignore Deleted Files
+        </label>
+        <label htmlFor="mm-book-propers">Download Propers and Repacks</label>
+        <select
+          id="mm-book-propers"
+          value={bookMgmt.download_propers_and_repacks}
+          onChange={(e) =>
+            patchBookMgmt({ download_propers_and_repacks: e.target.value as BookProperRepacks })
+          }
+          data-testid="mm-book-propers"
+        >
+          {BOOK_PROPER_REPACKS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <label className="check" htmlFor="mm-book-create-empty">
+          <input
+            id="mm-book-create-empty"
+            type="checkbox"
+            checked={bookMgmt.create_empty_author_folders}
+            onChange={(e) => patchBookMgmt({ create_empty_author_folders: e.target.checked })}
+            data-testid="mm-book-create-empty"
+          />
+          Create Empty Author Folders
+        </label>
+        <label className="check" htmlFor="mm-book-delete-empty">
+          <input
+            id="mm-book-delete-empty"
+            type="checkbox"
+            checked={bookMgmt.delete_empty_folders}
+            onChange={(e) => patchBookMgmt({ delete_empty_folders: e.target.checked })}
+            data-testid="mm-book-delete-empty"
+          />
+          Delete Empty Folders
+        </label>
+        <label htmlFor="mm-book-file-date">File Date</label>
+        <select
+          id="mm-book-file-date"
+          value={bookMgmt.file_date}
+          onChange={(e) => patchBookMgmt({ file_date: e.target.value as BookFileDate })}
+          data-testid="mm-book-file-date"
+        >
+          {BOOK_FILE_DATES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <label className="check" htmlFor="mm-book-watch">
+          <input
+            id="mm-book-watch"
+            type="checkbox"
+            checked={bookMgmt.watch_library_for_changes}
+            onChange={(e) => patchBookMgmt({ watch_library_for_changes: e.target.checked })}
+            data-testid="mm-book-watch"
+          />
+          Watch Library for Changes
+        </label>
+        <label htmlFor="mm-book-rescan">Rescan After Refresh</label>
+        <select
+          id="mm-book-rescan"
+          value={bookMgmt.rescan_after_refresh}
+          onChange={(e) => patchBookMgmt({ rescan_after_refresh: e.target.value as BookRescan })}
+          data-testid="mm-book-rescan"
+        >
+          {BOOK_RESCANS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <label htmlFor="mm-book-fingerprint">Allow Fingerprinting</label>
+        <select
+          id="mm-book-fingerprint"
+          value={bookMgmt.allow_fingerprinting}
+          onChange={(e) =>
+            patchBookMgmt({ allow_fingerprinting: e.target.value as BookFingerprint })
+          }
+          data-testid="mm-book-fingerprint"
+        >
+          {BOOK_FINGERPRINTS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <label htmlFor="mm-book-recycle">Recycle Bin</label>
+        <input
+          id="mm-book-recycle"
+          value={bookMgmt.recycle_bin}
+          placeholder="/tmp/recycle"
+          onChange={(e) => patchBookMgmt({ recycle_bin: e.target.value })}
+          data-testid="mm-book-recycle"
+        />
+        <label htmlFor="mm-book-recycle-days">Recycle Bin Cleanup Days</label>
+        <input
+          id="mm-book-recycle-days"
+          type="number"
+          value={bookMgmt.recycle_bin_cleanup_days}
+          onChange={(e) => patchBookMgmt({ recycle_bin_cleanup_days: Number(e.target.value) || 0 })}
+          data-testid="mm-book-recycle-days"
+        />
+        <label className="check" htmlFor="mm-book-perm-linux">
+          <input
+            id="mm-book-perm-linux"
+            type="checkbox"
+            checked={bookMgmt.set_permissions_linux}
+            onChange={(e) => patchBookMgmt({ set_permissions_linux: e.target.checked })}
+            data-testid="mm-book-perm-linux"
+          />
+          Set Permissions (Linux)
+        </label>
+        <label htmlFor="mm-book-chmod">chmod Folder</label>
+        <input
+          id="mm-book-chmod"
+          value={bookMgmt.chmod_folder}
+          placeholder="755"
+          onChange={(e) => patchBookMgmt({ chmod_folder: e.target.value })}
+          data-testid="mm-book-chmod"
+        />
+        <label htmlFor="mm-book-chown-user">chown User</label>
+        <input
+          id="mm-book-chown-user"
+          value={bookMgmt.chown_user}
+          onChange={(e) => patchBookMgmt({ chown_user: e.target.value })}
+          data-testid="mm-book-chown-user"
+        />
+        <label htmlFor="mm-book-chown-group">chown Group</label>
+        <input
+          id="mm-book-chown-group"
+          value={bookMgmt.chown_group}
+          onChange={(e) => patchBookMgmt({ chown_group: e.target.value })}
+          data-testid="mm-book-chown-group"
+        />
+        <label className="check" htmlFor="mm-book-skip-freespace">
+          <input
+            id="mm-book-skip-freespace"
+            type="checkbox"
+            checked={bookMgmt.skip_free_space_check}
+            onChange={(e) => patchBookMgmt({ skip_free_space_check: e.target.checked })}
+            data-testid="mm-book-skip-freespace"
+          />
+          Skip Free Space Check When Importing
+        </label>
+        <label htmlFor="mm-book-minfree">Minimum Free Space (GB)</label>
+        <input
+          id="mm-book-minfree"
+          type="number"
+          value={bookMgmt.min_free_space_gb}
+          onChange={(e) => patchBookMgmt({ min_free_space_gb: Number(e.target.value) || 0 })}
+          data-testid="mm-book-minfree"
+        />
+        <label className="check" htmlFor="mm-book-hardlinks">
+          <input
+            id="mm-book-hardlinks"
+            type="checkbox"
+            checked={bookMgmt.copy_using_hardlinks}
+            onChange={(e) => patchBookMgmt({ copy_using_hardlinks: e.target.checked })}
+            data-testid="mm-book-hardlinks"
+          />
+          Copy Using Hardlinks
+        </label>
+        <label className="check" htmlFor="mm-book-extras">
+          <input
+            id="mm-book-extras"
+            type="checkbox"
+            checked={bookMgmt.import_extra_files}
+            onChange={(e) => patchBookMgmt({ import_extra_files: e.target.checked })}
+            data-testid="mm-book-extras"
+          />
+          Import Extra Files
+        </label>
+        <label htmlFor="mm-book-extra-exts">Extra File Extensions</label>
+        <input
+          id="mm-book-extra-exts"
+          value={bookMgmt.extra_file_extensions}
+          placeholder="txt, html"
+          onChange={(e) => patchBookMgmt({ extra_file_extensions: e.target.value })}
+          data-testid="mm-book-extra-exts"
+        />
+      </div>
+
+      {/* Readarr B5: the global Calibre feature flag. The per-root Content
+          Server config lives on the root folders below. */}
+      <h4>Calibre</h4>
+      <div data-testid="mm-calibre">
+        <label className="check" htmlFor="mm-calibre-enabled">
+          <input
+            id="mm-calibre-enabled"
+            type="checkbox"
+            checked={calibreEnabled}
+            onChange={(e) => setCalibreEnabled(e.target.checked)}
+            data-testid="mm-calibre-enabled"
+          />
+          Enable Calibre (per-root Content Server config is on the root folders)
+        </label>
       </div>
 
       <h4>File management</h4>

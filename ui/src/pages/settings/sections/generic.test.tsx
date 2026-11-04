@@ -1118,4 +1118,78 @@ describe('MediaManagementSection', () => {
       }),
     )
   })
+
+  it('renders the Readarr book naming block and saves its edits (B5)', async () => {
+    const user = userEvent.setup()
+    renderSection(<MediaManagementSection />)
+    const format = await screen.findByTestId('mm-book-format')
+    // A pre-B5 document (no book_naming) seeds the factory defaults.
+    await waitFor(() =>
+      expect(format).toHaveValue('{Author Name} - {Book Title} ({Release Year})'),
+    )
+    expect(screen.getByTestId('mm-book-rename')).toBeChecked()
+    expect(screen.getByTestId('mm-book-illegal')).toBeChecked()
+    expect(screen.getByTestId('mm-book-author')).toHaveValue('{Author Name}')
+    expect(screen.getByTestId('mm-book-space')).toHaveValue('space')
+
+    // Uncheck rename, swap the template (braces break userEvent key-sequence
+    // parsing — set it directly), and change the space handling.
+    await user.click(screen.getByTestId('mm-book-rename'))
+    fireEvent.change(format, { target: { value: '{Author Name} - {Book Title}' } })
+    await user.selectOptions(screen.getByTestId('mm-book-space'), 'underscore')
+    await user.selectOptions(screen.getByTestId('mm-book-case'), 'uppercase')
+    await user.click(screen.getByTestId('media-management-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'media-management',
+        expect.objectContaining({
+          book_naming: {
+            rename_books: false,
+            replace_illegal_characters: true,
+            colon_replacement: '',
+            standard_format: '{Author Name} - {Book Title}',
+            author_format: '{Author Name}',
+            space_handling: 'underscore',
+            case_handling: 'uppercase',
+          },
+        }),
+      ),
+    )
+  })
+
+  it('edits the book file management block + global Calibre flag and saves (B5)', async () => {
+    const user = userEvent.setup()
+    renderSection(<MediaManagementSection />)
+    // Seeded factory defaults: unmonitor on, ignore-deleted off, propers
+    // include, recycle empty, hardlinks on, Calibre off.
+    expect(await screen.findByTestId('mm-book-unmonitor')).toBeChecked()
+    expect(screen.getByTestId('mm-book-ignore-deleted')).not.toBeChecked()
+    expect(screen.getByTestId('mm-book-propers')).toHaveValue('include')
+    expect(screen.getByTestId('mm-book-recycle')).toHaveValue('')
+    expect(screen.getByTestId('mm-book-hardlinks')).toBeChecked()
+    expect(screen.getByTestId('mm-calibre-enabled')).not.toBeChecked()
+
+    // Unmonitor off, propers upgrade, file date release, a recycle path,
+    // and flip the global Calibre flag on.
+    await user.click(screen.getByTestId('mm-book-unmonitor'))
+    await user.selectOptions(screen.getByTestId('mm-book-propers'), 'upgrade')
+    await user.selectOptions(screen.getByTestId('mm-book-file-date'), 'release')
+    await user.type(screen.getByTestId('mm-book-recycle'), '/tmp/recycle')
+    await user.click(screen.getByTestId('mm-calibre-enabled'))
+    await user.click(screen.getByTestId('media-management-save'))
+    await waitFor(() =>
+      expect(client.putSettingsSection).toHaveBeenCalledWith(
+        'media-management',
+        expect.objectContaining({
+          book_management: expect.objectContaining({
+            unmonitor_downloaded: false,
+            download_propers_and_repacks: 'upgrade',
+            file_date: 'release',
+            recycle_bin: '/tmp/recycle',
+          }),
+          calibre_enabled: true,
+        }),
+      ),
+    )
+  })
 })
