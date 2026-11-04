@@ -5011,7 +5011,7 @@ components:
             $ref: "#/components/schemas/ImportCandidate"
     RootFolder:
       type: object
-      required: [ID, Path, Name, CreatedAt, FreeSpace]
+      required: [ID, Path, Name, CreatedAt, FreeSpace, Calibre, HardlinksDisabled]
       properties:
         ID:
           type: integer
@@ -5040,9 +5040,74 @@ components:
           description: |
             Per-root default metadata profile name (Lidarr L3); "" when
             unset. Must be one of the seeded metadata profile names.
+        Calibre:
+          description: |
+            Per-root Calibre Content Server config (Readarr B5); null when
+            the root has no Calibre config (the disabled default). The
+            password is masked on read (never echoed) — only
+            password_set comes back.
+          allOf:
+            - $ref: "#/components/schemas/CalibreSettings"
+          nullable: true
+        HardlinksDisabled:
+          type: boolean
+          description: |
+            True when this root's Calibre is enabled: Calibre needs real
+            files, not hard links, so hard-link imports are forced off for
+            this root (the B5 rule).
+    CalibreSettings:
+      type: object
+      required: [enabled, host, port, url_base, username, password, password_set, library, use_ssl, output_format, output_profile, monitor, quality_profile, metadata_profile, default_tags]
+      properties:
+        enabled:
+          type: boolean
+          description: This root's "Use Calibre" toggle (also gated by the global calibre_enabled feature flag).
+        host:
+          type: string
+          description: Content Server host; required when enabled.
+        port:
+          type: integer
+          description: Content Server port (1-65535); required when enabled.
+        url_base:
+          type: string
+          description: Optional path prefix on the Content Server (e.g. /calibre).
+        username:
+          type: string
+          description: Content Server user; required when enabled.
+        password:
+          type: string
+          description: Write-only; masked on read. A blank value on write keeps the stored key.
+        password_set:
+          type: boolean
+        library:
+          type: string
+          description: The Calibre library name this root maps to.
+        use_ssl:
+          type: boolean
+          description: Use an HTTPS Content Server connection.
+        output_format:
+          type: string
+          description: Comma-separated "Convert to" formats (MOBI, EPUB, AZW3, ...); "" = import without conversion.
+        output_profile:
+          type: integer
+          description: Calibre output (device) profile index; 0 = default.
+        monitor:
+          type: boolean
+          description: Auto-import this root's books into Calibre on import.
+        quality_profile:
+          type: string
+          description: Name of the seeded book quality profile applied to this root's books; "" = app default.
+        metadata_profile:
+          type: string
+          description: Name of the seeded book metadata profile applied to this root's books; "" = app default.
+        default_tags:
+          type: array
+          items:
+            type: integer
+          description: Tag ids written to this root's books.
     RootFolderRequest:
       type: object
-      description: Omitted path/name keep their stored values (PUT); omitted default profiles keep their stored values.
+      description: Omitted path/name keep their stored values (PUT); omitted default profiles keep their stored values; an omitted Calibre block keeps the stored one.
       properties:
         path:
           type: string
@@ -5054,6 +5119,9 @@ components:
         default_metadata_profile:
           type: string
           description: Per-root default metadata profile name; "" = unset/keep. Non-empty must be a seeded metadata profile name.
+        calibre:
+          $ref: "#/components/schemas/CalibreSettings"
+          description: Per-root Calibre config (B5). A blank password inside keeps the stored key.
     Episode:
       type: object
       required: [ID, SeriesID, Season, Episode, Title, Monitored, AddedAt]
@@ -7564,6 +7632,7 @@ components:
         - metadata
         - metadata-source
         - import-lists
+        - book-import-lists
     SettingsSectionDocument:
       oneOf:
         - $ref: "#/components/schemas/GeneralSettings"
@@ -7577,6 +7646,7 @@ components:
         - $ref: "#/components/schemas/MetadataSettings"
         - $ref: "#/components/schemas/MetadataSourceSettings"
         - $ref: "#/components/schemas/ImportListsSettings"
+        - $ref: "#/components/schemas/BookImportListsSettings"
     GeneralSettings:
       type: object
       description: |
@@ -8221,7 +8291,7 @@ components:
           type: string
     MediaManagementSettings:
       type: object
-      required: [naming, movie_naming, music_naming, file_management, remote_path_mappings]
+      required: [naming, movie_naming, music_naming, book_naming, book_management, calibre_enabled, file_management, remote_path_mappings]
       properties:
         naming:
           $ref: "#/components/schemas/NamingTemplate"
@@ -8229,6 +8299,13 @@ components:
           $ref: "#/components/schemas/MovieNaming"
         music_naming:
           $ref: "#/components/schemas/MusicNaming"
+        book_naming:
+          $ref: "#/components/schemas/BookNaming"
+        book_management:
+          $ref: "#/components/schemas/BookFileManagement"
+        calibre_enabled:
+          type: boolean
+          description: Global Calibre feature flag (Readarr B5; off by default). Per-root Calibre config lives on the root-folder registry.
         file_management:
           $ref: "#/components/schemas/FileManagement"
         remote_path_mappings:
@@ -8384,7 +8461,7 @@ components:
           description: Whether this consumer runs; all default to false.
     MetadataSettings:
       type: object
-      required: [generate_nfo, generate_subtitles, language, kinds, tag_audio_files, scrub_existing_tags, consumers]
+      required: [generate_nfo, generate_subtitles, language, kinds, tag_audio_files, scrub_existing_tags, book_tag_write, consumers]
       properties:
         generate_nfo:
           type: boolean
@@ -8406,6 +8483,8 @@ components:
         scrub_existing_tags:
           type: boolean
           description: Scrub existing tags from the files when tagging (L3; defaults to false).
+        book_tag_write:
+          $ref: "#/components/schemas/BookTagWrite"
         consumers:
           type: array
           description: Metadata consumers to run against the generated files (L3).
@@ -8501,6 +8580,136 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ImportList"
+    BookTagWrite:
+      type: object
+      required: [book_tag_type, audio_tag_type]
+      properties:
+        book_tag_type:
+          type: string
+          enum: [no, all, book]
+          description: Which tags to write to (e-book) files; all by default.
+        audio_tag_type:
+          type: string
+          enum: [no, all, audio]
+          description: Which tags to write to a-book (audio) files; no by default.
+    BookNaming:
+      type: object
+      required: [standard_format, standard_template, standard_replace, audiobook_format, audiobook_template, audiobook_replace]
+      properties:
+        standard_format:
+          type: string
+          description: E-book folder format (Readarr Standard Format), e.g. [Author] - [BookTitle].
+        standard_template:
+          type: string
+          description: E-book file template (Readarr Standard Template), e.g. [Author] - [BookTitle] ([Volume]) ([Year]).
+        standard_replace:
+          type: string
+          description: E-book filename sanitization (Readarr Standard Replacement).
+        audiobook_format:
+          type: string
+          description: A-book folder format (Readarr Audio Book Format), e.g. [Author] - [SeriesName] ([Series0] of [Series]).
+        audiobook_template:
+          type: string
+          description: A-book file template (Readarr Audio Book Template), e.g. [Author] - [SeriesName] ([Series0] of [Series]) ([Chapter000]) - [ChapterName].
+        audiobook_replace:
+          type: string
+          description: A-book filename sanitization (Readarr Audio Book Replacement).
+    BookFileManagement:
+      type: object
+      required: [epub_extension, mobi_extension, azw3_extension, aac_extension, flac_extension, mp3_extension, m4a_extension]
+      properties:
+        epub_extension:
+          type: string
+          description: Default is .epz (Readarr's E-Book Format default).
+        mobi_extension:
+          type: string
+          description: Default is .azw.
+        azw3_extension:
+          type: string
+          description: Default is .azw3.
+        aac_extension:
+          type: string
+          description: Default is .m4b.
+        flac_extension:
+          type: string
+          description: Default is .flac.
+        mp3_extension:
+          type: string
+          description: Default is .mp3.
+        m4a_extension:
+          type: string
+          description: Default is .m4a.
+    BookImportList:
+      type: object
+      required: [id, name, kind, list_id, base_url, api_key, api_key_set, profile_ids, tag_ids, root_folder_paths, exclusions]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [goodreads, lazylibrarian, readarr]
+          description: |
+            goodreads: a list on the public Goodreads site (list_id +
+            base_url, no key). lazylibrarian / readarr: a self-hosted
+            instance (base_url + api_key).
+        list_id:
+          type: string
+          description: Goodreads list id (goodreads kind only).
+        base_url:
+          type: string
+          description: The Goodreads site, or the lazylibrarian/readarr instance URL.
+        api_key:
+          type: string
+          description: lazylibrarian / readarr API key; masked on read, empty string when unset.
+        api_key_set:
+          type: boolean
+          description: True when an API key is stored for this list.
+        profile_ids:
+          type: array
+          items:
+            type: integer
+          description: "Readarr-instance filter: profile ids (readarr kind only; empty = all)."
+        tag_ids:
+          type: array
+          items:
+            type: integer
+          description: "Readarr-instance filter: tag ids (readarr kind only; empty = all)."
+        root_folder_paths:
+          type: array
+          items:
+            type: string
+          description: "Readarr-instance filter: root-folder paths (readarr kind only; empty = all)."
+        exclusions:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookImportListExclusion"
+    BookImportListExclusion:
+      type: object
+      required: [foreign_id, name]
+      properties:
+        foreign_id:
+          type: string
+          description: The source's book foreign id to skip.
+        name:
+          type: string
+          description: The book title/name to skip.
+    BookImportListsSettings:
+      type: object
+      required: [lists, exclusions]
+      properties:
+        lists:
+          type: array
+          description: The books import lists (goodreads / lazylibrarian / readarr kinds).
+          items:
+            $ref: "#/components/schemas/BookImportList"
+        exclusions:
+          type: array
+          description: Books no list should ever import (document-level).
+          items:
+            $ref: "#/components/schemas/BookImportListExclusion"
     ImportRunRequest:
       type: object
       required: [id, dry_run]
