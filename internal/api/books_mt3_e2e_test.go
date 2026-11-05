@@ -72,7 +72,7 @@ func mt3OLStub(t *testing.T, calls *int) string {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"key": "/works/OL59863W", "title": "The Dispossessed",
 				"author_name": []string{"Ursula K. Le Guin"}, "first_publish_year": 1974,
-				"cover": map[string]any{"small": "https://covers.openlibrary.org/b/id/12345-S.jpg"},
+				"cover":         map[string]any{"small": "https://covers.openlibrary.org/b/id/12345-S.jpg"},
 				"edition_count": 1, "editions": []map[string]any{
 					{"key": "/works/OL59863W/OL25828717M", "isbn_13": []string{"9780140449335"}, "languages": []string{"eng"}},
 				},

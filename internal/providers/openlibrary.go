@@ -333,7 +333,7 @@ type olEditionDoc struct {
 	Title         string   `json:"title"`
 	ISBN10        []string `json:"isbn_10"`
 	ISBN13        []string `json:"isbn_13"`
-	Formats       []string `json:"formats"` // e.g. ["EPUB", "PDF"]
+	Formats       []string `json:"formats"`   // e.g. ["EPUB", "PDF"]
 	Languages     []any    `json:"languages"` // strings, or objects with key/code
 	Publishers    []string `json:"publishers"`
 	PublishDate   string   `json:"publish_date"` // raw: "2017-06", "2017", ...
