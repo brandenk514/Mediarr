@@ -97,7 +97,9 @@ export function useDebouncedSearch<T = SearchResult>(search: (q: string) => Prom
 
 // SearchBox is the provider search input. It shows a spinner while a search
 // is in flight, the 503 reason (disabled box) when the provider is not
-// configured, and a retry-able error line for transient failures.
+// configured, and a retry-able error line for transient failures. An
+// optional `hint` line (the books id-lookup syntax, MT1) renders under the
+// input.
 export function SearchBox<T = SearchResult>({
   label,
   placeholder,
@@ -105,6 +107,7 @@ export function SearchBox<T = SearchResult>({
   onText,
   state,
   testId,
+  hint,
 }: {
   label: string
   placeholder: string
@@ -112,6 +115,7 @@ export function SearchBox<T = SearchResult>({
   onText: (s: string) => void
   state: SearchState<T>
   testId: string
+  hint?: string
 }) {
   const { phase } = state
   return (
@@ -132,6 +136,11 @@ export function SearchBox<T = SearchResult>({
           data-testid={`${testId}-input`}
         />
       </div>
+      {hint && (
+        <p className="dim small" data-testid={`${testId}-hint`}>
+          {hint}
+        </p>
+      )}
       {phase === 'unavailable' && (
         <p className="dim" data-testid={`${testId}-unavailable`}>
           {state.error}
