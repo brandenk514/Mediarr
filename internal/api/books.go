@@ -63,6 +63,7 @@ func (s *Server) SetBooks(deps *BooksDeps) {
 	// MT3 refresh command: force a re-fetch of one resolved work, bypassing
 	// the provenance store's TTL.
 	s.register("POST /api/v1/search/books/refresh", s.requireAuth(s.refreshBookMetadata))
+	s.register("GET /api/v1/search/books/works/{workKey}/editions", s.requireAuth(s.getBookWorkEditions))
 }
 
 // addAuthorRequest is the body for POST /api/v1/books/authors (Readarr B2 add
@@ -224,6 +225,85 @@ func (s *Server) refreshBookMetadata(w http.ResponseWriter, r *http.Request) {
 		Year:      wm.Year,
 		CoverURL:  wm.CoverURL,
 		FetchedAt: wm.FetchedAt,
+	})
+}
+
+// bookWorkEdition is the wire shape of one edition of a work (MT2): the
+// provider-fed edition the add flow offers when a work is selected. Fields
+// mirror the spec's BookWorkEdition (snake_case).
+type bookWorkEdition struct {
+	Key         string   `json:"key"`
+	Title       string   `json:"title"`
+	ISBN        string   `json:"isbn"`
+	Formats     []string `json:"formats"`
+	Languages   []string `json:"languages"`
+	Publishers  []string `json:"publishers"`
+	PublishDate string   `json:"publish_date"`
+	Year        int      `json:"year"`
+	Pages       int      `json:"pages"`
+}
+
+// bookWorkDetails is the wire shape of a work's details (MT2): the
+// work-level title/authors/cover plus the editions the add flow offers for
+// that work. Fields mirror the spec's BookWorkDetails (snake_case).
+type bookWorkDetails struct {
+	WorkKey          string            `json:"work_key"`
+	Title            string            `json:"title"`
+	Authors          []string          `json:"authors"`
+	CoverURL         string            `json:"cover_url"`
+	FirstPublishYear int               `json:"first_publish_year"`
+	Editions         []bookWorkEdition `json:"editions"`
+}
+
+// getBookWorkEditions handles GET /api/v1/search/books/works/{workKey}/editions
+// (MT2 edition resolution for the add flow). It returns the work's
+// provider-fed editions: a fresh provenance-store row is served from the
+// cache (no Open Library call); a stale or missing row triggers a
+// work-details fetch that write-throughs the row.
+//
+// Status map (the add flow must never 500): empty workKey 400; no
+// searcher/store 503; an Open Library failure 502 (the keyless-adapter
+// convention); a stale cached row is served when the fetch fails
+// (degradation, still 200).
+func (s *Server) getBookWorkEditions(w http.ResponseWriter, r *http.Request) {
+	if s.booksDeps == nil || s.booksDeps.Svc == nil {
+		writeError(w, http.StatusServiceUnavailable, "books is not configured")
+		return
+	}
+	workKey := r.PathValue("workKey")
+	details, err := s.booksDeps.Svc.GetWorkEditions(r.Context(), workKey)
+	if err != nil {
+		switch {
+		case errors.Is(err, bookssvc.ErrWorkKeyRequired):
+			writeError(w, http.StatusBadRequest, "workKey is required (an OpenLibrary work key, e.g. OL8189755W)")
+		case errors.Is(err, bookssvc.ErrSearcherNotConfigured), errors.Is(err, bookssvc.ErrMetadataStoreNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "openlibrary is not configured")
+		default:
+			writeSearchError(w, "openlibrary", err)
+		}
+		return
+	}
+	editions := make([]bookWorkEdition, 0, len(details.Editions))
+	for _, e := range details.Editions {
+		editions = append(editions, bookWorkEdition{
+			Key:         e.Key,
+			Title:       e.Title,
+			ISBN:        e.ISBN,
+			Formats:     e.Formats,
+			Languages:   e.Languages,
+			Publishers:  e.Publishers,
+			PublishDate: e.PublishDate,
+			Year:        e.Year,
+			Pages:       e.Pages,
+		})
+	}
+	writeJSON(w, http.StatusOK, bookWorkDetails{
+		WorkKey:          details.WorkKey,
+		Title:            details.Title,
+		Authors:          details.Authors,
+		CoverURL:         details.CoverURL,
+		FirstPublishYear: details.FirstPublishYear,
+		Editions:         editions,
 	})
 }
 

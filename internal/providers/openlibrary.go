@@ -273,3 +273,211 @@ func olWorkResults(resp *olSearchResponse) []Result {
 	}
 	return out
 }
+
+// ---------------------------------------------------------------------------
+// MT2 (automatic edition resolution): the work-details fetch.
+// ---------------------------------------------------------------------------
+
+// MaxWorkEditions caps the editions mapped from a work document: the editions
+// array of a popular work can run to thousands of entries, and the add flow
+// only offers a workable subset (the UI lists them for selection).
+const MaxWorkEditions = 50
+
+// WorkEdition is one OpenLibrary edition of a work as fetched by the MT2
+// work-details call. The service maps it onto the domain's WorkEdition
+// (provider layer never imports domains — the repo's adapter convention).
+type WorkEdition struct {
+	Key         string   // bare edition id, e.g. "OL47044678M"
+	Title       string   // edition title; "" when absent
+	ISBN        string   // preferred ISBN (first ISBN-13, else ISBN-10); "" when none
+	Formats     []string // file formats, e.g. ["EPUB", "PDF"]
+	Languages   []string // ISO 639-1 codes, e.g. ["eng"]
+	Publishers  []string // publisher names
+	PublishDate string   // raw OL publish-date string ("2017-06", "2017", ...)
+	Year        int      // leading year of PublishDate; 0 when unknown
+	Pages       int      // page count; 0 when unknown
+}
+
+// WorkDetails is the Open Library work document as fetched by
+// GetWorkDetails (MT2): the work-level title/authors/cover plus the work's
+// editions. The service maps it onto the domain's WorkDetails.
+type WorkDetails struct {
+	WorkKey          string
+	Title            string
+	Authors          []string
+	CoverURL         string
+	FirstPublishYear int
+	Editions         []WorkEdition
+}
+
+// olWorkDoc is the subset of an OpenLibrary work document
+// (GET /works/OL…W.json) we consume.
+type olWorkDoc struct {
+	Key              string         `json:"key"` // "/works/OL66554W"
+	Title            string         `json:"title"`
+	Authors          []olAuthorRef  `json:"authors"`
+	Covers           []int          `json:"covers"` // cover ids; [0] = primary
+	FirstPublishYear int            `json:"first_publish_year"`
+	Editions         []olEditionDoc `json:"editions"`
+}
+
+// olAuthorRef is one author reference of a work document (an object with a
+// name, or a bare string in OL's looser documents).
+type olAuthorRef struct {
+	Name string `json:"name"`
+}
+
+// olEditionDoc is the subset of an OpenLibrary edition document.
+type olEditionDoc struct {
+	Key           string   `json:"key"` // "/works/OL66554W/OL47044678M"
+	Title         string   `json:"title"`
+	ISBN10        []string `json:"isbn_10"`
+	ISBN13        []string `json:"isbn_13"`
+	Formats       []string `json:"formats"` // e.g. ["EPUB", "PDF"]
+	Languages     []any    `json:"languages"` // strings, or objects with key/code
+	Publishers    []string `json:"publishers"`
+	PublishDate   string   `json:"publish_date"` // raw: "2017-06", "2017", ...
+	NumberOfPages int      `json:"number_of_pages"`
+}
+
+// GetWorkDetails fetches the OpenLibrary work document for a work key (bare
+// id or full "/works/…W" key) and maps it to a WorkDetails: the work-level
+// title/authors/cover plus the work's editions (capped at MaxWorkEditions,
+// in document order). A missing work or any non-2xx / malformed answer is
+// ErrBadResponse (the API maps it to a 502; the service degrades to a
+// cached row when it has one).
+func (o *OpenLibrary) GetWorkDetails(ctx context.Context, workKey string) (WorkDetails, error) {
+	k := NormalizeOLID(workKey)
+	if k == "" {
+		return WorkDetails{}, fmt.Errorf("%w: invalid openlibrary work key %q", ErrBadResponse, workKey)
+	}
+	o.Base = o.baseURL()
+	var doc olWorkDoc
+	if err := o.getJSON(ctx, "/works/"+k+".json", nil, &doc); err != nil {
+		return WorkDetails{}, err
+	}
+	details := WorkDetails{
+		WorkKey:          NormalizeOLID(doc.Key),
+		Title:            doc.Title,
+		Authors:          make([]string, 0, len(doc.Authors)),
+		FirstPublishYear: doc.FirstPublishYear,
+	}
+	if details.WorkKey == "" {
+		details.WorkKey = k
+	}
+	for _, a := range doc.Authors {
+		if n := strings.TrimSpace(a.Name); n != "" {
+			details.Authors = append(details.Authors, n)
+		}
+	}
+	if len(doc.Covers) > 0 {
+		details.CoverURL = olCoverURL(doc.Covers[0])
+	}
+	details.Editions = olWorkEditions(doc.Editions)
+	return details, nil
+}
+
+// olWorkEditions maps edition documents to WorkEdition (capped at
+// MaxWorkEditions, document order).
+func olWorkEditions(eds []olEditionDoc) []WorkEdition {
+	out := make([]WorkEdition, 0, len(eds))
+	for _, e := range eds {
+		if len(out) >= MaxWorkEditions {
+			break
+		}
+		out = append(out, WorkEdition{
+			Key:         editionID(e.Key),
+			Title:       e.Title,
+			ISBN:        editionISBN(e.ISBN13, e.ISBN10),
+			Formats:     e.Formats,
+			Languages:   editionLanguages(e.Languages),
+			Publishers:  e.Publishers,
+			PublishDate: e.PublishDate,
+			Year:        editionYear(e.PublishDate),
+			Pages:       e.NumberOfPages,
+		})
+	}
+	return out
+}
+
+// editionID folds a full edition key ("/works/OL…W/OL…M") to the bare edition
+// id ("OL…M"); an empty key yields "".
+func editionID(key string) string {
+	k := strings.TrimSpace(key)
+	if i := strings.LastIndex(k, "/"); i >= 0 {
+		k = k[i+1:]
+	}
+	return k
+}
+
+// editionISBN picks the edition's preferred ISBN: the first ISBN-13, else the
+// first ISBN-10.
+func editionISBN(isbn13, isbn10 []string) string {
+	if s := firstNonEmpty(isbn13); s != "" {
+		return s
+	}
+	return firstNonEmpty(isbn10)
+}
+
+// firstNonEmpty returns the first non-blank string of s ("" when none).
+func firstNonEmpty(s []string) string {
+	for _, v := range s {
+		if t := strings.TrimSpace(v); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// editionLanguages extracts the ISO 639-1 codes from an edition's languages
+// field. OL's documents carry either bare strings ("eng") or language
+// objects — with a key ("/languages/eng") or a code — so all three shapes
+// parse.
+func editionLanguages(raw []any) []string {
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]bool, len(raw))
+	for _, v := range raw {
+		var code string
+		switch tv := v.(type) {
+		case string:
+			code = strings.TrimSpace(tv)
+		case map[string]any:
+			for _, field := range []string{"code", "key"} {
+				if s, ok := tv[field].(string); ok {
+					code = s
+					break
+				}
+			}
+			if i := strings.LastIndex(code, "/"); i >= 0 {
+				code = code[i+1:] // "/languages/eng" -> "eng"
+			}
+		}
+		if code != "" && !seen[code] {
+			seen[code] = true
+			out = append(out, code)
+		}
+	}
+	return out
+}
+
+// editionYear parses the leading year of a raw Open Library publish-date
+// string ("2017-06" -> 2017, "1974" -> 1974); 0 when absent/unknown.
+func editionYear(publishDate string) int {
+	s := strings.TrimSpace(publishDate)
+	if len(s) < 4 {
+		return 0
+	}
+	var n int
+	digits := 0
+	for _, r := range s[:4] {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		n = n*10 + int(r-'0')
+		digits++
+	}
+	if digits != 4 {
+		return 0
+	}
+	return n
+}

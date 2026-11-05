@@ -3713,13 +3713,36 @@ paths:
         author — for kind=author — or that author + title — for kind=book —
         already exists in the books library, so the UI navigates instead of
         re-adding) and `library_id` (the matching row id; 0 when not
-        added). Plain-text only: ISBN/ASIN/Goodreads id-lookup syntax is a
-        separate metadata work item (MT1), not part of B2.
+        added).
 
         MT3: a query that is itself an OpenLibrary work key (e.g.
         "OL59863W") takes the cached path — a fresh resolved-work row is
         served from the provenance store without an Open Library call; an
         expired or missing row re-fetches and upserts the row.
+
+        MT1 id-lookup syntax (in addition to plain text). An id query is
+        routed to its resolver INSTEAD of the plain author+work fan-out and
+        yields a single kind=book hit (the work; author/series stay empty —
+        the add flow fetches the editions separately, MT2). Accepted forms,
+        all case-insensitive on the prefix:
+
+        - `isbn:<digits>` — an ISBN-10 or ISBN-13 (dashes/whitespace
+          ignored; a 13-digit value is normalized to 978/979 EAN).
+        - `asin:<ASIN>` — an Amazon Standard Identification Number
+          (e.g. asin:B000S5MU0K).
+        - `goodreads:<id>` — a Goodreads book id (numeric). Resolved via
+          Goodreads → ISBN → Open Library; a walled/failing Goodreads fetch
+          degrades to an empty list (200), never an error.
+        - `olid:<work key>` — an OpenLibrary work key (e.g. olid:OL59863W
+          or olid:/works/OL59863W); the MT3 cached path.
+        - Bare forms: 13 digits = ISBN-13; "B" + 9 alphanumerics = ASIN;
+          "OL" + digits + "W" (optionally prefixed "/works/") = OL work key.
+          An 8–10 digit bare number is NOT an id (ambiguous with a numeric
+          Goodreads id or a page count) — it is a plain-text query; use
+          `goodreads:` / `isbn:` to disambiguate.
+
+        An id query that matches no work (or whose Goodreads chain fails)
+        returns an empty list (200), never an error.
       parameters:
         - $ref: "#/components/parameters/SearchQuery"
       responses:
@@ -3750,6 +3773,11 @@ paths:
         key". This refresh command bypasses the TTL — it re-fetches the
         work by its OpenLibrary work key, upserts the provenance row
         (re-anchoring `fetched_at`), and returns the refreshed row.
+
+        MT2: the refresh also re-fetches the work's EDITIONS (the same
+        fetch path the editions endpoint uses) and stores them on the row —
+        a work-key refresh refreshes the editions too. The editions leg is
+        best-effort: a failed details fetch keeps the search-hit row.
       parameters:
         - name: key
           in: query
@@ -3770,6 +3798,47 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/books/works/{workKey}/editions:
+    get:
+      tags: [search]
+      summary: A book work's editions for the add flow (MT2 edition resolution).
+      operationId: getBookWorkEditions
+      description: |
+        MT2 (automatic edition resolution): on work selection in the add
+        flow, the UI calls this for the work's provider-fed editions instead
+        of manual data entry. The work's editions live on the provenance
+        row (the MT3 store): a FRESH row is served from the cache without an
+        Open Library call; a stale or missing row triggers a work-details
+        fetch that write-throughs the row (and re-anchors fetched_at, so
+        the next call within the TTL is served from cache).
+        Degradation (the add flow must never 500): a fetch failure falls
+        back to the (stale) cached row; with no cached row either, the
+        fetch error propagates (502). A work with no editions returns an
+        empty list.
+      parameters:
+        - name: workKey
+          in: path
+          required: true
+          description: The OpenLibrary work key (bare "OL…W" or "/works/OL…W").
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The work's details and its editions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookWorkDetails"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "502":
           $ref: "#/components/responses/BadGateway"
         "503":
@@ -5978,6 +6047,76 @@ components:
           type: string
           format: date-time
           description: When the row was last fetched from its source (the TTL anchor).
+    BookWorkEdition:
+      type: object
+      description: |
+        One edition of a book work (MT2): the provider-fed edition the add
+        flow offers when a work is selected, in place of manual data entry.
+      required: [key]
+      properties:
+        key:
+          type: string
+          description: The OpenLibrary EDITION key (e.g. "OL25828717M").
+        title:
+          type: string
+          description: The edition title (usually the work title + subtitle).
+        isbn:
+          type: string
+          description: The edition's primary ISBN (13 if present, else 10); empty when the edition has none.
+        formats:
+          type: array
+          items:
+            type: string
+          description: The edition's formats (e.g. ["EPUB", "PDF"]).
+        languages:
+          type: array
+          items:
+            type: string
+          description: The edition's languages (OpenLibrary codes, e.g. ["eng"]).
+        publishers:
+          type: array
+          items:
+            type: string
+          description: The edition's publishers.
+        publish_date:
+          type: string
+          description: The edition's publish date (e.g. "2018-11-15"); empty when unknown.
+        year:
+          type: integer
+          description: The edition's publish year; 0 when unknown.
+        pages:
+          type: integer
+          description: The edition's page count; 0 when unknown.
+    BookWorkDetails:
+      type: object
+      description: |
+        A book work's details for the add flow (MT2): the work-level
+        title/authors/cover plus the work's editions (provider-fed, cached
+        on the provenance row — see GET /search/books/works/{workKey}/editions).
+      required: [work_key, title, editions]
+      properties:
+        work_key:
+          type: string
+          description: The OpenLibrary work key (bare id).
+        title:
+          type: string
+          description: The work's title; empty when unknown.
+        authors:
+          type: array
+          items:
+            type: string
+          description: The work's author names.
+        cover_url:
+          type: string
+          description: The work's cover image URL; empty when unknown.
+        first_publish_year:
+          type: integer
+          description: The work's first publish year; 0 when unknown.
+        editions:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookWorkEdition"
+          description: The work's editions ([] when the work has none).
     BookTitle:
       type: object
       required: [ID, AuthorID, Name, Monitored, AddedAt]

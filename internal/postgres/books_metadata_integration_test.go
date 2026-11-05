@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -109,6 +110,69 @@ func TestBookMetadataStore_MultipleSources(t *testing.T) {
 	}
 	if n := rowCount(t, db, "book_work_metadata"); n != 2 {
 		t.Errorf("rows = %d, want 2", n)
+	}
+}
+
+// TestBookMetadataStore_EditionsRoundTrip is the MT2 cache against real
+// Postgres: the work row's cached editions round-trip through the JSONB
+// column (a details fetch stores them, the re-upsert refreshes them, and a
+// row written WITHOUT editions reads back the empty list — the '[]'
+// default, never NULL).
+func TestBookMetadataStore_EditionsRoundTrip(t *testing.T) {
+	_, db := startBooksPG(t)
+	store := postgres.NewBookMetadataStore(db)
+	ctx := context.Background()
+
+	// A plain (search-resolved) row carries no editions: the column is '[]'.
+	plain := books.WorkMetadata{
+		WorkKey: "OL66554W", Source: books.SourceOpenLibrary, SourceID: "OL66554W",
+		Title: "Pride and Prejudice", Author: "Jane Austen", Year: 1813,
+		FetchedAt: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC),
+	}
+	if err := store.UpsertWork(ctx, plain); err != nil {
+		t.Fatalf("upsert plain: %v", err)
+	}
+	got, ok, err := store.GetWork(ctx, "OL66554W")
+	if err != nil || !ok {
+		t.Fatalf("get = (ok=%v, err=%v)", ok, err)
+	}
+	if string(got.EditionsJSON) != "[]" {
+		t.Errorf("editions = %s, want [] (a search resolution carries none)", got.EditionsJSON)
+	}
+
+	// A details-fetch upsert refreshes the SAME row with its editions.
+	details := got
+	details.EditionsJSON = []byte(`[{"key":"OL25828717M","title":"Pride and Prejudice","isbn":"9780141439518","formats":["EPUB"],"languages":["eng"],"publishers":["HarperCollins"],"publish_date":"2018-11-15","year":2018,"pages":487}]`)
+	if err := store.UpsertWork(ctx, details); err != nil {
+		t.Fatalf("upsert editions: %v", err)
+	}
+	got, ok, err = store.GetWork(ctx, "OL66554W")
+	if err != nil || !ok {
+		t.Fatalf("get after editions = (ok=%v, err=%v)", ok, err)
+	}
+	var eds []books.WorkEdition
+	if err := json.Unmarshal(got.EditionsJSON, &eds); err != nil {
+		t.Fatalf("unmarshal editions: %v", err)
+	}
+	if len(eds) != 1 || eds[0].Key != "OL25828717M" || eds[0].ISBN != "9780141439518" ||
+		eds[0].Year != 2018 || eds[0].Pages != 487 {
+		t.Errorf("editions = %+v, want the cached edition", eds)
+	}
+	if n := rowCount(t, db, "book_work_metadata"); n != 1 {
+		t.Errorf("rows = %d, want 1 (the editions refresh upserts the row)", n)
+	}
+
+	// A second upsert WITHOUT editions stores '[]' again (refreshed, not
+	// stale-carried).
+	if err := store.UpsertWork(ctx, plain); err != nil {
+		t.Fatalf("upsert plain (again): %v", err)
+	}
+	got, ok, err = store.GetWork(ctx, "OL66554W")
+	if err != nil || !ok {
+		t.Fatalf("get = (ok=%v, err=%v)", ok, err)
+	}
+	if string(got.EditionsJSON) != "[]" {
+		t.Errorf("editions = %s, want [] (a plain re-upsert stores no editions)", got.EditionsJSON)
 	}
 }
 

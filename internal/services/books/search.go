@@ -87,6 +87,45 @@ func (o *openLibrarySearcher) SearchWorkByASIN(ctx context.Context, asin string)
 	return mapWorkHits(res), nil
 }
 
+// GetWorkDetails implements the MT2 workDetailsFetcher surface: it fetches
+// the work document (title/authors/cover + editions) for a known
+// OpenLibrary work key, mapping the provider shape to the domain's (the
+// adapter never imports domains — the repo's rule).
+func (o *openLibrarySearcher) GetWorkDetails(ctx context.Context, key string) (dom.WorkDetails, error) {
+	d, err := o.ol.GetWorkDetails(ctx, key)
+	if err != nil {
+		return dom.WorkDetails{}, err
+	}
+	return mapWorkDetails(d), nil
+}
+
+// mapWorkDetails maps the provider's WorkDetails onto the domain's
+// WorkDetails.
+func mapWorkDetails(d providers.WorkDetails) dom.WorkDetails {
+	eds := make([]dom.WorkEdition, 0, len(d.Editions))
+	for _, e := range d.Editions {
+		eds = append(eds, dom.WorkEdition{
+			Key:         e.Key,
+			Title:       e.Title,
+			ISBN:        e.ISBN,
+			Formats:     e.Formats,
+			Languages:   e.Languages,
+			Publishers:  e.Publishers,
+			PublishDate: e.PublishDate,
+			Year:        e.Year,
+			Pages:       e.Pages,
+		})
+	}
+	return dom.WorkDetails{
+		WorkKey:          d.WorkKey,
+		Title:            d.Title,
+		Authors:          d.Authors,
+		CoverURL:         d.CoverURL,
+		FirstPublishYear: d.FirstPublishYear,
+		Editions:         eds,
+	}
+}
+
 // SearchWorkByKey resolves a known OpenLibrary work key to its work — the
 // MT3 cached-path surface on top of dom.BookSearcher (the combined lookup
 // consults the provenance store before calling it, and the refresh command

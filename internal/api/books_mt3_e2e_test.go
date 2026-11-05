@@ -56,29 +56,40 @@ func (s *mt3MemStore) upsertCount() int {
 	return s.upserts
 }
 
-// mt3OLStub is a stub Open Library /search.json that answers the `q=key:`
-// work-key lookup and counts every hit (the "did we call Open Library?"
-// meter). (MT1 moved the id lookups off the legacy `id=` parameter — which
-// the keyless production API silently ignores — onto the declared `q` solr
-// query, so the stub parses `q` the same way.)
+// mt3OLStub is a stub Open Library that answers the `q=key:` work-key
+// lookup AND the work document (MT2: the refresh also fetches the work's
+// details/editions from the work endpoint), counting every hit (the "did
+// we call Open Library?" meter). (MT1 moved the id lookups off the legacy
+// `id=` parameter — which the keyless production API silently ignores —
+// onto the declared `q` solr query, so the stub parses `q` the same way.)
 func mt3OLStub(t *testing.T, calls *int) string {
 	t.Helper()
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		*calls++
-		if r.URL.Path != "/search.json" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		q := r.URL.Query().Get("q")
 		w.Header().Set("Content-Type", "application/json")
-		if q == "key:OL59863W" {
-			docs := []map[string]any{
-				{"key": "/works/OL59863W", "title": "The Dispossessed", "author_name": []string{"Ursula K. Le Guin"}, "first_publish_year": 1974, "cover_i": 12345},
+		switch r.URL.Path {
+		case "/works/OL59863W.json":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"key": "/works/OL59863W", "title": "The Dispossessed",
+				"author_name": []string{"Ursula K. Le Guin"}, "first_publish_year": 1974,
+				"cover": map[string]any{"small": "https://covers.openlibrary.org/b/id/12345-S.jpg"},
+				"edition_count": 1, "editions": []map[string]any{
+					{"key": "/works/OL59863W/OL25828717M", "isbn_13": []string{"9780140449335"}, "languages": []string{"eng"}},
+				},
+			})
+		case "/search.json":
+			q := r.URL.Query().Get("q")
+			if q == "key:OL59863W" {
+				docs := []map[string]any{
+					{"key": "/works/OL59863W", "title": "The Dispossessed", "author_name": []string{"Ursula K. Le Guin"}, "first_publish_year": 1974, "cover_i": 12345},
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"numFound": 1, "docs": docs})
+				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"numFound": 1, "docs": docs})
-			return
+			_ = json.NewEncoder(w).Encode(map[string]any{"numFound": 0, "docs": []any{}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"numFound": 0, "docs": []any{}})
 	}))
 	t.Cleanup(stub.Close)
 	return stub.URL
@@ -151,8 +162,8 @@ func TestBooksMT3_RefreshEndpoint(t *testing.T) {
 	if wm.FetchedAt.IsZero() {
 		t.Error("fetched_at is zero, want the re-anchored timestamp")
 	}
-	if calls != 1 {
-		t.Errorf("OL calls = %d, want 1 (forced re-fetch)", calls)
+	if calls != 2 {
+		t.Errorf("OL calls = %d, want 2 (forced re-fetch + the MT2 work-details/editions fetch)", calls)
 	}
 	if store.upsertCount() != 1 {
 		t.Errorf("store upserts = %d, want 1 (refresh upserts the row)", store.upsertCount())
@@ -170,8 +181,8 @@ func TestBooksMT3_RefreshEndpoint(t *testing.T) {
 	if len(hits) != 1 || hits[0].Kind != "book" || hits[0].Name != "The Dispossessed" {
 		t.Errorf("lookup = %+v, want the cached book hit", hits)
 	}
-	if calls != 1 {
-		t.Errorf("OL calls after cached lookup = %d, want 1 (served from the store)", calls)
+	if calls != 2 {
+		t.Errorf("OL calls after cached lookup = %d, want 2 (served from the store)", calls)
 	}
 }
 
