@@ -3,7 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { client } from '../../api/client'
 import type {
   AddAuthorRequest,
+  AddEditionRequest,
   BookLookupResult,
+  BookWorkDetails,
   ProfilesResponse,
   RootFolder,
 } from '../../api/types'
@@ -51,6 +53,7 @@ export function BookAddPage() {
         onText={setText}
         state={state}
         testId="book-search"
+        hint="Title, author, or id: isbn:…, asin:…, goodreads:…, olid:… (bare ISBN-13 / ASIN / OL key work too)"
       />
 
       {state.phase === 'results' && (
@@ -71,6 +74,7 @@ export function BookAddPage() {
       {selected && (
         <AddBookModal
           hit={selected}
+          searchText={text}
           onClose={() => setSelected(null)}
           onAdded={() => navigate('/books')}
         />
@@ -161,16 +165,62 @@ function BookResultRow({ hit, index, onPick }: { hit: BookLookupResult; index: n
   )
 }
 
+// MT1: the Open Library work key an id-lookup query names, if any. The
+// lookup's wire hits carry no provider key (the books model keys works by
+// title/author), so the add flow can only drive the editions endpoint (MT2)
+// for a query that IS the key: a bare "OL…W", a "…/works/OL…W" URL form, or
+// the "olid:" prefix (case-insensitive — mirroring the backend's
+// ParseIDQuery/NormalizeOLID). Plain text, isbn:, asin: and goodreads:
+// queries resolve server-side but their key is not surfaced to the UI, so
+// those selections fall back to the manual edition form.
+export function olWorkKeyOf(query: string): string | null {
+  let q = query.trim()
+  if (q === '') return null
+  const scheme = q.indexOf('://')
+  if (scheme >= 0) q = q.slice(scheme + 3)
+  const colon = q.indexOf(':')
+  if (colon > 0) {
+    if (q.slice(0, colon).toLowerCase() !== 'olid') return null
+    q = q.slice(colon + 1).trim()
+  }
+  const slash = q.lastIndexOf('/')
+  if (slash >= 0) q = q.slice(slash + 1)
+  if (!/^ol\d+w$/i.test(q)) return null
+  return q.toUpperCase()
+}
+
+// MT2: an edition's monitorable format. The books edition model only
+// represents the three quality-profile formats (the AddEditionRequest enum);
+// a fetched edition whose OL formats match none of them (e.g. a PDF-only
+// scan) can't be created, so its toggle is disabled instead of silently
+// dropped on submit.
+export function resolveEditionFormat(formats?: string[]): AddEditionRequest['format'] | null {
+  if (!formats) return null
+  for (const f of formats) {
+    switch (f.trim().toLowerCase()) {
+      case 'epub':
+        return 'epub'
+      case 'mobi':
+        return 'mobi'
+      case 'azw3':
+        return 'azw3'
+    }
+  }
+  return null
+}
+
 // AddBookModal is the B2 "Add New Author/Book" modal — the ArtistAdd layout
 // with the books field set: Root Folder → Monitor (the 7 states) → Quality
 // Profile → Metadata Profile (B3: both live selects) → Tags, with the
 // start-search checkbox + green Add button in the footer.
 function AddBookModal({
   hit,
+  searchText,
   onClose,
   onAdded,
 }: {
   hit: BookLookupResult
+  searchText: string
   onClose: () => void
   onAdded: () => void
 }) {
@@ -187,6 +237,48 @@ function AddBookModal({
   const [tags, setTags] = useState<string[]>([])
   const [tagDraft, setTagDraft] = useState('')
   const [startSearch, setStartSearch] = useState(false)
+
+  // MT2: the provider-fed editions. The work key is only known for a
+  // key-form lookup (olWorkKeyOf); it is captured once when the modal opens
+  // so editing the search box while the modal is up can't re-route the
+  // fetch. A null workDetails with editionsUnavailable false is the loading
+  // state for a keyed work.
+  const [workKey] = useState(() => (hit.kind === 'book' ? olWorkKeyOf(searchText) : null))
+  const [workDetails, setWorkDetails] = useState<BookWorkDetails | null>(null)
+  const [editionsUnavailable, setEditionsUnavailable] = useState(false)
+  // Per-edition monitored picks for the provider list; a missing entry means
+  // true (checked by default).
+  const [monitoredSel, setMonitoredSel] = useState<Record<string, boolean>>({})
+  // The manual fallback edition form — shown when the automatic editions
+  // can't be offered (no work key, a fetch failure, or an empty work; the
+  // plan's OL-coverage risk note) so the add flow never dead-ends.
+  const [mFormat, setMFormat] = useState<AddEditionRequest['format']>('epub')
+  const [mLanguage, setMLanguage] = useState('')
+  const [mIsbn, setMIsbn] = useState('')
+  const [mPublisher, setMPublisher] = useState('')
+  const [mYear, setMYear] = useState('')
+  const [mMonitored, setMMonitored] = useState(true)
+
+  useEffect(() => {
+    if (!workKey) return
+    let cancelled = false
+    client
+      .getBookWorkEditions(workKey)
+      .then((d) => {
+        if (cancelled) return
+        if ((d.editions ?? []).length === 0) {
+          setEditionsUnavailable(true)
+          return
+        }
+        setWorkDetails(d)
+      })
+      .catch(() => {
+        if (!cancelled) setEditionsUnavailable(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [workKey])
 
   useEffect(() => {
     let cancelled = false
@@ -256,6 +348,49 @@ function AddBookModal({
     return req
   }
 
+  // buildEditionRequests is the MT2 payload half: the editions created with
+  // the fresh title. When the provider list loaded, the picked editions ride
+  // in with their fetched format + language + publisher + year + pages (an
+  // unmonitorable edition — no format in the quality-profile set — is
+  // skipped, its toggle being disabled). Otherwise the manual form's single
+  // edition is sent when it is monitored. Empty fields are omitted (server
+  // defaults), like the rest of the modal.
+  function buildEditionRequests(): AddEditionRequest[] {
+    if (hit.kind !== 'book') return []
+    if (workDetails && !editionsUnavailable && workKey) {
+      const reqs: AddEditionRequest[] = []
+      for (const e of workDetails.editions) {
+        if (monitoredSel[e.key] === false) continue
+        const format = resolveEditionFormat(e.formats)
+        if (!format) continue
+        const req: AddEditionRequest = { format, monitored: true }
+        const language = e.languages?.[0]
+        if (language) req.language = language
+        if (e.isbn) req.isbn = e.isbn
+        const publisher = e.publishers?.[0]
+        if (publisher) req.publisher = publisher
+        if (e.year && e.year > 0) req.year = e.year
+        if (e.pages && e.pages > 0) req.pages = e.pages
+        reqs.push(req)
+      }
+      return reqs
+    }
+    if (!workKey || editionsUnavailable) {
+      if (!mMonitored) return []
+      const req: AddEditionRequest = { format: mFormat, monitored: true }
+      const language = mLanguage.trim()
+      if (language) req.language = language
+      const isbn = mIsbn.trim()
+      if (isbn) req.isbn = isbn
+      const publisher = mPublisher.trim()
+      if (publisher) req.publisher = publisher
+      const year = Number(mYear.trim())
+      if (mYear.trim() !== '' && Number.isInteger(year) && year > 0) req.year = year
+      return [req]
+    }
+    return []
+  }
+
   const { busy, error, submit } = useAddSubmit(async () => {
     if (hit.kind === 'author') {
       await client.addAuthor(buildAuthorRequest(hit.name))
@@ -267,7 +402,12 @@ function AddBookModal({
     // back to being catalogued under a same-named author row.
     if (hit.author_id && hit.author_id > 0) {
       // The author is already in the library: add the title directly.
-      await client.addTitle(hit.author_id, { name: hit.name, monitored: true })
+      const title = await client.addTitle(hit.author_id, { name: hit.name, monitored: true })
+      // MT2: the picked editions (provider-fed or the manual fallback) ride
+      // on the fresh title.
+      for (const edition of buildEditionRequests()) {
+        await client.addEdition(title.id, edition)
+      }
       // The start-search checkbox has no add endpoint to ride on here, so
       // it fires the author pipeline best-effort (an artist AddArtistModal
       // pattern): the book is added even if the search fails.
@@ -278,7 +418,10 @@ function AddBookModal({
       }
     } else {
       const added = await client.addAuthor(buildAuthorRequest(hit.author || hit.name))
-      await client.addTitle(added.id, { name: hit.name, monitored: true })
+      const title = await client.addTitle(added.id, { name: hit.name, monitored: true })
+      for (const edition of buildEditionRequests()) {
+        await client.addEdition(title.id, edition)
+      }
     }
     onAdded()
   })
@@ -345,6 +488,140 @@ function AddBookModal({
               {hit.author ? `by ${hit.author}` : 'Author unknown'}
               {hit.year && hit.year > 0 ? ` · ${hit.year}` : ''}
             </p>
+          )}
+
+          {hit.kind === 'book' && (
+            <div data-testid="add-book-editions-section">
+              <span className="dim small" data-testid="add-book-editions-label">
+                Editions
+              </span>
+              {workKey !== null && !editionsUnavailable && workDetails === null && (
+                <p className="dim" data-testid="add-book-editions-loading">
+                  Loading editions…
+                </p>
+              )}
+              {workKey !== null && !editionsUnavailable && workDetails !== null && (
+                <div data-testid="add-book-editions">
+                  {workDetails.editions.map((e) => {
+                    const monitorable = resolveEditionFormat(e.formats) !== null
+                    return (
+                      <div
+                        className="edition-row"
+                        key={e.key}
+                        data-testid={`add-book-edition-${e.key}`}
+                      >
+                        <span className="ed-label" data-testid={`add-book-edition-title-${e.key}`}>
+                          {e.title || '—'}
+                        </span>
+                        <span className="ed-meta dim">
+                          {e.formats && e.formats.length > 0 ? e.formats.join(', ') : '—'}
+                          {e.languages && e.languages.length > 0
+                            ? ` · ${e.languages.join(', ')}`
+                            : ''}
+                          {e.publishers && e.publishers.length > 0
+                            ? ` · ${e.publishers[0]}`
+                            : ''}
+                          {e.year && e.year > 0 ? ` · ${e.year}` : ''}
+                          {e.isbn ? ` · ISBN ${e.isbn}` : ''}
+                          {!monitorable ? ' · no monitorable format' : ''}
+                        </span>
+                        <label
+                          className="check"
+                          htmlFor={`add-book-edition-mon-${e.key}`}
+                          data-testid={`add-book-edition-monitor-${e.key}`}
+                        >
+                          <input
+                            id={`add-book-edition-mon-${e.key}`}
+                            type="checkbox"
+                            checked={monitoredSel[e.key] ?? true}
+                            disabled={!monitorable}
+                            onChange={(ev) =>
+                              setMonitoredSel((prev) => ({ ...prev, [e.key]: ev.target.checked }))
+                            }
+                            data-testid={`add-book-edition-mon-${e.key}`}
+                          />
+                          Monitor
+                        </label>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {(!workKey || editionsUnavailable) && (
+                <div data-testid="add-book-edition-manual">
+                  <p className="dim small" data-testid="add-book-editions-note">
+                    {!workKey
+                      ? 'Automatic editions are fetched for Open Library work-key lookups (e.g. OL59863W or olid:OL59863W). Enter an edition manually, or uncheck Monitored to add the book without one.'
+                      : 'Automatic editions were unavailable for this work — enter one manually below, or uncheck Monitored to add the book without one.'}
+                  </p>
+                  <label htmlFor="add-book-edition-format" className="dim small">
+                    Format
+                  </label>
+                  <select
+                    id="add-book-edition-format"
+                    value={mFormat}
+                    onChange={(e) => setMFormat(e.target.value as AddEditionRequest['format'])}
+                    data-testid="add-book-edition-format"
+                  >
+                    <option value="epub">EPUB</option>
+                    <option value="mobi">MOBI</option>
+                    <option value="azw3">AZW3</option>
+                  </select>
+                  <label htmlFor="add-book-edition-language" className="dim small">
+                    Language
+                  </label>
+                  <input
+                    id="add-book-edition-language"
+                    value={mLanguage}
+                    onChange={(e) => setMLanguage(e.target.value)}
+                    placeholder="en (optional)"
+                    data-testid="add-book-edition-language"
+                  />
+                  <label htmlFor="add-book-edition-isbn" className="dim small">
+                    ISBN
+                  </label>
+                  <input
+                    id="add-book-edition-isbn"
+                    value={mIsbn}
+                    onChange={(e) => setMIsbn(e.target.value)}
+                    placeholder="978… (optional)"
+                    data-testid="add-book-edition-isbn"
+                  />
+                  <label htmlFor="add-book-edition-publisher" className="dim small">
+                    Publisher
+                  </label>
+                  <input
+                    id="add-book-edition-publisher"
+                    value={mPublisher}
+                    onChange={(e) => setMPublisher(e.target.value)}
+                    placeholder="Publisher (optional)"
+                    data-testid="add-book-edition-publisher"
+                  />
+                  <label htmlFor="add-book-edition-year" className="dim small">
+                    Year
+                  </label>
+                  <input
+                    id="add-book-edition-year"
+                    type="number"
+                    min={0}
+                    value={mYear}
+                    onChange={(e) => setMYear(e.target.value)}
+                    placeholder="e.g. 2018 (optional)"
+                    data-testid="add-book-edition-year"
+                  />
+                  <label className="check" htmlFor="add-book-edition-monitored">
+                    <input
+                      id="add-book-edition-monitored"
+                      type="checkbox"
+                      checked={mMonitored}
+                      onChange={(e) => setMMonitored(e.target.checked)}
+                      data-testid="add-book-edition-monitored"
+                    />
+                    Monitor this edition
+                  </label>
+                </div>
+              )}
+            </div>
           )}
 
           <label htmlFor="book-root-folder" className="dim small">
