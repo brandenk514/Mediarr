@@ -213,3 +213,36 @@ func TestLoad_DownloadClientUnknownFailsFast(t *testing.T) {
 		t.Fatal("expected error for unknown download client, got nil")
 	}
 }
+
+// TestLoad_BooksMetadataTTL is the MT3 TTL knob: unset and invalid values
+// stay zero (the books service applies the 7d domain default); a valid
+// duration is passed through.
+func TestLoad_BooksMetadataTTL(t *testing.T) {
+	cfg, err := Load(baseEnv())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.BooksMetadataTTL != 0 {
+		t.Errorf("BooksMetadataTTL = %v, want 0 (unset = domain default)", cfg.BooksMetadataTTL)
+	}
+
+	env := baseEnv()
+	env["MEDIARR_BOOKS_METADATA_TTL"] = "1h"
+	cfg, err = Load(env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.BooksMetadataTTL != time.Hour {
+		t.Errorf("BooksMetadataTTL = %v, want 1h", cfg.BooksMetadataTTL)
+	}
+
+	env = baseEnv()
+	env["MEDIARR_BOOKS_METADATA_TTL"] = "not-a-duration"
+	cfg, err = Load(env)
+	if err != nil {
+		t.Fatalf("invalid TTL must not fail boot: %v", err)
+	}
+	if cfg.BooksMetadataTTL != 0 {
+		t.Errorf("BooksMetadataTTL = %v, want 0 (invalid = domain default)", cfg.BooksMetadataTTL)
+	}
+}

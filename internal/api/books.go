@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	booksdom "github.com/brandenk514/mediarr/internal/domains/books"
 	"github.com/brandenk514/mediarr/internal/paging"
@@ -59,6 +60,9 @@ func (s *Server) SetBooks(deps *BooksDeps) {
 	// works, kind-tagged, with `added`/`library_id` so the UI navigates
 	// instead of re-adding.
 	s.register("GET /api/v1/search/books/lookup", s.requireAuth(s.lookupBooks))
+	// MT3 refresh command: force a re-fetch of one resolved work, bypassing
+	// the provenance store's TTL.
+	s.register("POST /api/v1/search/books/refresh", s.requireAuth(s.refreshBookMetadata))
 }
 
 // addAuthorRequest is the body for POST /api/v1/books/authors (Readarr B2 add
@@ -170,6 +174,57 @@ func (s *Server) lookupBooks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toLookupWire(results))
+}
+
+// bookWorkMetadata is the wire shape of one resolved work with provenance
+// (MT3). Fields mirror the spec's BookWorkMetadata (snake_case);
+// fetched_at is the TTL anchor re-anchored on every (re)fetch.
+type bookWorkMetadata struct {
+	WorkKey   string    `json:"work_key"`
+	Source    string    `json:"source"`
+	SourceID  string    `json:"source_id"`
+	Title     string    `json:"title"`
+	Author    string    `json:"author"`
+	Year      int       `json:"year"`
+	CoverURL  string    `json:"cover_url"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// refreshBookMetadata handles POST /api/v1/search/books/refresh (the MT3
+// refresh command). It forces a re-fetch of one book work from Open Library
+// — bypassing the TTL — and returns the refreshed provenance row. An
+// empty key is 400; a missing searcher or store is 503; an OL miss is 404;
+// an upstream failure is 502 (the keyless-adapter convention).
+func (s *Server) refreshBookMetadata(w http.ResponseWriter, r *http.Request) {
+	if s.booksDeps == nil || s.booksDeps.Svc == nil {
+		writeError(w, http.StatusServiceUnavailable, "books is not configured")
+		return
+	}
+	key := r.URL.Query().Get("key")
+	wm, err := s.booksDeps.Svc.RefreshWorkMetadata(r.Context(), key)
+	if err != nil {
+		switch {
+		case errors.Is(err, bookssvc.ErrWorkKeyRequired):
+			writeError(w, http.StatusBadRequest, "key is required (an OpenLibrary work key, e.g. OL8189755W)")
+		case errors.Is(err, bookssvc.ErrSearcherNotConfigured), errors.Is(err, bookssvc.ErrMetadataStoreNotConfigured):
+			writeError(w, http.StatusServiceUnavailable, "openlibrary is not configured")
+		case errors.Is(err, bookssvc.ErrWorkNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		default:
+			writeSearchError(w, "openlibrary", err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, bookWorkMetadata{
+		WorkKey:   wm.WorkKey,
+		Source:    wm.Source,
+		SourceID:  wm.SourceID,
+		Title:     wm.Title,
+		Author:    wm.Author,
+		Year:      wm.Year,
+		CoverURL:  wm.CoverURL,
+		FetchedAt: wm.FetchedAt,
+	})
 }
 
 // ListAuthors handles GET /api/v1/books/authors. It returns a server-side

@@ -2,7 +2,9 @@ package providers
 
 import (
 	"context"
+	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -47,6 +49,7 @@ type olSearchResponse struct {
 		Title            string   `json:"title"`
 		AuthorName       []string `json:"author_name"`
 		FirstPublishYear int      `json:"first_publish_year"`
+		CoverI           int      `json:"cover_i"` // cover id; 0 = no cover
 	} `json:"docs"`
 }
 
@@ -57,6 +60,16 @@ func (o *OpenLibrary) search(ctx context.Context, values url.Values) (*olSearchR
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// olCoverURL is the Open Library cover image for a search result's cover id
+// (the documented covers.openlibrary.org scheme); empty when the doc has no
+// cover. It feeds the MT3 provenance store's cover_url.
+func olCoverURL(coverI int) string {
+	if coverI <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("https://covers.openlibrary.org/b/id/%d-M.jpg", coverI)
 }
 
 // SearchAuthors resolves an author name to distinct candidate authors (name
@@ -120,11 +133,15 @@ func (o *OpenLibrary) SearchWorks(ctx context.Context, author, title string) ([]
 		if len(d.AuthorName) > 0 {
 			author = d.AuthorName[0]
 		}
+		extra := map[string]string{"author": author}
+		if c := olCoverURL(d.CoverI); c != "" {
+			extra["cover"] = c
+		}
 		out = append(out, Result{
 			ID:    strings.TrimPrefix(d.Key, "/works/"),
 			Title: d.Title,
 			Year:  d.FirstPublishYear,
-			Extra: map[string]string{"author": author},
+			Extra: extra,
 		})
 	}
 	return out, nil
@@ -148,6 +165,13 @@ func NormalizeOLID(key string) string {
 	}
 	return k // the bare OL id, e.g. "OL8189755W"
 }
+
+// olWorkIDRe is the bare OpenLibrary work-id shape ("OL12345W").
+var olWorkIDRe = regexp.MustCompile(`^OL[0-9]+W$`)
+
+// IsOLWorkID reports whether s is a bare OpenLibrary work id (NormalizeOLID
+// folds the key forms to it).
+func IsOLWorkID(s string) bool { return olWorkIDRe.MatchString(strings.TrimSpace(s)) }
 
 // SearchWorkByISBN resolves an ISBN (13 or 10 digit) to its OpenLibrary work
 // (a single Result carrying the work key as ID) via the search.json `id=isbn:`
@@ -197,11 +221,15 @@ func olWorkResults(resp *olSearchResponse) []Result {
 		if len(d.AuthorName) > 0 {
 			author = d.AuthorName[0]
 		}
+		extra := map[string]string{"author": author}
+		if c := olCoverURL(d.CoverI); c != "" {
+			extra["cover"] = c
+		}
 		out = append(out, Result{
 			ID:    strings.TrimPrefix(d.Key, "/works/"),
 			Title: d.Title,
 			Year:  d.FirstPublishYear,
-			Extra: map[string]string{"author": author},
+			Extra: extra,
 		})
 	}
 	return out

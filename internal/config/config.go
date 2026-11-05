@@ -54,9 +54,16 @@ type Config struct {
 	// QBittorrent is the config for the qBittorrent client (used when
 	// ClientType == "qbittorrent").
 	QBittorrent DownloadQB
-	// SABnzbd is the config for the SABnzbd client (used when ClientType ==
-	// "sabnzbd").
+	// SABnzbd is the config for the SABnzbd client (used when
+	// ClientType == "sabnzbd").
 	SABnzbd DownloadSAB
+
+	// Books
+	// BooksMetadataTTL (MT3) is how long a cached resolved-work row is fresh
+	// before the books lookup re-fetches it from Open Library. Zero = the
+	// domain default (books.DefaultMetadataTTL, 7d): keyless OL has no SLA,
+	// so the cache is always on in the service.
+	BooksMetadataTTL time.Duration
 
 	// Providers configures the metadata-provider API keys (#42).
 	Providers Providers
@@ -192,6 +199,16 @@ func Load(env map[string]string) (*Config, error) {
 	cfg.Providers = Providers{
 		TMDBAPIKey: env["MEDIARR_TMDB_API_KEY"],
 		TVDBAPIKey: env["MEDIARR_TVDB_API_KEY"],
+	}
+
+	// Books metadata cache TTL (MT3) — default 7d lives in the domain
+	// (books.DefaultMetadataTTL); a zero value here (unset or invalid)
+	// keeps that default in the books service. A TTL is a tuning knob, not
+	// a boot precondition.
+	if raw := env["MEDIARR_BOOKS_METADATA_TTL"]; raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+			cfg.BooksMetadataTTL = d
+		}
 	}
 
 	return cfg, nil
