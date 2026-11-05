@@ -3715,6 +3715,11 @@ paths:
         re-adding) and `library_id` (the matching row id; 0 when not
         added). Plain-text only: ISBN/ASIN/Goodreads id-lookup syntax is a
         separate metadata work item (MT1), not part of B2.
+
+        MT3: a query that is itself an OpenLibrary work key (e.g.
+        "OL59863W") takes the cached path — a fresh resolved-work row is
+        served from the provenance store without an Open Library call; an
+        expired or missing row re-fetches and upserts the row.
       parameters:
         - $ref: "#/components/parameters/SearchQuery"
       responses:
@@ -3728,6 +3733,43 @@ paths:
                   $ref: "#/components/schemas/BookLookupResult"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/v1/search/books/refresh:
+    post:
+      tags: [search]
+      summary: Force a re-fetch of one book work's Open Library metadata (MT3 refresh).
+      operationId: refreshBookMetadata
+      description: |
+        MT3 (cache + provenance): the resolved-work store is the single
+        source for "was this resolved from Open Library, when, under what
+        key". This refresh command bypasses the TTL — it re-fetches the
+        work by its OpenLibrary work key, upserts the provenance row
+        (re-anchoring `fetched_at`), and returns the refreshed row.
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: The OpenLibrary work key (bare "OL…W" or "/works/OL…W").
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The refreshed provenance row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookWorkMetadata"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "502":
           $ref: "#/components/responses/BadGateway"
         "503":
@@ -5902,6 +5944,40 @@ components:
           type: integer
           format: int64
           description: The matching author id for BOTH hit kinds; 0 when not added. For kind=book this is what the UI navigates to (/books/{author_id}).
+    BookWorkMetadata:
+      type: object
+      description: |
+        One resolved book work with provenance (MT3): the OpenLibrary work
+        key, its title/author/year/cover, where it was resolved from
+        (`source`) under which source-native id (`source_id` — the OL key
+        for now; the Readarr id at the B6 migration), and when the row was
+        last fetched (`fetched_at`, the TTL anchor).
+      required: [work_key, source, source_id, title, fetched_at]
+      properties:
+        work_key:
+          type: string
+          description: The resolved OpenLibrary work key (bare id, e.g. "OL8189755W").
+        source:
+          type: string
+          description: The provenance source (e.g. "openlibrary").
+        source_id:
+          type: string
+          description: The source-native id (the OL key for now; Readarr id at the B6 migration).
+        title:
+          type: string
+        author:
+          type: string
+          description: The work's author; empty when unknown.
+        year:
+          type: integer
+          description: The work's first publish year; 0 when unknown.
+        cover_url:
+          type: string
+          description: The cover image URL; empty when the source has no cover.
+        fetched_at:
+          type: string
+          format: date-time
+          description: When the row was last fetched from its source (the TTL anchor).
     BookTitle:
       type: object
       required: [ID, AuthorID, Name, Monitored, AddedAt]
