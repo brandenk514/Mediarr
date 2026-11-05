@@ -166,13 +166,12 @@ function BookResultRow({ hit, index, onPick }: { hit: BookLookupResult; index: n
 }
 
 // MT1: the Open Library work key an id-lookup query names, if any. The
-// lookup's wire hits carry no provider key (the books model keys works by
-// title/author), so the add flow can only drive the editions endpoint (MT2)
-// for a query that IS the key: a bare "OL…W", a "…/works/OL…W" URL form, or
-// the "olid:" prefix (case-insensitive — mirroring the backend's
-// ParseIDQuery/NormalizeOLID). Plain text, isbn:, asin: and goodreads:
-// queries resolve server-side but their key is not surfaced to the UI, so
-// those selections fall back to the manual edition form.
+// lookup's wire hits now carry the work key (work_key) for every kind=book
+// row, so the add flow drives the editions endpoint (MT2) from any work
+// selection; this is the robustness fallback for the key-form queries — a
+// bare "OL…W", a "…/works/OL…W" URL form, or the "olid:" prefix
+// (case-insensitive — mirroring the backend's ParseIDQuery/NormalizeOLID) —
+// used when the hit's work_key is missing or not OL-key-shaped.
 export function olWorkKeyOf(query: string): string | null {
   let q = query.trim()
   if (q === '') return null
@@ -238,12 +237,21 @@ function AddBookModal({
   const [tagDraft, setTagDraft] = useState('')
   const [startSearch, setStartSearch] = useState(false)
 
-  // MT2: the provider-fed editions. The work key is only known for a
-  // key-form lookup (olWorkKeyOf); it is captured once when the modal opens
-  // so editing the search box while the modal is up can't re-route the
-  // fetch. A null workDetails with editionsUnavailable false is the loading
-  // state for a keyed work.
-  const [workKey] = useState(() => (hit.kind === 'book' ? olWorkKeyOf(searchText) : null))
+  // MT2: the provider-fed editions. The work key rides on the hit itself
+  // (work_key) for every kind=book row — plain-text, isbn:, asin: and
+  // goodreads: selections included — and is captured once when the modal
+  // opens so editing the search box while the modal is up can't re-route
+  // the fetch. A hit without an OL-key-shaped work_key falls back to the
+  // key-form lookup derivation (olWorkKeyOf) for robustness. A null
+  // workDetails with editionsUnavailable false is the loading state for a
+  // keyed work.
+  const [workKey] = useState(() => {
+    if (hit.kind !== 'book') return null
+    if (hit.work_key && /^ol\d+w$/i.test(hit.work_key.trim())) {
+      return hit.work_key.trim().toUpperCase()
+    }
+    return olWorkKeyOf(searchText)
+  })
   const [workDetails, setWorkDetails] = useState<BookWorkDetails | null>(null)
   const [editionsUnavailable, setEditionsUnavailable] = useState(false)
   // Per-edition monitored picks for the provider list; a missing entry means
@@ -551,7 +559,7 @@ function AddBookModal({
                 <div data-testid="add-book-edition-manual">
                   <p className="dim small" data-testid="add-book-editions-note">
                     {!workKey
-                      ? 'Automatic editions are fetched for Open Library work-key lookups (e.g. OL59863W or olid:OL59863W). Enter an edition manually, or uncheck Monitored to add the book without one.'
+                      ? 'This book has no Open Library work key, so its editions can\'t be fetched automatically — enter one manually below, or uncheck Monitored to add the book without one.'
                       : 'Automatic editions were unavailable for this work — enter one manually below, or uncheck Monitored to add the book without one.'}
                   </p>
                   <label htmlFor="add-book-edition-format" className="dim small">

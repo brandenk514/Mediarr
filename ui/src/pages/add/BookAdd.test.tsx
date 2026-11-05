@@ -546,6 +546,66 @@ describe('MT2 provider-fed editions in the add flow', () => {
     )
   })
 
+  it('renders the provider-fed editions for a plain-text work hit carrying work_key (MT2)', async () => {
+    // The MT2 wire shape: EVERY kind=book hit carries the work key, so a
+    // plain-text selection fetches editions too — the hit's key, not the
+    // plain-text query, drives the fetch.
+    const plainHit: BookLookupResult = {
+      kind: 'book',
+      name: 'The Dispossessed',
+      author: 'Ursula K. Le Guin',
+      year: 1974,
+      work_key: 'OL59863W',
+      added: false,
+      library_id: 0,
+      author_id: 0,
+    }
+    vi.mocked(client.getBookWorkEditions).mockResolvedValue(sampleDetails)
+    vi.mocked(client.lookupBooks).mockResolvedValue([plainHit])
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), 'The Di')
+    await user.click(await screen.findByTestId('book-result-book-0'))
+
+    await screen.findByTestId('add-book-editions')
+    expect(screen.getByTestId('add-book-edition-OL25828717M')).toHaveTextContent(
+      'The Dispossessed (Essays in Science Fiction)',
+    )
+    await waitFor(() =>
+      expect(client.getBookWorkEditions).toHaveBeenCalledWith('OL59863W'),
+    )
+    // No manual form alongside the provider list.
+    expect(screen.queryByTestId('add-book-edition-manual')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the manual form when the hit carries an empty work_key', async () => {
+    const emptyKeyHit: BookLookupResult = { ...bookHit, work_key: '' }
+    vi.mocked(client.lookupBooks).mockResolvedValue([emptyKeyHit])
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), 'The Di')
+    await user.click(await screen.findByTestId('book-result-book-0'))
+    expect(await screen.findByTestId('add-book-edition-manual')).toBeInTheDocument()
+    expect(screen.getByTestId('add-book-editions-note')).toHaveTextContent(
+      "can't be fetched automatically",
+    )
+    expect(client.getBookWorkEditions).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the query-derived key when the hit work_key is not OL-key-shaped', async () => {
+    // Robustness: a malformed work_key on the wire must not break the
+    // keyed-work path — the olWorkKeyOf(query) derivation still drives it.
+    const shapedHit: BookLookupResult = { ...idBookHit, work_key: 'OLx1W' }
+    vi.mocked(client.getBookWorkEditions).mockResolvedValue(sampleDetails)
+    vi.mocked(client.lookupBooks).mockResolvedValue([shapedHit])
+    const user = userEvent.setup()
+    await openWorkKeyModal('olid:OL59863W', user)
+    await screen.findByTestId('add-book-editions')
+    await waitFor(() =>
+      expect(client.getBookWorkEditions).toHaveBeenCalledWith('OL59863W'),
+    )
+  })
+
   it('shows the manual form for a plain-text work (no work key to fetch with)', async () => {
     vi.mocked(client.lookupBooks).mockResolvedValue([bookHit])
     const user = userEvent.setup()
@@ -553,7 +613,9 @@ describe('MT2 provider-fed editions in the add flow', () => {
     await user.type(screen.getByTestId('book-search-input'), 'The Di')
     await user.click(await screen.findByTestId('book-result-book-0'))
     expect(await screen.findByTestId('add-book-edition-manual')).toBeInTheDocument()
-    expect(screen.getByTestId('add-book-editions-note')).toHaveTextContent('work-key lookups')
+    expect(screen.getByTestId('add-book-editions-note')).toHaveTextContent(
+      "can't be fetched automatically",
+    )
     expect(client.getBookWorkEditions).not.toHaveBeenCalled()
   })
 
