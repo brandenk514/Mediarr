@@ -29,6 +29,25 @@ func mt1OLStub(t *testing.T, calls *int, failISBN bool) string {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// MT2: the plain-text legs (author= / title=, no solr q) answer a
+		// single known term, so a plain-text lookup hit can be asserted to
+		// carry the work key on the wire.
+		if r.URL.Query().Get("q") == "" {
+			switch {
+			case r.URL.Query().Get("title") == "The Dispossessed":
+				docs := []map[string]any{
+					{"key": "/works/OL59863W", "title": "The Dispossessed", "author_name": []string{"Ursula K. Le Guin"}, "first_publish_year": 1974, "cover_i": 12345},
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"numFound": 1, "docs": docs})
+				return
+			case r.URL.Query().Get("author") == "The Dispossessed":
+				docs := []map[string]any{
+					{"key": "/works/OL59863W", "author_name": []string{"Ursula K. Le Guin"}},
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"numFound": 1, "docs": docs})
+				return
+			}
+		}
 		switch r.URL.Query().Get("q") {
 		case "isbn:9780140449335":
 			if failISBN {
@@ -158,6 +177,9 @@ func TestBooksMT1_LookupISBN(t *testing.T) {
 	}
 	if hits[0].Kind != "book" || hits[0].Name != "Pride and Prejudice" || hits[0].Author != "Jane Austen" || hits[0].Year != 1813 {
 		t.Fatalf("hit = %+v, want the ISBN-resolved work", hits[0])
+	}
+	if hits[0].WorkKey != "OL66554W" {
+		t.Errorf("work_key = %q, want \"OL66554W\" (the MT2 editions-fetch key on the wire)", hits[0].WorkKey)
 	}
 	if hits[0].Added {
 		t.Fatalf("id-resolved work must not be marked added: %+v", hits[0])
@@ -319,6 +341,9 @@ func TestBooksMT1_LookupOLidPrefix(t *testing.T) {
 	if len(hits) != 1 || hits[0].Kind != "book" || hits[0].Name != "The Dispossessed" {
 		t.Fatalf("hits = %+v, want the key-resolved work", hits)
 	}
+	if hits[0].WorkKey != "OL59863W" {
+		t.Errorf("work_key = %q, want \"OL59863W\" (the MT2 editions-fetch key on the wire)", hits[0].WorkKey)
+	}
 	if olCalls != 1 {
 		t.Errorf("OL calls = %d, want 1 (store miss re-fetches)", olCalls)
 	}
@@ -329,6 +354,42 @@ func TestBooksMT1_LookupOLidPrefix(t *testing.T) {
 	}
 	if olCalls != 1 {
 		t.Errorf("OL calls after repeat = %d, want 1 (served from the store)", olCalls)
+	}
+}
+
+// TestBooksMT1_LookupPlainTextWorkKey pins the MT2 wire shape through the
+// HTTP layer: a plain-text lookup returns the kind=author hit with an EMPTY
+// work_key and the kind=book hit carrying the work's OpenLibrary work key —
+// so the UI's provider-fed editions (MT2) can fire for a plain-text work
+// selection, not only for key-form queries.
+func TestBooksMT1_LookupPlainTextWorkKey(t *testing.T) {
+	store := newMT3MemStore()
+	olCalls, grCalls := 0, 0
+	c := newBooksMT1Server(t, store, &olCalls, &grCalls, false, "")
+
+	rec := c.get(t, "/api/v1/search/books/lookup?query=The%20Dispossessed")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lookup status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var hits []bookLookupResult
+	if err := json.NewDecoder(rec.Body).Decode(&hits); err != nil {
+		t.Fatal(err)
+	}
+	// Author hits first, then book hits (the combined lookup's order).
+	if len(hits) != 2 {
+		t.Fatalf("got %d hits, want 2 (author + work): %+v", len(hits), hits)
+	}
+	if hits[0].Kind != "author" || hits[0].Name != "Ursula K. Le Guin" {
+		t.Fatalf("hits[0] = %+v, want the author hit first", hits[0])
+	}
+	if hits[0].WorkKey != "" {
+		t.Errorf("author hit work_key = %q, want empty (authors carry no work key)", hits[0].WorkKey)
+	}
+	if hits[1].Kind != "book" || hits[1].Name != "The Dispossessed" || hits[1].Author != "Ursula K. Le Guin" {
+		t.Fatalf("hits[1] = %+v, want the plain-text work hit", hits[1])
+	}
+	if hits[1].WorkKey != "OL59863W" {
+		t.Errorf("work hit work_key = %q, want \"OL59863W\" (the MT2 editions-fetch key on the wire)", hits[1].WorkKey)
 	}
 }
 

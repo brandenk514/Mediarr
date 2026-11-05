@@ -61,7 +61,11 @@ func (s *Service) lookupWorkByKey(ctx context.Context, key string) ([]dom.Lookup
 
 // workLookupResults turns work hits into kind=book LookupResults, computing
 // the `added` flag and the library ids against the books library
-// (case-insensitive, trimmed — the same matching as the B2 lookup).
+// (case-insensitive, trimmed — the same matching as the B2 lookup). Every
+// caller (lookupText, lookupWorkByKey, lookupIDWork, lookupGoodreads)
+// routes its work hits through here, so this is the single place the
+// MT2 work key is set: the hit's ID is the OpenLibrary work key the add
+// flow uses to fetch editions.
 func (s *Service) workLookupResults(ctx context.Context, workHits []dom.BookSearchHit) ([]dom.LookupResult, error) {
 	books, berr := s.deps.Repo.ListBooks(ctx)
 	if berr != nil {
@@ -82,6 +86,7 @@ func (s *Service) workLookupResults(ctx context.Context, workHits []dom.BookSear
 			Name:      h.Name,
 			Author:    h.Author,
 			Year:      h.Year,
+			WorkKey:   h.ID, // the OL work key (the hit's ID) — MT2 editions fetch
 			Added:     ok,
 			LibraryID: aid,
 			AuthorID:  titleAuthor[foldName(h.Author)+"\x00"+foldName(h.Name)],

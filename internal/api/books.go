@@ -126,12 +126,16 @@ func (s *Server) AddAuthor(w http.ResponseWriter, r *http.Request) {
 // bookLookupResult is the wire shape of one combined books lookup hit
 // (Readarr B2). Fields mirror the spec's BookLookupResult (snake_case);
 // `kind` is "author" or "book", `added`/`library_id` let the UI navigate to an
-// already-added author/book instead of re-adding it.
+// already-added author/book instead of re-adding it. `work_key` (MT2) is the
+// OpenLibrary work key for kind=book rows — the add flow fetches the work's
+// editions with it, so every work selection (plain-text, isbn:, asin:,
+// goodreads:, olid:) can show the provider-fed editions list.
 type bookLookupResult struct {
 	Kind      string `json:"kind"`
 	Name      string `json:"name"`
 	Author    string `json:"author"`
 	Year      int    `json:"year"`
+	WorkKey   string `json:"work_key"`
 	Added     bool   `json:"added"`
 	LibraryID int64  `json:"library_id"`
 	AuthorID  int64  `json:"author_id"`
@@ -145,6 +149,7 @@ func toLookupWire(results []booksdom.LookupResult) []bookLookupResult {
 			Name:      r.Name,
 			Author:    r.Author,
 			Year:      r.Year,
+			WorkKey:   r.WorkKey,
 			Added:     r.Added,
 			LibraryID: r.LibraryID,
 			AuthorID:  r.AuthorID,

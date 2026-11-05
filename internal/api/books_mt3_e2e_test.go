@@ -234,6 +234,9 @@ func TestBooksMT3_LookupCachedKey(t *testing.T) {
 	if len(hits) != 1 || hits[0].Kind != "book" || hits[0].Name != "The Dispossessed" || hits[0].Year != 1974 {
 		t.Errorf("lookup = %+v, want the store-served book hit", hits)
 	}
+	if hits[0].WorkKey != "OL59863W" {
+		t.Errorf("work_key = %q, want \"OL59863W\" (the store-served hit carries the key)", hits[0].WorkKey)
+	}
 	if calls != 0 {
 		t.Errorf("OL calls = %d, want 0 (fresh row served from the store)", calls)
 	}

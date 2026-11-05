@@ -51,6 +51,7 @@ type LookupResult struct {
 	Name      string // author name (kind=author) or work title (kind=book)
 	Author    string // kind=book: the work's author; "" when unknown
 	Year      int    // kind=book: first publish year; 0 when unknown
+	WorkKey   string // kind=book: the OpenLibrary work key the add flow uses to fetch editions (MT2); "" for author hits / when unknown
 	Added     bool
 	LibraryID int64
 	AuthorID  int64
