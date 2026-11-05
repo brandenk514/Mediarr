@@ -30,6 +30,7 @@ import type {
   BookLookupResult,
   BookSeries,
   BookSeriesBook,
+  BookWorkDetails,
   LinkedSeriesResult,
   Dashboard,
   DownloadClient,
@@ -633,6 +634,11 @@ export const client = {
   // authors/works endpoints stay for the later metadata work item.
   lookupBooks: (q: string) =>
     request<BookLookupResult[]>('GET', `/search/books/lookup?query=${encodeURIComponent(q)}`),
+  // Readarr MT2: a work's provider-fed editions for the add flow. Cache-first
+  // on the server (the MT3 provenance store + 7d TTL); a work with no
+  // editions answers an empty list.
+  getBookWorkEditions: (workKey: string) =>
+    request<BookWorkDetails>('GET', `/search/books/works/${encodeURIComponent(workKey)}/editions`),
   searchBookWorks: (q: string, author: string) => {
     const params = new URLSearchParams()
     params.set('query', q)

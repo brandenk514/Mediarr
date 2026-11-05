@@ -3,8 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
-import type { BookLookupResult } from '../../api/types'
-import { BookAddPage } from './BookAdd'
+import type { BookLookupResult, BookWorkDetails } from '../../api/types'
+import { BookAddPage, olWorkKeyOf, resolveEditionFormat } from './BookAdd'
 
 // Page test for the Readarr B2 book add flow: the combined Open Library
 // lookup (kind-tagged author/book rows, already-added jump links) and the
@@ -31,6 +31,10 @@ vi.mock('../../api/client', () => {
       listBookMetadataProfiles: vi.fn(),
       addAuthor: vi.fn(),
       addTitle: vi.fn(),
+      // Readarr MT2: a work's editions (provider-fed add flow) and the
+      // edition create the add modal rides the picked editions onto.
+      getBookWorkEditions: vi.fn(),
+      addEdition: vi.fn(),
       runBooksPipeline: vi.fn(),
     },
   }
@@ -107,6 +111,12 @@ beforeEach(() => {
   vi.mocked(client.listBookMetadataProfiles).mockResolvedValue(['Default', 'E-book Only'])
   vi.mocked(client.addAuthor).mockResolvedValue({ id: 71 })
   vi.mocked(client.addTitle).mockResolvedValue({ id: 55 })
+  vi.mocked(client.addEdition).mockResolvedValue({ id: 1 })
+  vi.mocked(client.getBookWorkEditions).mockResolvedValue({
+    work_key: 'OL59863W',
+    title: 'The Dispossessed',
+    editions: [],
+  })
   vi.mocked(client.runBooksPipeline).mockResolvedValue({ imported: '' } as never)
 })
 
@@ -327,5 +337,372 @@ describe('AddBookModal (Readarr B2 "Add New Author/Book")', () => {
     await openAuthorModal(user)
     await user.click(await screen.findByTestId('book-add-button'))
     expect(await screen.findByTestId('book-add-error')).toHaveTextContent('name is required')
+  })
+})
+
+describe('MT1 id-lookup UX', () => {
+  it('advertises the id-lookup syntax under the search box', () => {
+    renderPage()
+    const hint = screen.getByTestId('book-search-hint')
+    expect(hint).toHaveTextContent('isbn:')
+    expect(hint).toHaveTextContent('asin:')
+    expect(hint).toHaveTextContent('goodreads:')
+    expect(hint).toHaveTextContent('olid:')
+  })
+
+  it('renders a single id-lookup hit as a selectable work row', async () => {
+    const idHit: BookLookupResult = {
+      kind: 'book',
+      name: 'The Dispossessed',
+      author: '',
+      year: 1974,
+      added: false,
+      library_id: 0,
+      author_id: 0,
+    }
+    vi.mocked(client.lookupBooks).mockResolvedValue([idHit])
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), 'isbn:9780140449335')
+    const row = await screen.findByTestId('book-result-book-0')
+    expect(screen.getByTestId('book-result-book-0-kind')).toHaveTextContent('Book')
+    await user.click(row)
+    expect(await screen.findByTestId('add-book-modal')).toBeVisible()
+    expect(screen.getByTestId('add-book-byline')).toHaveTextContent('Author unknown')
+  })
+})
+
+describe('olWorkKeyOf / resolveEditionFormat (MT1/MT2 helpers)', () => {
+  it('extracts the work key from the key forms, case-insensitively', () => {
+    expect(olWorkKeyOf('OL59863W')).toBe('OL59863W')
+    expect(olWorkKeyOf('olid:OL59863W')).toBe('OL59863W')
+    expect(olWorkKeyOf('OLID:ol59863w')).toBe('OL59863W')
+    expect(olWorkKeyOf('http://openlibrary.org/works/OL59863W')).toBe('OL59863W')
+  })
+
+  it('rejects non-key queries (text, isbn/asins, malformed keys)', () => {
+    expect(olWorkKeyOf('The Dispossessed')).toBeNull()
+    expect(olWorkKeyOf('isbn:9780140449335')).toBeNull()
+    expect(olWorkKeyOf('asin:B00005ZUJ2')).toBeNull()
+    expect(olWorkKeyOf('goodreads:54466')).toBeNull()
+    expect(olWorkKeyOf('9780140449335')).toBeNull()
+    expect(olWorkKeyOf('OLx1W')).toBeNull()
+    expect(olWorkKeyOf('')).toBeNull()
+  })
+
+  it('maps OL formats onto the quality-profile format enum', () => {
+    expect(resolveEditionFormat(['PDF', 'EPUB'])).toBe('epub')
+    expect(resolveEditionFormat(['mobi'])).toBe('mobi')
+    expect(resolveEditionFormat(['AZW3'])).toBe('azw3')
+    expect(resolveEditionFormat(['PDF'])).toBeNull()
+    expect(resolveEditionFormat(undefined)).toBeNull()
+  })
+})
+
+describe('MT2 provider-fed editions in the add flow', () => {
+  // A work-key id-lookup hit: the wire shape for an id query is a single
+  // kind=book hit with an empty author.
+  const idBookHit: BookLookupResult = {
+    kind: 'book',
+    name: 'The Dispossessed',
+    author: '',
+    year: 1974,
+    added: false,
+    library_id: 0,
+    author_id: 0,
+  }
+
+  // The shape getBookWorkEditions returns for a keyed work: three editions —
+  // a monitorable EPUB+PDF, a PDF-only (unmonitorable) scan, and a bare
+  // key-only edition with no title/isbn/publisher/year.
+  const sampleDetails = {
+    work_key: 'OL59863W',
+    title: 'The Dispossessed',
+    authors: ['Ursula K. Le Guin'],
+    cover_url: 'https://covers.openlibrary.org/b/isbn/9781910902434-M.jpg',
+    first_publish_year: 1974,
+    editions: [
+      {
+        key: 'OL25828717M',
+        title: 'The Dispossessed (Essays in Science Fiction)',
+        isbn: '9781910902434',
+        formats: ['EPUB', 'PDF'],
+        languages: ['eng'],
+        publishers: ['Island Books'],
+        publish_date: '2018-08-31',
+        year: 2018,
+        pages: 348,
+      },
+      {
+        key: 'OL17731959M',
+        title: '',
+        isbn: '9780802143022',
+        formats: ['PDF'],
+        languages: ['eng'],
+        publishers: ['Ballantine Books'],
+        publish_date: '1993-10-01',
+        year: 1993,
+        pages: 348,
+      },
+      {
+        key: 'OL35929472M',
+        title: '',
+        isbn: '',
+        formats: ['EPUB', 'MOBI'],
+        languages: ['eng'],
+        publishers: [],
+        publish_date: '',
+        year: 0,
+        pages: 0,
+      },
+    ],
+  }
+
+  async function openWorkKeyModal(query: string, user: ReturnType<typeof userEvent.setup>) {
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), query)
+    await user.click(await screen.findByTestId('book-result-book-0'))
+    return screen.findByTestId('add-book-modal')
+  }
+
+  it('offers the fetched editions pre-filled, each with a checked monitored toggle', async () => {
+    vi.mocked(client.getBookWorkEditions).mockResolvedValue(sampleDetails)
+    vi.mocked(client.lookupBooks).mockResolvedValue([idBookHit])
+    const user = userEvent.setup()
+    await openWorkKeyModal('olid:OL59863W', user)
+
+    const first = await screen.findByTestId('add-book-edition-OL25828717M')
+    expect(first).toHaveTextContent('The Dispossessed (Essays in Science Fiction)')
+    expect(first).toHaveTextContent('EPUB, PDF')
+    expect(first).toHaveTextContent('eng')
+    expect(first).toHaveTextContent('Island Books')
+    expect(first).toHaveTextContent('2018')
+    expect(first).toHaveTextContent('ISBN 9781910902434')
+
+    // A bare work-key lookup drives the same fetch; the key is normalised.
+    await waitFor(() =>
+      expect(client.getBookWorkEditions).toHaveBeenCalledWith('OL59863W'),
+    )
+
+    // The titleless edition shows a placeholder title.
+    expect(screen.getByTestId('add-book-edition-title-OL35929472M')).toHaveTextContent('—')
+
+    // Per-edition monitored toggles default to checked.
+    for (const key of ['OL25828717M', 'OL17731959M', 'OL35929472M']) {
+      expect(screen.getByTestId(`add-book-edition-mon-${key}`)).toBeChecked()
+    }
+    // The PDF-only edition has no monitorable format: its toggle is disabled.
+    expect(screen.getByTestId('add-book-edition-mon-OL17731959M')).toBeDisabled()
+    expect(screen.getByTestId('add-book-edition-OL17731959M')).toHaveTextContent(
+      'no monitorable format',
+    )
+  })
+
+  it('shows a loading state while the editions fetch is in flight', async () => {
+    let resolveEditions: (value: BookWorkDetails) => void = () => {}
+    vi.mocked(client.getBookWorkEditions).mockReturnValue(
+      new Promise<BookWorkDetails>((res) => {
+        resolveEditions = res
+      }),
+    )
+    vi.mocked(client.lookupBooks).mockResolvedValue([idBookHit])
+    const user = userEvent.setup()
+    renderPage()
+    // Case-insensitive prefix + lowercase key (the backend's lenient form).
+    await user.type(screen.getByTestId('book-search-input'), 'OLID:ol59863w')
+    await user.click(await screen.findByTestId('book-result-book-0'))
+    expect(await screen.findByTestId('add-book-editions-loading')).toBeInTheDocument()
+    resolveEditions(sampleDetails)
+    expect(await screen.findByTestId('add-book-editions')).toBeInTheDocument()
+  })
+
+  it('falls back to the manual form when the editions call rejects', async () => {
+    vi.mocked(client.getBookWorkEditions).mockRejectedValue(new Error('upstream'))
+    vi.mocked(client.lookupBooks).mockResolvedValue([idBookHit])
+    const user = userEvent.setup()
+    await openWorkKeyModal('OL59863W', user)
+    expect(await screen.findByTestId('add-book-edition-manual')).toBeInTheDocument()
+    expect(screen.getByTestId('add-book-editions-note')).toHaveTextContent(
+      'unavailable for this work',
+    )
+    expect(screen.queryByTestId('add-book-editions')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the manual form when the work has no editions', async () => {
+    vi.mocked(client.getBookWorkEditions).mockResolvedValue({
+      work_key: 'OL59863W',
+      title: 'The Dispossessed',
+      authors: ['Ursula K. Le Guin'],
+      cover_url: '',
+      first_publish_year: 1974,
+      editions: [],
+    })
+    vi.mocked(client.lookupBooks).mockResolvedValue([idBookHit])
+    const user = userEvent.setup()
+    await openWorkKeyModal('OL59863W', user)
+    expect(await screen.findByTestId('add-book-edition-manual')).toBeInTheDocument()
+    expect(screen.getByTestId('add-book-editions-note')).toHaveTextContent(
+      'unavailable for this work',
+    )
+  })
+
+  it('renders the provider-fed editions for a plain-text work hit carrying work_key (MT2)', async () => {
+    // The MT2 wire shape: EVERY kind=book hit carries the work key, so a
+    // plain-text selection fetches editions too — the hit's key, not the
+    // plain-text query, drives the fetch.
+    const plainHit: BookLookupResult = {
+      kind: 'book',
+      name: 'The Dispossessed',
+      author: 'Ursula K. Le Guin',
+      year: 1974,
+      work_key: 'OL59863W',
+      added: false,
+      library_id: 0,
+      author_id: 0,
+    }
+    vi.mocked(client.getBookWorkEditions).mockResolvedValue(sampleDetails)
+    vi.mocked(client.lookupBooks).mockResolvedValue([plainHit])
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), 'The Di')
+    await user.click(await screen.findByTestId('book-result-book-0'))
+
+    await screen.findByTestId('add-book-editions')
+    expect(screen.getByTestId('add-book-edition-OL25828717M')).toHaveTextContent(
+      'The Dispossessed (Essays in Science Fiction)',
+    )
+    await waitFor(() =>
+      expect(client.getBookWorkEditions).toHaveBeenCalledWith('OL59863W'),
+    )
+    // No manual form alongside the provider list.
+    expect(screen.queryByTestId('add-book-edition-manual')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the manual form when the hit carries an empty work_key', async () => {
+    const emptyKeyHit: BookLookupResult = { ...bookHit, work_key: '' }
+    vi.mocked(client.lookupBooks).mockResolvedValue([emptyKeyHit])
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), 'The Di')
+    await user.click(await screen.findByTestId('book-result-book-0'))
+    expect(await screen.findByTestId('add-book-edition-manual')).toBeInTheDocument()
+    expect(screen.getByTestId('add-book-editions-note')).toHaveTextContent(
+      "can't be fetched automatically",
+    )
+    expect(client.getBookWorkEditions).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the query-derived key when the hit work_key is not OL-key-shaped', async () => {
+    // Robustness: a malformed work_key on the wire must not break the
+    // keyed-work path — the olWorkKeyOf(query) derivation still drives it.
+    const shapedHit: BookLookupResult = { ...idBookHit, work_key: 'OLx1W' }
+    vi.mocked(client.getBookWorkEditions).mockResolvedValue(sampleDetails)
+    vi.mocked(client.lookupBooks).mockResolvedValue([shapedHit])
+    const user = userEvent.setup()
+    await openWorkKeyModal('olid:OL59863W', user)
+    await screen.findByTestId('add-book-editions')
+    await waitFor(() =>
+      expect(client.getBookWorkEditions).toHaveBeenCalledWith('OL59863W'),
+    )
+  })
+
+  it('shows the manual form for a plain-text work (no work key to fetch with)', async () => {
+    vi.mocked(client.lookupBooks).mockResolvedValue([bookHit])
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), 'The Di')
+    await user.click(await screen.findByTestId('book-result-book-0'))
+    expect(await screen.findByTestId('add-book-edition-manual')).toBeInTheDocument()
+    expect(screen.getByTestId('add-book-editions-note')).toHaveTextContent(
+      "can't be fetched automatically",
+    )
+    expect(client.getBookWorkEditions).not.toHaveBeenCalled()
+  })
+
+  it('submits the picked provider editions with format, language, and monitored', async () => {
+    vi.mocked(client.getBookWorkEditions).mockResolvedValue(sampleDetails)
+    vi.mocked(client.lookupBooks).mockResolvedValue([idBookHit])
+    const user = userEvent.setup()
+    await openWorkKeyModal('olid:OL59863W', user)
+    await screen.findByTestId('add-book-editions')
+    await user.click(screen.getByTestId('book-add-button'))
+
+    // The id hit has no author: author row first, then the title, then the
+    // picked editions (the PDF-only one is skipped — unmonitorable).
+    await waitFor(() =>
+      expect(client.addTitle).toHaveBeenCalledWith(71, {
+        name: 'The Dispossessed',
+        monitored: true,
+      }),
+    )
+    expect(client.addEdition).toHaveBeenCalledTimes(2)
+    expect(client.addEdition).toHaveBeenCalledWith(55, {
+      format: 'epub',
+      language: 'eng',
+      isbn: '9781910902434',
+      publisher: 'Island Books',
+      year: 2018,
+      pages: 348,
+      monitored: true,
+    })
+    expect(client.addEdition).toHaveBeenCalledWith(55, {
+      format: 'epub',
+      language: 'eng',
+      monitored: true,
+    })
+    expect(await screen.findByTestId('books-landing')).toBeInTheDocument()
+  })
+
+  it('honours per-edition monitored picks (an unchecked edition is not created)', async () => {
+    vi.mocked(client.getBookWorkEditions).mockResolvedValue(sampleDetails)
+    vi.mocked(client.lookupBooks).mockResolvedValue([idBookHit])
+    const user = userEvent.setup()
+    await openWorkKeyModal('olid:OL59863W', user)
+    // Uncheck the first edition by clicking its (checked) toggle.
+    await user.click(await screen.findByTestId('add-book-edition-mon-OL25828717M'))
+    await user.click(await screen.findByTestId('book-add-button'))
+    await waitFor(() => expect(client.addTitle).toHaveBeenCalled())
+    expect(client.addEdition).toHaveBeenCalledTimes(1)
+    expect(client.addEdition).toHaveBeenCalledWith(55, {
+      format: 'epub',
+      language: 'eng',
+      monitored: true,
+    })
+    expect(await screen.findByTestId('books-landing')).toBeInTheDocument()
+  })
+
+  it('submits the manual edition when automatic editions are unavailable', async () => {
+    vi.mocked(client.getBookWorkEditions).mockRejectedValue(new Error('upstream'))
+    vi.mocked(client.lookupBooks).mockResolvedValue([idBookHit])
+    const user = userEvent.setup()
+    await openWorkKeyModal('OL59863W', user)
+    await screen.findByTestId('add-book-edition-manual')
+    await user.selectOptions(screen.getByTestId('add-book-edition-format'), 'mobi')
+    await user.type(screen.getByTestId('add-book-edition-language'), 'eng')
+    await user.type(screen.getByTestId('add-book-edition-isbn'), '9780140449335')
+    await user.type(screen.getByTestId('add-book-edition-publisher'), 'Ballantine')
+    await user.type(screen.getByTestId('add-book-edition-year'), '1974')
+    await user.click(await screen.findByTestId('book-add-button'))
+    expect(client.addEdition).toHaveBeenCalledWith(55, {
+      format: 'mobi',
+      language: 'eng',
+      isbn: '9780140449335',
+      publisher: 'Ballantine',
+      year: 1974,
+      monitored: true,
+    })
+    expect(await screen.findByTestId('books-landing')).toBeInTheDocument()
+  })
+
+  it('adds the book without an edition when the manual edition is not monitored', async () => {
+    vi.mocked(client.getBookWorkEditions).mockRejectedValue(new Error('upstream'))
+    vi.mocked(client.lookupBooks).mockResolvedValue([idBookHit])
+    const user = userEvent.setup()
+    await openWorkKeyModal('OL59863W', user)
+    await user.click(await screen.findByTestId('add-book-edition-monitored'))
+    await user.click(await screen.findByTestId('book-add-button'))
+    await waitFor(() => expect(client.addTitle).toHaveBeenCalled())
+    expect(client.addEdition).not.toHaveBeenCalled()
+    expect(await screen.findByTestId('books-landing')).toBeInTheDocument()
   })
 })

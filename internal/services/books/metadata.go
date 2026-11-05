@@ -2,6 +2,7 @@ package books
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -60,7 +61,11 @@ func (s *Service) lookupWorkByKey(ctx context.Context, key string) ([]dom.Lookup
 
 // workLookupResults turns work hits into kind=book LookupResults, computing
 // the `added` flag and the library ids against the books library
-// (case-insensitive, trimmed — the same matching as the B2 lookup).
+// (case-insensitive, trimmed — the same matching as the B2 lookup). Every
+// caller (lookupText, lookupWorkByKey, lookupIDWork, lookupGoodreads)
+// routes its work hits through here, so this is the single place the
+// MT2 work key is set: the hit's ID is the OpenLibrary work key the add
+// flow uses to fetch editions.
 func (s *Service) workLookupResults(ctx context.Context, workHits []dom.BookSearchHit) ([]dom.LookupResult, error) {
 	books, berr := s.deps.Repo.ListBooks(ctx)
 	if berr != nil {
@@ -81,6 +86,7 @@ func (s *Service) workLookupResults(ctx context.Context, workHits []dom.BookSear
 			Name:      h.Name,
 			Author:    h.Author,
 			Year:      h.Year,
+			WorkKey:   h.ID, // the OL work key (the hit's ID) — MT2 editions fetch
 			Added:     ok,
 			LibraryID: aid,
 			AuthorID:  titleAuthor[foldName(h.Author)+"\x00"+foldName(h.Name)],
@@ -122,12 +128,19 @@ func (s *Service) recordWorkMetadata(ctx context.Context, hits []dom.BookSearchH
 	return nil
 }
 
-// RefreshWorkMetadata is the MT3 refresh command: it forces a re-fetch of
-// one work from Open Library, bypassing the TTL, upserts the provenance row
-// (re-anchoring fetched_at), and returns the refreshed row. key may be bare
-// ("OL8189755W") or a full key ("/works/OL8189755W"); it is normalized
-// first. It requires BOTH a searcher (with the key lookup surface) and the
-// provenance store — a refresh is a store operation by definition.
+// RefreshWorkMetadata is the MT3 refresh command (extended by MT2): it
+// forces a re-fetch of one work from Open Library, bypassing the TTL,
+// upserts the provenance row (re-anchoring fetched_at), and returns the
+// refreshed row. key may be bare ("OL8189755W") or a full key
+// ("/works/OL8189755W"); it is normalized first. It requires BOTH a
+// searcher (with the key lookup surface) and the provenance store — a
+// refresh is a store operation by definition.
+//
+// MT2: when the searcher also has the work-details surface, the refresh
+// fetches the work document and stores its editions on the row (a work-key
+// refresh refreshes the editions too). The editions leg is best-effort: a
+// failed details fetch keeps the search-hit-based row and does not fail the
+// refresh.
 func (s *Service) RefreshWorkMetadata(ctx context.Context, key string) (dom.WorkMetadata, error) {
 	key = providers.NormalizeOLID(key)
 	if key == "" {
@@ -162,6 +175,15 @@ func (s *Service) RefreshWorkMetadata(ctx context.Context, key string) (dom.Work
 		Year:      hit.Year,
 		CoverURL:  hit.CoverURL,
 		FetchedAt: time.Now(),
+	}
+	// MT2: refresh the editions on the same row (best-effort — a details
+	// failure keeps the search-hit-based row).
+	if fd, ok := s.deps.Searcher.(workDetailsFetcher); ok {
+		if details, derr := fd.GetWorkDetails(ctx, key); derr == nil {
+			if ed, jerr := json.Marshal(details.Editions); jerr == nil {
+				w.EditionsJSON = ed
+			}
+		}
 	}
 	if err := s.deps.MetadataStore.UpsertWork(ctx, w); err != nil {
 		return dom.WorkMetadata{}, fmt.Errorf("books: refresh work metadata: %w", err)

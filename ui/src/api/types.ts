@@ -66,6 +66,10 @@ export type BookTitle = components["schemas"]["BookTitle"]
 export type AddTitleRequest = components["schemas"]["AddTitleRequest"]
 export type Edition = components["schemas"]["Edition"]
 export type AddEditionRequest = components["schemas"]["AddEditionRequest"]
+// Readarr MT2: the provider-fed work details for the add flow (the editions
+// endpoint the add modal calls on work selection).
+export type BookWorkDetails = components["schemas"]["BookWorkDetails"]
+export type BookWorkEdition = components["schemas"]["BookWorkEdition"]
 export type TitleWanted = components["schemas"]["TitleWanted"]
 // Readarr B1: the flat Books index, book files, series, and per-author history.
 export type Book = components["schemas"]["Book"]

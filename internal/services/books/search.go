@@ -45,6 +45,13 @@ func (o *openLibrarySearcher) SearchWorks(ctx context.Context, author, title str
 	if err != nil {
 		return nil, err
 	}
+	return mapWorkHits(res), nil
+}
+
+// mapWorkHits maps Open Library work-level provider hits to domain hits:
+// first author name (from the provider's "author" extra) and the first
+// publish year.
+func mapWorkHits(res []providers.Result) []dom.BookSearchHit {
 	out := make([]dom.BookSearchHit, 0, len(res))
 	for _, r := range res {
 		out = append(out, dom.BookSearchHit{
@@ -55,7 +62,68 @@ func (o *openLibrarySearcher) SearchWorks(ctx context.Context, author, title str
 			CoverURL: r.Extra["cover"],
 		})
 	}
-	return out, nil
+	return out
+}
+
+// SearchWorkByISBN implements the MT1 isbnLookup surface: it resolves an
+// ISBN to its Open Library work (the books lookup's `isbn:` / bare-13-digit
+// id syntax, and the Goodreads-id chain's second leg).
+func (o *openLibrarySearcher) SearchWorkByISBN(ctx context.Context, isbn string) ([]dom.BookSearchHit, error) {
+	res, err := o.ol.SearchWorkByISBN(ctx, isbn)
+	if err != nil {
+		return nil, err
+	}
+	return mapWorkHits(res), nil
+}
+
+// SearchWorkByASIN implements the MT1 asinLookup surface: it resolves an
+// Amazon ASIN to its Open Library work (the books lookup's `asin:` / bare
+// "B"+9-alnum id syntax).
+func (o *openLibrarySearcher) SearchWorkByASIN(ctx context.Context, asin string) ([]dom.BookSearchHit, error) {
+	res, err := o.ol.SearchWorkByASIN(ctx, asin)
+	if err != nil {
+		return nil, err
+	}
+	return mapWorkHits(res), nil
+}
+
+// GetWorkDetails implements the MT2 workDetailsFetcher surface: it fetches
+// the work document (title/authors/cover + editions) for a known
+// OpenLibrary work key, mapping the provider shape to the domain's (the
+// adapter never imports domains — the repo's rule).
+func (o *openLibrarySearcher) GetWorkDetails(ctx context.Context, key string) (dom.WorkDetails, error) {
+	d, err := o.ol.GetWorkDetails(ctx, key)
+	if err != nil {
+		return dom.WorkDetails{}, err
+	}
+	return mapWorkDetails(d), nil
+}
+
+// mapWorkDetails maps the provider's WorkDetails onto the domain's
+// WorkDetails.
+func mapWorkDetails(d providers.WorkDetails) dom.WorkDetails {
+	eds := make([]dom.WorkEdition, 0, len(d.Editions))
+	for _, e := range d.Editions {
+		eds = append(eds, dom.WorkEdition{
+			Key:         e.Key,
+			Title:       e.Title,
+			ISBN:        e.ISBN,
+			Formats:     e.Formats,
+			Languages:   e.Languages,
+			Publishers:  e.Publishers,
+			PublishDate: e.PublishDate,
+			Year:        e.Year,
+			Pages:       e.Pages,
+		})
+	}
+	return dom.WorkDetails{
+		WorkKey:          d.WorkKey,
+		Title:            d.Title,
+		Authors:          d.Authors,
+		CoverURL:         d.CoverURL,
+		FirstPublishYear: d.FirstPublishYear,
+		Editions:         eds,
+	}
 }
 
 // SearchWorkByKey resolves a known OpenLibrary work key to its work — the
@@ -68,15 +136,5 @@ func (o *openLibrarySearcher) SearchWorkByKey(ctx context.Context, key string) (
 	if err != nil {
 		return nil, err
 	}
-	out := make([]dom.BookSearchHit, 0, len(res))
-	for _, r := range res {
-		out = append(out, dom.BookSearchHit{
-			ID:       r.ID,
-			Name:     r.Title,
-			Author:   r.Extra["author"],
-			Year:     r.Year,
-			CoverURL: r.Extra["cover"],
-		})
-	}
-	return out, nil
+	return mapWorkHits(res), nil
 }

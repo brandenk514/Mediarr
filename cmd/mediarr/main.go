@@ -623,6 +623,10 @@ func run(logSvc *system.LogService) error {
 		// keyless Open Library) + its TTL (config; 0 = the 7d domain default).
 		MetadataStore: postgres.NewBookMetadataStore(pg.DB()),
 		MetadataTTL:   cfg.BooksMetadataTTL,
+		// MT1: the Goodreads→ISBN resolver for the goodreads:<id> id syntax
+		// (the keyless Goodreads page adapter; best-effort — an outage
+		// degrades to an empty result, never a lookup failure).
+		GoodreadsResolver: providers.NewGoodreads(),
 	})
 	srv.SetBooks(&api.BooksDeps{Svc: booksSvc})
 	logger.Info("books pipeline ready",

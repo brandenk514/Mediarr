@@ -106,3 +106,42 @@ describe('client profiles + add requests (#42)', () => {
     expect(body).toEqual({ name: 'Radiohead', mbid: 'a74b1cee-3cc7-4c58-9ac8-75290173c7f4', monitored: true })
   })
 })
+
+describe('client books lookup + work editions (MT1/MT2)', () => {
+  it('lookupBooks URL-encodes the query (id syntax rides the same endpoint)', async () => {
+    let url = ''
+    mockFetch((u) => {
+      url = u
+      return new Response(JSON.stringify([{ kind: 'book', name: 'The Dispossessed', author: '', year: 1974 }]), { status: 200 })
+    })
+    const hits = await client.lookupBooks('olid:OL59863W')
+    expect(url).toBe('/api/v1/search/books/lookup?query=olid%3AOL59863W')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].kind).toBe('book')
+  })
+
+  it('getBookWorkEditions fetches the work editions by key', async () => {
+    let url = ''
+    mockFetch((u) => {
+      url = u
+      return new Response(
+        JSON.stringify({
+          work_key: 'OL59863W',
+          title: 'The Dispossessed',
+          authors: ['Ursula K. Le Guin'],
+          cover_url: '',
+          first_publish_year: 1974,
+          editions: [
+            { key: 'OL25828717M', title: 'The Dispossessed', isbn: '9781910902434', formats: ['EPUB'], languages: ['eng'], publishers: ['Island Books'], year: 2018, pages: 348 },
+          ],
+        }),
+        { status: 200 },
+      )
+    })
+    const d = await client.getBookWorkEditions('OL59863W')
+    expect(url).toBe('/api/v1/search/books/works/OL59863W/editions')
+    expect(d.work_key).toBe('OL59863W')
+    expect(d.editions).toHaveLength(1)
+    expect(d.editions[0].formats).toEqual(['EPUB'])
+  })
+})

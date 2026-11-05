@@ -83,6 +83,13 @@ type Deps struct {
 	// MetadataTTL bounds how long a store row is fresh before a re-fetch
 	// (MT3). <= 0 falls back to dom.DefaultMetadataTTL (7d).
 	MetadataTTL time.Duration
+	// GoodreadsResolver, when non-nil, backs the MT1 goodreads:<id> id
+	// syntax: it resolves a Goodreads book id to its ISBN, which the
+	// lookup chains into the OpenLibrary work (SearchWorkByISBN). It is
+	// the keyless Goodreads page adapter in production. Nil (tests, no
+	// provider) makes a goodreads: query degrade to an empty result —
+	// a Goodreads outage never breaks the lookup.
+	GoodreadsResolver GoodreadsResolver
 }
 
 // ErrSearcherNotConfigured is returned by BooksLookup when no metadata
@@ -251,8 +258,11 @@ func (s *Service) GetAuthor(ctx context.Context, id int64) (*dom.Author, error) 
 	return s.deps.Repo.GetAuthor(ctx, id)
 }
 
-// BooksLookup is the combined plain-text books lookup (Readarr B2). It fans
-// out to the metadata searcher's author search and work search and returns a
+// BooksLookup is the combined books lookup (Readarr B2, extended by MT1):
+// an id-syntax query (isbn: / asin: / goodreads: / olid: and the
+// unambiguous bare forms) routes to the matching id resolver; everything
+// else is the combined plain-text lookup. It fans the plain-text path out
+// to the metadata searcher's author search and work search and returns a
 // single kind-tagged list (author hits first, then book hits). Each hit
 // carries `added` (true when that author — kind=author — or that author +
 // title — kind=book — already exists in the books library, so the UI
@@ -271,11 +281,27 @@ func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult
 	if s.deps.Searcher == nil {
 		return nil, ErrSearcherNotConfigured
 	}
-	// MT3: a query that is itself an OpenLibrary work key takes the cached
-	// path — a fresh provenance-store row is served without an Open Library
-	// call; an expired or missing row triggers a re-fetch that upserts the
-	// row. (The store is consulted FIRST, so a repeated key lookup never
-	// hammers keyless OL while the row is fresh.)
+	// MT1: id-lookup syntax routes to the id resolver instead of the
+	// plain-text search (the documented scheme, in the spec's lookup
+	// description).
+	if idq, ok := dom.ParseIDQuery(q); ok {
+		switch idq.Kind {
+		case dom.IDKindOL:
+			return s.lookupWorkByKey(ctx, providers.NormalizeOLID(idq.Value))
+		case dom.IDKindISBN:
+			return s.lookupIDWork(ctx, dom.IDKindISBN, idq.Value)
+		case dom.IDKindASIN:
+			return s.lookupIDWork(ctx, dom.IDKindASIN, idq.Value)
+		case dom.IDKindGoodreads:
+			return s.lookupGoodreads(ctx, idq.Value)
+		}
+	}
+	// MT3: a query that is itself an OpenLibrary work key in the full key
+	// form ("/works/OL…W" — the parser covers only the bare form) takes the
+	// cached path: a fresh provenance-store row is served without an Open
+	// Library call; an expired or missing row triggers a re-fetch that
+	// upserts the row. (The store is consulted FIRST, so a repeated key
+	// lookup never hammers keyless OL while the row is fresh.)
 	if key := providers.NormalizeOLID(q); providers.IsOLWorkID(key) {
 		return s.lookupWorkByKey(ctx, key)
 	}
