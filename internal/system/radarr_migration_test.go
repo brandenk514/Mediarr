@@ -519,7 +519,8 @@ func TestMigrationServiceRoutesBySource(t *testing.T) {
 	radarr := &recordingRunner{name: "radarr"}
 	lidarr := &recordingRunner{name: "lidarr"}
 	prowlarr := &recordingRunner{name: "prowlarr"}
-	svc := NewMigrationService(sonarr, radarr, lidarr, prowlarr)
+	readarr := &recordingRunner{name: "readarr"}
+	svc := NewMigrationService(sonarr, radarr, lidarr, prowlarr, readarr)
 
 	// Explicit radarr routes to the Radarr runner.
 	if _, err := svc.Run(context.Background(), MigrationRequest{SourceURL: "http://r", Source: "radarr"}); err != nil {
@@ -559,7 +560,7 @@ func TestMigrationServiceRoutesBySource(t *testing.T) {
 	}
 	// A nil runner for a recognized source answers a validation error, not a
 	// panic (a source selected but not wired).
-	onlySonarr := NewMigrationService(sonarr, nil, nil, nil)
+	onlySonarr := NewMigrationService(sonarr, nil, nil, nil, nil)
 	if _, err := onlySonarr.Run(context.Background(), MigrationRequest{SourceURL: "http://r", Source: "radarr"}); err == nil {
 		t.Fatal("expected an error for an unwired source")
 	}

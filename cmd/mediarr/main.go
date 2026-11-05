@@ -15,7 +15,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -747,6 +749,24 @@ func run(logSvc *system.LogService) error {
 		prowlarrTarget := system.NewProwlarrPostgresTarget(settingsRepo, migrationProwlarrIndexers, migrationProwlarrProxies)
 		prowlarrTarget.DCRepo = dcRepo
 
+		// Readarr B6: the Readarr (retired) source of the drop-in migration.
+		// The target maps authors / books / editions / book files / series
+		// onto the books domain (OL work key the book's migration identity,
+		// author name + (title, format, isbn) the stable keys), the v0.4
+		// quality + metadata profiles onto the profiles section's book
+		// arrays, tags onto the tags section, root folders (with the B5
+		// per-root Calibre block) onto the registry, indexers onto the
+		// indexer store, the download client onto the saved-client list, and
+		// the media-management subset onto the settings document. The id
+		// swap (ISBN/ASIN/Goodreads -> OpenLibrary work key) happens once, at
+		// import, over the shared keyless Open Library adapter. Migration
+		// state is Postgres so an interrupted run resumes across restarts.
+		migrationReadarrRoots := &migrationReadarrRootFolderStore{repo: rfRepo}
+		readarrTarget := system.NewReadarrPostgresTarget(
+			settingsRepo, postgres.NewBooksRepo(pg.DB()), migrationReadarrRoots, migrationRadarrIndexers, dcRepo)
+		readarrResolver := system.NewOpenLibraryBookIDResolver(olProvider)
+		readarrState := postgres.NewReadarrMigrationStateRepo(pg.DB())
+
 		// P6 Wave 2: the System depth services. Backup exports/imports the
 		// configuration over the settings repo (queue / series snapshots are
 		// optional attachments; the series snapshot can be imported back
@@ -813,7 +833,11 @@ func run(logSvc *system.LogService) error {
 		radarrMigrator := system.NewRadarrMigrator(radarrTarget)
 		lidarrMigrator := system.NewLidarrMigrator(lidarrTarget)
 		prowlarrMigrator := system.NewProwlarrMigrator(prowlarrTarget)
-		migrationSvc := system.NewMigrationService(migrator, radarrMigrator, lidarrMigrator, prowlarrMigrator)
+		// Readarr B6: the live Readarr v0.4 client into the books domain, the
+		// OpenLibrary id-swap resolver, and the Postgres resume state.
+		readarrMigrator := system.NewReadarrMigrator(readarrTarget, readarrResolver)
+		readarrMigrator.State = readarrState
+		migrationSvc := system.NewMigrationService(migrator, radarrMigrator, lidarrMigrator, prowlarrMigrator, readarrMigrator)
 
 		srv.SetSystem(&api.SystemDeps{
 			Health:       system.NewHealth(probes),
@@ -1123,6 +1147,29 @@ func (s *migrationLidarrRootFolderStore) CreateRootFolder(ctx context.Context, p
 		DefaultQualityProfile:  defaultQuality,
 		DefaultMetadataProfile: defaultMetadata,
 	})
+}
+
+// migrationReadarrRootFolderStore adapts the Postgres root-folders repo to the
+// Readarr migration target's root-folder seam (system.ReadarrRootFolderStore).
+// Path is the migration's root-folder identity; Create carries the B5
+// per-root Calibre block.
+type migrationReadarrRootFolderStore struct {
+	repo *postgres.RootFoldersRepo
+}
+
+func (s *migrationReadarrRootFolderStore) FindRootFolder(ctx context.Context, path string) (rfdom.RootFolder, bool, error) {
+	rf, err := s.repo.FindByPath(ctx, path)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return rfdom.RootFolder{}, false, nil
+		}
+		return rfdom.RootFolder{}, false, err
+	}
+	return *rf, true, nil
+}
+
+func (s *migrationReadarrRootFolderStore) CreateRootFolder(ctx context.Context, rf rfdom.RootFolder) (int64, error) {
+	return s.repo.Create(rf)
 }
 
 // migrationTVStore adapts the Postgres TV repo to the migration target's TV

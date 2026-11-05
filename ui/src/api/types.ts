@@ -235,6 +235,7 @@ export type MigrationCounts = components["schemas"]["MigrationCounts"]
 export type MigrationResult = components["schemas"]["MigrationResult"]
 export type MigrationInclude = components["schemas"]["MigrationInclude"]
 export type MigrationRequest = components["schemas"]["MigrationRequest"]
+export type ReadarrMigrationRequest = components["schemas"]["ReadarrMigrationRequest"]
 export type MigrationStatus = components["schemas"]["MigrationStatus"]
 
 // Books' domain type is books.Title; the spec names it BookTitle so the

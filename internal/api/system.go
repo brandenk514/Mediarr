@@ -65,6 +65,10 @@ func (s *Server) SetSystem(deps *SystemDeps) {
 	// Wave 3: Sonarr drop-in migration.
 	s.register("POST /api/v1/system/migration", s.requireAuth(s.RunMigration))
 	s.register("GET /api/v1/system/migration/status", s.requireAuth(s.GetMigrationStatus))
+	// Readarr B6: source-scoped Readarr migration (dry-run / execute / status).
+	s.register("POST /api/v1/system/migration/readarr", s.requireAuth(s.RunReadarrMigration))
+	s.register("POST /api/v1/system/migration/readarr/execute", s.requireAuth(s.ExecuteReadarrMigration))
+	s.register("GET /api/v1/system/migration/readarr/status", s.requireAuth(s.GetReadarrMigrationStatus))
 }
 
 // systemDepsOr501 returns the wired deps or writes a 501 (not wired).

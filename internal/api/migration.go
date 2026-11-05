@@ -54,6 +54,10 @@ func (s *Server) RunMigration(w http.ResponseWriter, r *http.Request) {
 			name = "Radarr"
 		case system.SourceLidarr:
 			name = "Lidarr"
+		case system.SourceProwlarr:
+			name = "Prowlarr"
+		case system.SourceReadarr:
+			name = "Readarr"
 		}
 		writeError(w, http.StatusBadGateway, "failed to reach the "+name+" instance: "+err.Error())
 		return

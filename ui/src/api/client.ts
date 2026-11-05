@@ -139,6 +139,7 @@ import type {
   MigrationRequest,
   MigrationResult,
   MigrationStatus,
+  ReadarrMigrationRequest,
 } from './types'
 
 export class ApiError extends Error {
@@ -599,6 +600,13 @@ export const client = {
   // Sonarr drop-in migration.
   runMigration: (req: MigrationRequest) => request<MigrationResult>('POST', '/system/migration', req),
   getMigrationStatus: () => request<MigrationStatus>('GET', '/system/migration/status'),
+  // Readarr (B6) drop-in migration: the dedicated source-scoped endpoints
+  // (a fixed dry-run, an explicit execute, and a Readarr-scoped status).
+  runReadarrMigration: (req: ReadarrMigrationRequest) =>
+    request<MigrationResult>('POST', '/system/migration/readarr', req),
+  executeReadarrMigration: (req: ReadarrMigrationRequest) =>
+    request<MigrationResult>('POST', '/system/migration/readarr/execute', req),
+  getReadarrMigrationStatus: () => request<MigrationStatus>('GET', '/system/migration/readarr/status'),
 
   // ---- add flows (#42) ----
   // Provider search: debounced by the UI; each call is one provider round

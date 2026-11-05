@@ -2530,6 +2530,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/migration/readarr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Readarr drop-in dry-run (read-only mapping report).
+         * @description The Readarr (B6) drop-in, dry-run only: pulls a live Readarr
+         *     v0.4.18.2805 instance (the /api/v1 contract, X-Api-Key header) and
+         *     reports the mapping into Mediarr WITHOUT writing anything. Safe to
+         *     repeat. The generic POST /api/v1/system/migration with source
+         *     "readarr" and dry_run true performs the same run.
+         */
+        post: operations["runReadarrMigration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/migration/readarr/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run the Readarr drop-in import (resumable).
+         * @description The Readarr (B6) drop-in import: pulls the live Readarr v0.4.18.2805
+         *     instance and imports it into Mediarr's books domain — authors, books
+         *     (keyed by their OpenLibrary work key, the one-time id swap), editions,
+         *     book files, series links, book quality + metadata profiles, tags,
+         *     indexers, the download client, root folders (with the per-root
+         *     Calibre block), and a best-effort media-management subset. Idempotent:
+         *     re-running reports the existing entities. A partial run can be
+         *     continued with resume true (the migrated book keys are tracked in
+         *     Postgres, so a restart continues).
+         */
+        post: operations["executeReadarrMigration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/migration/readarr/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readarr migration progress and last result.
+         * @description The Readarr run's status (idle / running / completed / partial / failed), progress counter, and last mapping report — source-scoped, so it reports the Readarr run even when another source migrated most recently (the generic /status reflects the most recently run source).
+         */
+        get: operations["getReadarrMigrationStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5480,7 +5552,7 @@ export interface components {
         /** @description One migrated entity in the mapping report. */
         MigrationItem: {
             /** @enum {string} */
-            entity: "quality_profile" | "tag" | "indexer" | "download_client" | "series" | "episode";
+            entity: "quality_profile" | "quality_definition" | "metadata_profile" | "tag" | "indexer" | "indexer_proxy" | "download_client" | "root_folder" | "settings" | "series" | "episode" | "movie" | "edition" | "artist" | "album" | "track" | "author" | "book" | "book_file" | "series_link";
             /** @description Stable source key (Sonarr id or slug). */
             external_id: string;
             source_title?: string;
@@ -5526,16 +5598,26 @@ export interface components {
             /** @description Base URL of the source instance (e.g. http://sonarr.local:8989, https://radarr.local:7878, or https://prowlarr.local:9696). */
             source_url: string;
             /**
-             * @description The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance; Lidarr L5: 'lidarr' pulls artists + albums from a live Lidarr v6 instance; Prowlarr PR6: 'prowlarr' pulls indexers + download clients + tags + indexer proxies from a live Prowlarr v1 instance — the Prowlarr Apps section is NOT imported; Mediarr replaces it with per-kind settings).
+             * @description The source application being migrated (Radarr R6: 'radarr' pulls movies + editions from a Radarr v3 instance; Lidarr L5: 'lidarr' pulls artists + albums from a live Lidarr v6 instance; Prowlarr PR6: 'prowlarr' pulls indexers + download clients + tags + indexer proxies from a live Prowlarr v1 instance — the Prowlarr Apps section is NOT imported; Mediarr replaces it with per-kind settings; Readarr B6: 'readarr' pulls authors + books + editions + book files + series + quality/metadata profiles + tags + root folders (with the Calibre block) from a live Readarr v0.4.18.2805 instance — the final release before the project was archived).
              * @default sonarr
              * @enum {string}
              */
-            source: "sonarr" | "radarr" | "lidarr" | "prowlarr";
+            source: "sonarr" | "radarr" | "lidarr" | "prowlarr" | "readarr";
             /** @description Source API key (sent as X-Api-Key). */
             api_key?: string;
             /** @description Report only; add nothing. */
             dry_run: boolean;
             /** @description Resume a previously partial run (skips already-migrated series). */
+            resume?: boolean;
+            include?: components["schemas"]["MigrationInclude"];
+        };
+        /** @description The Readarr (B6) drop-in request. The dedicated /system/migration/readarr endpoints pin the source to readarr; the same pull is available through the generic endpoint with source "readarr". */
+        ReadarrMigrationRequest: {
+            /** @description Base URL of the Readarr instance (e.g. http://readarr.local:8888; a trailing /api or /api/v1 is accepted). */
+            base_url: string;
+            /** @description Source API key (sent as X-Api-Key). */
+            api_key?: string;
+            /** @description Execute only: continue a previously partial run (skips already-migrated books; the migrated book keys are tracked in Postgres). */
             resume?: boolean;
             include?: components["schemas"]["MigrationInclude"];
         };
@@ -9799,6 +9881,84 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The migration status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    runReadarrMigration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadarrMigrationRequest"];
+            };
+        };
+        responses: {
+            /** @description The mapping report (dry_run true). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+            502: components["responses"]["BadGateway"];
+        };
+    };
+    executeReadarrMigration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadarrMigrationRequest"];
+            };
+        };
+        responses: {
+            /** @description The mapping report (a partial run returns 200 with resumable true). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+            502: components["responses"]["BadGateway"];
+        };
+    };
+    getReadarrMigrationStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Readarr migration status. */
             200: {
                 headers: {
                     [name: string]: unknown;

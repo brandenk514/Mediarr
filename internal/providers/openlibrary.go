@@ -129,3 +129,80 @@ func (o *OpenLibrary) SearchWorks(ctx context.Context, author, title string) ([]
 	}
 	return out, nil
 }
+
+// ---------------------------------------------------------------------------
+// Readarr B6 (MT1 minimal): id-based lookups. The drop-in migration needs to
+// resolve a source book to its OpenLibrary work key by a stable id — the
+// "metadata-source swap" of the migration. These two search.json id filters
+// are the minimal resolver the migration needs (the plan's `isbn:` / `key:`
+// filters); Goodreads/ASIN ids are not indexed by Open Library search, so
+// those fall back to the plain-text title+author search (SearchWorks).
+// ---------------------------------------------------------------------------
+
+// NormalizeOLID folds a work key ("/works/OL8189755W", "OL8189755W", or a
+// bare key path) to the bare OpenLibrary id ("OL8189755W").
+func NormalizeOLID(key string) string {
+	k := strings.TrimSpace(key)
+	if i := strings.LastIndex(k, "/"); i >= 0 {
+		k = k[i+1:]
+	}
+	return k // the bare OL id, e.g. "OL8189755W"
+}
+
+// SearchWorkByISBN resolves an ISBN (13 or 10 digit) to its OpenLibrary work
+// (a single Result carrying the work key as ID) via the search.json `id=isbn:`
+// filter. Empty slice when no work is indexed for the ISBN.
+func (o *OpenLibrary) SearchWorkByISBN(ctx context.Context, isbn string) ([]Result, error) {
+	isbn = strings.TrimSpace(isbn)
+	if isbn == "" {
+		return nil, nil
+	}
+	values := url.Values{}
+	values.Set("id", "isbn:"+isbn)
+	values.Set("limit", "5")
+	resp, err := o.search(ctx, values)
+	if err != nil {
+		return nil, err
+	}
+	return olWorkResults(resp), nil
+}
+
+// SearchWorkByKey resolves a known OpenLibrary work key (or bare OL id) to its
+// work via the search.json `id=olid:` filter. This is the "already an OL key"
+// fast path of the migration's id swap (method "source").
+func (o *OpenLibrary) SearchWorkByKey(ctx context.Context, key string) ([]Result, error) {
+	k := NormalizeOLID(key)
+	if k == "" {
+		return nil, nil
+	}
+	values := url.Values{}
+	values.Set("id", "olid:"+k)
+	values.Set("limit", "5")
+	resp, err := o.search(ctx, values)
+	if err != nil {
+		return nil, err
+	}
+	return olWorkResults(resp), nil
+}
+
+// olWorkResults maps a search.json response to book Results keyed by work id
+// (the migration's id-swap consumes the ID field as the OpenLibrary work key).
+func olWorkResults(resp *olSearchResponse) []Result {
+	out := make([]Result, 0, len(resp.Docs))
+	for _, d := range resp.Docs {
+		if d.Key == "" {
+			continue
+		}
+		author := ""
+		if len(d.AuthorName) > 0 {
+			author = d.AuthorName[0]
+		}
+		out = append(out, Result{
+			ID:    strings.TrimPrefix(d.Key, "/works/"),
+			Title: d.Title,
+			Year:  d.FirstPublishYear,
+			Extra: map[string]string{"author": author},
+		})
+	}
+	return out
+}

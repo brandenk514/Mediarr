@@ -113,8 +113,8 @@ func TestVersion_TracksAppliedMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version after migrate: %v", err)
 	}
-	if v != "0030_root_folders_calibre" {
-		t.Errorf("version = %q, want 0030_root_folders_calibre (highest applied)", v)
+	if v != "0031_readarr_b6" {
+		t.Errorf("version = %q, want 0031_readarr_b6 (highest applied)", v)
 	}
 }
 

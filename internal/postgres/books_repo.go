@@ -761,6 +761,100 @@ func (r *BooksRepo) ListAuthorSeries(ctx context.Context, authorID int64) ([]boo
 	return out, nil
 }
 
+// --- Readarr B6 (drop-in migration) identity lookups ---
+//
+// The migration's Postgres target needs create-vs-exists distinctions the
+// upsert-style Create* methods cannot express, so each entity has a Find*
+// companion keyed on the books domain's stable identity.
+
+// FindAuthor returns the id of the author named name, or (0, false, nil)
+// when no author has that name.
+func (r *BooksRepo) FindAuthor(ctx context.Context, name string) (int64, bool, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx, `SELECT id FROM book_authors WHERE name = $1`, name).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("books: find author: %w", err)
+	}
+	return id, true, nil
+}
+
+// FindTitle returns the id of the title named name under authorID, or
+// (0, false, nil) when that author has no such title.
+func (r *BooksRepo) FindTitle(ctx context.Context, authorID int64, name string) (int64, bool, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM book_titles WHERE author_id = $1 AND name = $2`, authorID, name).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("books: find title: %w", err)
+	}
+	return id, true, nil
+}
+
+// FindEdition returns the id of the (format, isbn) edition under titleID, or
+// (0, false, nil) when no edition matches. An empty isbn matches the
+// edition with no ISBN (the domain's fallback identity).
+func (r *BooksRepo) FindEdition(ctx context.Context, titleID int64, format, isbn string) (int64, bool, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM book_editions
+		WHERE title_id = $1 AND format = $2
+		  AND ($3 = '' AND (isbn IS NULL OR isbn = '') OR isbn = $3)`, titleID, format, isbn).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("books: find edition: %w", err)
+	}
+	return id, true, nil
+}
+
+// FindBookFile returns the id of the file at path under titleID, or
+// (0, false, nil) when no file matches.
+func (r *BooksRepo) FindBookFile(ctx context.Context, titleID int64, path string) (int64, bool, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM book_files WHERE title_id = $1 AND path = $2`, titleID, path).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("books: find book file: %w", err)
+	}
+	return id, true, nil
+}
+
+// FindSeries returns the id of the series named name, or (0, false, nil)
+// when no series has that name.
+func (r *BooksRepo) FindSeries(ctx context.Context, name string) (int64, bool, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx, `SELECT id FROM book_series WHERE name = $1`, name).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("books: find series: %w", err)
+	}
+	return id, true, nil
+}
+
+// IsSeriesMember reports whether titleID is already a member of seriesID.
+func (r *BooksRepo) IsSeriesMember(ctx context.Context, seriesID, titleID int64) (bool, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM book_series_members WHERE series_id = $1 AND title_id = $2`,
+		seriesID, titleID).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("books: is series member: %w", err)
+	}
+	return n > 0, nil
+}
+
 // LinkTitleToSeries links a book to a series. Both entities must exist
 // (ErrTitleNotFound / ErrSeriesNotFound); linking twice is a no-op.
 func (r *BooksRepo) LinkTitleToSeries(ctx context.Context, titleID, seriesID int64) error {

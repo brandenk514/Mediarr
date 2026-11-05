@@ -17,13 +17,14 @@ const PAGES: { slug: SystemPage; label: string }[] = [
   { slug: 'updates', label: 'Updates' },
   { slug: 'events', label: 'Events' },
   { slug: 'logs', label: 'Log Files' },
-  { slug: 'import', label: 'Sonarr Import' },
+  { slug: 'import', label: 'Import' },
 ]
 
 // System is the system area (route established in P1). P6 wires every
 // sub-page to the structured /api/v1/system/* endpoints: Status (health
 // table + disk space + About), Tasks (the worker inventory), Backup,
-// Updates, Events and Log Files, plus the Sonarr drop-in migration.
+// Updates, Events and Log Files, plus the ARR drop-in migration (Sonarr /
+// Radarr / Lidarr / Prowlarr, and Readarr on B6).
 export function SystemPage() {
   const { page = 'status' } = useParams<{ page: string }>()
   return <SystemShell page={page as SystemPage} />
