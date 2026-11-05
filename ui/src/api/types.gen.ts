@@ -3642,6 +3642,8 @@ export interface components {
             author?: string;
             /** @description The work's first publish year (kind=book); 0 when unknown. 0 for kind=author hits. */
             year?: number;
+            /** @description The OpenLibrary work key (bare id, e.g. "OL8189755W") for kind=book hits; fetch GET /api/v1/search/books/works/{workKey}/editions with it (MT2 provider-fed editions). Absent/empty for kind=author hits. */
+            work_key?: string;
             added: boolean;
             /**
              * Format: int64
