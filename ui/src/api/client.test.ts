@@ -93,6 +93,17 @@ describe('client.request', () => {
     expect(url).toBe('/api/v1/movies')
   })
 
+  it('serializes the Movies sort param into the list URL (#70)', async () => {
+    let url = ''
+    mockFetch((u) => {
+      url = u
+      return new Response(JSON.stringify({ items: [], total: 0, page: 1, page_size: 25 }), { status: 200 })
+    })
+    await client.listMovies({ sort: 'added-desc' })
+    expect(url).toContain('/api/v1/movies?')
+    expect(url).toContain('sort=added-desc')
+  })
+
   it('setMovieMonitored PUTs {monitored} to /movies/{id} (#41)', async () => {
     let method = ''
     let body: unknown = null

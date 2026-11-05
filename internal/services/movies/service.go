@@ -195,13 +195,14 @@ func (s *Service) ListMovies(ctx context.Context) ([]dom.Movie, error) {
 	return s.deps.Repo.ListMovies(ctx)
 }
 
-// ListMoviesQuery returns a server-side filtered and paginated page of
-// movies (M6 #41). It reads the full list and applies the query in memory;
-// the dataset is small (thousands, not millions) so a single read is cheaper
-// than a per-query parameterized SQL build. R1: each page item also carries
-// its embedded editions/files/status (the grid renders status ribbons).
-// No provider enrichment here — that is detail-only, to keep the grid cheap
-// without a TMDB key.
+// ListMoviesQuery returns a server-side filtered, sorted and paginated page of
+// movies (M6 #41). It reads the full list and applies the query in memory; the
+// dataset is small (thousands, not millions) so a single read is cheaper than a
+// per-query parameterized SQL build. R1: each page item also carries its
+// embedded editions/files/status (the grid renders status ribbons). #70: when
+// ?sort= is set the filtered set is ordered before paging, so a sort surfaces
+// rows beyond page 1 of the natural order. No provider enrichment here — that
+// is detail-only, to keep the grid cheap without a TMDB key.
 func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Movie], error) {
 	all, err := s.deps.Repo.ListMovies(ctx)
 	if err != nil {
@@ -209,13 +210,85 @@ func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.P
 	}
 	page := paging.Apply(all, q, func(m dom.Movie) (string, bool) {
 		return m.Title, m.Monitored
-	})
+	}, movieSortCmp(q.Sort))
 	views, err := s.buildViews(ctx, page.Items, false)
 	if err != nil {
 		return paging.Page[dom.Movie]{}, err
 	}
 	page.Items = views
 	return page, nil
+}
+
+// movieSortCmp builds the total-order comparator behind the ?sort= param
+// (#70). The keys mirror the UI's six grid sort options — title / year /
+// added, each ascending or descending. An empty or unrecognized value returns
+// nil so paging.Apply keeps the natural (insertion) order. Ties break on ID so
+// the ordering is deterministic regardless of the repository's row order; the
+// ID tiebreak is reversed along with the key, matching the previous
+// client-side sort.
+func movieSortCmp(sort string) func(a, b dom.Movie) int {
+	parts := strings.SplitN(sort, "-", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	field, dir := parts[0], parts[1]
+	switch field {
+	case "title", "year", "added":
+	default:
+		return nil
+	}
+	desc := dir == "desc"
+	return func(a, b dom.Movie) int {
+		var c int
+		switch field {
+		case "title":
+			c = strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
+		case "year":
+			c = cmpInt(a.Year, b.Year)
+		case "added":
+			c = cmpTime(a.AddedAt, b.AddedAt)
+		}
+		if c == 0 {
+			c = cmpInt64(a.ID, b.ID)
+		}
+		if desc {
+			c = -c
+		}
+		return c
+	}
+}
+
+func cmpInt(a, b int) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func cmpInt64(a, b int64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func cmpTime(a, b time.Time) int {
+	switch {
+	case a.Before(b):
+		return -1
+	case a.After(b):
+		return 1
+	default:
+		return 0
+	}
 }
 
 // SetMovieMonitored toggles a movie's monitoring (M6 #41). On toggle-on it

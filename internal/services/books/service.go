@@ -220,7 +220,7 @@ func (s *Service) ListAuthorsQuery(ctx context.Context, q paging.Query) (paging.
 	}
 	return paging.Apply(all, q, func(a dom.Author) (string, bool) {
 		return a.Name, a.Monitored
-	}), nil
+	}, nil), nil
 }
 
 // GetAuthor loads an author (used by GET /api/v1/books/{id}).

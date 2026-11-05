@@ -187,7 +187,7 @@ func (s *Service) ListSeriesQuery(ctx context.Context, q paging.Query) (paging.P
 	}
 	return paging.Apply(all, q, func(se dom.Series) (string, bool) {
 		return se.Title, se.Monitored
-	}), nil
+	}, nil), nil
 }
 
 // GetSeries loads a series (used by GET /api/v1/tv/{id}).

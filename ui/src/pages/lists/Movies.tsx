@@ -61,23 +61,16 @@ function humanBytes(n: number): string {
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
 
-function sortMovies(items: Movie[], key: SortKey): Movie[] {
-  const dir = key.endsWith('-desc') ? -1 : 1
-  const arr = [...items]
-  arr.sort((a, b) => {
-    let cmp = 0
-    if (key.startsWith('title')) cmp = a.Title.localeCompare(b.Title)
-    else if (key.startsWith('year')) cmp = (a.Year ?? 0) - (b.Year ?? 0)
-    else cmp = String(a.AddedAt).localeCompare(String(b.AddedAt))
-    if (cmp === 0) cmp = a.ID - b.ID // stable tiebreak
-    return cmp * dir
-  })
-  return arr
-}
-
 export function MoviesPage() {
   const navigate = useNavigate()
-  const load = useCallback((q: ListQuery) => client.listMovies(q), [])
+  const [sort, setSort] = useState<SortKey>('title-asc')
+  // #70: the grid sort is now server-side. `load` sends the current sort with
+  // every request; changing `sort` changes `load`'s identity, which re-runs
+  // usePagedList's load effect and refetches the (server-ordered) list.
+  const load = useCallback(
+    (q: ListQuery) => client.listMovies({ ...q, sort }),
+    [sort],
+  )
   const {
     data,
     loading,
@@ -91,7 +84,6 @@ export function MoviesPage() {
   } = usePagedList<PageMovie>(load)
 
   const [view, setView] = useState<ViewMode>('grid')
-  const [sort, setSort] = useState<SortKey>('title-asc')
   const [chip, setChip] = useState<string | null>(null)
   const [stats, setStats] = useState<MovieStats | null>(null)
   // Per-card refresh results (a real GET /movies/{id}) merged over the page.
@@ -113,9 +105,12 @@ export function MoviesPage() {
 
   const items = useMemo(() => {
     const merged = baseItems.map((m) => fresh[m.ID] ?? m)
-    const filtered = chip ? merged.filter((m) => m.Status === chip) : merged
-    return sortMovies(filtered, sort)
-  }, [baseItems, fresh, chip, sort])
+    // #70: ordering is server-side now — the client only merges per-card
+    // refreshes and applies the client-side status-chip filter; it no longer
+    // re-sorts, because the server already returned the page in the selected
+    // order (and, crucially, ordered the FULL set, not just this page).
+    return chip ? merged.filter((m) => m.Status === chip) : merged
+  }, [baseItems, fresh, chip])
 
   const gridItems: PosterItem[] = items.map((m) => ({
     id: m.ID,
@@ -224,7 +219,13 @@ export function MoviesPage() {
               icon="↕"
               options={[...SORT_OPTIONS]}
               selected={sort}
-              onSelect={(v) => setSort(v as SortKey)}
+              // #70: a new sort resets to page 1 so the top of the freshly
+              // ordered list shows (it may be a row that sat beyond page 1
+              // of the previous ordering).
+              onSelect={(v) => {
+                setSort(v as SortKey)
+                setPage(1)
+              }}
               testId="movies-sort"
             />
             <Menu

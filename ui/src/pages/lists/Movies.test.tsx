@@ -208,17 +208,36 @@ describe('MoviesPage', () => {
     expect(client.listMovies).toHaveBeenCalledTimes(2)
   })
 
-  it('sorts the grid client-side by title descending', async () => {
-    vi.mocked(client.listMovies).mockResolvedValue(page([movie(1, 'Zulu'), movie(2, 'Alpha')]))
+  it('sorts server-side via the sort query param, not client-side (#70)', async () => {
+    // The (mocked) server returns items in its own (natural) order — Alpha
+    // before Zulu. With server-side sorting the UI must NOT re-sort the
+    // fetched page: it sends the sort to the server and renders whatever
+    // order the server returns. A leftover client-side title-desc sort would
+    // have flipped these two, so the grid order below proves no client sort.
+    vi.mocked(client.listMovies).mockResolvedValue(
+      page([movie(1, 'Alpha'), movie(2, 'Zulu')]),
+    )
     const user = userEvent.setup()
     renderWithProbe()
     await screen.findByTestId('movies-grid')
 
     await user.click(screen.getByTestId('movies-sort-btn'))
     await user.click(screen.getByTestId('movies-sort-opt-title-desc'))
+
+    // Picking a sort is now a server-side request: listMovies is called again
+    // with the sort param and the page reset to 1, so a row that sat beyond
+    // page 1 of the previous ordering can surface (the #70 bug).
+    await vi.waitFor(() =>
+      expect(client.listMovies).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: 'title-desc', page: 1 }),
+      ),
+    )
+
+    // The grid renders the server's order (Alpha, Zulu) — untouched by the
+    // client.
     const grid = await screen.findByTestId('movies-grid')
     const titles = [...grid.querySelectorAll('.poster-cell')].map((c) => c.getAttribute('title'))
-    expect(titles).toEqual(['Zulu (2021)', 'Alpha (2022)'])
+    expect(titles).toEqual(['Alpha (2021)', 'Zulu (2022)'])
   })
 
   it('filters by monitored through the Filter menu', async () => {

@@ -12,6 +12,7 @@ package paging
 
 import (
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -27,6 +28,11 @@ type Query struct {
 	Page int
 	// PageSize is the page size. <= 0 means the default (25).
 	PageSize int
+	// Sort is the requested ordering carried verbatim from ?sort= (e.g.
+	// "title-asc", "year-desc"). The paging package only carries it; the
+	// caller interprets it and supplies the matching comparator to Apply.
+	// An empty or unrecognized value keeps the natural (repo) order.
+	Sort string
 }
 
 // DefaultPageSize is used when the caller does not pass ?page_size.
@@ -60,9 +66,9 @@ func (q *Query) Normalize() {
 }
 
 // QueryFromURLValues builds a Query from parsed URL query values. Recognized
-// keys: q, monitored (bool), page, page_size. Missing or malformed values
-// fall back to defaults rather than erroring: a list request is never made
-// invalid by a bad query parameter, it just broadens or shifts.
+// keys: q, monitored (bool), page, page_size, sort. Missing or malformed
+// values fall back to defaults rather than erroring: a list request is never
+// made invalid by a bad query parameter, it just broadens or shifts.
 func QueryFromURLValues(v url.Values) Query {
 	q := Query{Q: strings.TrimSpace(v.Get("q"))}
 	if m := v.Get("monitored"); m != "" {
@@ -74,17 +80,25 @@ func QueryFromURLValues(v url.Values) Query {
 	q.Page = page
 	size, _ := strconv.Atoi(v.Get("page_size"))
 	q.PageSize = size
+	q.Sort = strings.TrimSpace(v.Get("sort"))
 	return q
 }
 
 // Apply filters items with Q (case-insensitive substring on name) and
-// Monitored, then returns the requested page. Total counts matches before
-// paging. The match callback extracts each item's searchable name and
-// monitored flag so this one function serves all four kinds.
+// Monitored, optionally sorts the filtered items with cmp, then returns the
+// requested page. Total counts matches before paging. The match callback
+// extracts each item's searchable name and monitored flag so this one
+// function serves all four kinds.
+//
+// cmp is a kind-specific total order supplied by the caller (it interprets
+// Query.Sort). It is applied to the full filtered set BEFORE paging, so a
+// sort surfaces rows that sit beyond page 1 of the natural order (#70: the
+// Movies grid used to sort only the fetched page). A nil cmp keeps the
+// natural (repo) order — the default for every kind that has no sort yet.
 //
 // The returned page always has a non-nil Items slice so the JSON encoding is
 // [] (not null) for an empty result.
-func Apply[T any](items []T, q Query, match func(T) (name string, monitored bool)) Page[T] {
+func Apply[T any](items []T, q Query, match func(T) (name string, monitored bool), cmp func(a, b T) int) Page[T] {
 	q.Normalize()
 	needle := strings.ToLower(q.Q)
 	filtered := make([]T, 0, len(items))
@@ -97,6 +111,9 @@ func Apply[T any](items []T, q Query, match func(T) (name string, monitored bool
 			continue
 		}
 		filtered = append(filtered, it)
+	}
+	if cmp != nil {
+		sort.SliceStable(filtered, func(i, j int) bool { return cmp(filtered[i], filtered[j]) < 0 })
 	}
 	total := len(filtered)
 	start := (q.Page - 1) * q.PageSize
