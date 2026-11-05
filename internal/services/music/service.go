@@ -618,7 +618,7 @@ func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.
 	}
 	return paging.Apply(all, q, func(a dom.Artist) (string, bool) {
 		return a.Name, a.Monitored
-	}), nil
+	}, nil), nil
 }
 
 // GetArtist loads an artist (used by GET /api/v1/music/{id}).

@@ -5719,6 +5719,8 @@ export interface components {
         ListPage: number;
         /** @description Page size (default 25, max 100). */
         ListPageSize: number;
+        /** @description Server-side ordering for the Movies grid (#70). One of the six grid sort options — title / year / added, each ascending or descending. Sorting happens before pagination, so a sort surfaces rows that sit beyond page 1 of the natural order. Omit for the natural (insertion) order. */
+        MovieListSort: "title-asc" | "title-desc" | "year-asc" | "year-desc" | "added-asc" | "added-desc";
         /** @description Maximum number of entries to return (server clamps to 1..200, default 50). */
         HistoryLimit: number;
         /** @description Free-text search query. */
@@ -5866,6 +5868,8 @@ export interface operations {
                 page?: components["parameters"]["ListPage"];
                 /** @description Page size (default 25, max 100). */
                 page_size?: components["parameters"]["ListPageSize"];
+                /** @description Server-side ordering for the Movies grid (#70). One of the six grid sort options — title / year / added, each ascending or descending. Sorting happens before pagination, so a sort surfaces rows that sit beyond page 1 of the natural order. Omit for the natural (insertion) order. */
+                sort?: components["parameters"]["MovieListSort"];
             };
             header?: never;
             path?: never;

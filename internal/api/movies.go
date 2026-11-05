@@ -81,8 +81,9 @@ func (s *Server) AddMovie(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListMovies handles GET /api/v1/movies. It returns a server-side filtered,
-// paginated envelope (M6 #41) so the UI's list view does pagination and
-// filtering server-side: ?q=<search>&monitored=<bool>&page=&page_size=.
+// sorted, paginated envelope (M6 #41, sort #70) so the UI's list view does
+// pagination, filtering and ordering server-side:
+// ?q=<search>&monitored=<bool>&page=&page_size=&sort=<title|year|added>-<asc|desc>.
 func (s *Server) ListMovies(w http.ResponseWriter, r *http.Request) {
 	q := paging.QueryFromURLValues(r.URL.Query())
 	page, err := s.moviesDeps.Svc.ListMoviesQuery(r.Context(), q)

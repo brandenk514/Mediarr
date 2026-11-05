@@ -366,6 +366,78 @@ func TestListMovies_Pagination(t *testing.T) {
 	}
 }
 
+// TestListMovies_ServerSideSort is the end-to-end HTTP form of #70: the repo
+// returns movies in natural (ID) order, and the handler must re-order the FULL
+// set BEFORE paging, so a sort surfaces rows that sat beyond page 1 of the
+// natural order. This exercises the real ?sort= → QueryFromURLValues →
+// ListMoviesQuery path (the service test calls ListMoviesQuery directly).
+func TestListMovies_ServerSideSort(t *testing.T) {
+	repo := newListMoviesRepo()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	// ID ascending == AddedAt/Year ascending (ID 1 oldest, ID 5 newest), so the
+	// natural order is 1,2,3,4,5 and added-desc must be 5,4,3,2,1.
+	for i := 1; i <= 5; i++ {
+		repo.seed(moviesdom.Movie{
+			Title:     fmt.Sprintf("Movie %d", i),
+			Year:      2020 + i,
+			Monitored: true,
+			AddedAt:   base.Add(time.Duration(i) * 24 * time.Hour),
+		})
+	}
+	s, token := newListTestServer(t, repo)
+
+	// added-desc: the two newest (ID 5, ID 4) lead page 1 even though they are
+	// the last two in the natural order.
+	rec := getJSON(t, s.Handler(), "/api/v1/movies?"+url.Values{
+		"sort":      {"added-desc"},
+		"page_size": {"2"},
+	}.Encode(), token)
+	var page struct {
+		Items []moviesdom.Movie `json:"items"`
+		Total int               `json:"total"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 5 || len(page.Items) != 2 {
+		t.Fatalf("total=%d len=%d, want 5/2", page.Total, len(page.Items))
+	}
+	if page.Items[0].ID != 5 || page.Items[1].ID != 4 {
+		t.Errorf("added-desc page1 = %d,%d, want 5,4", page.Items[0].ID, page.Items[1].ID)
+	}
+
+	// year-asc: the two oldest years (ID 1, ID 2) lead page 1.
+	rec = getJSON(t, s.Handler(), "/api/v1/movies?"+url.Values{
+		"sort":      {"year-asc"},
+		"page_size": {"2"},
+	}.Encode(), token)
+	var page2 struct {
+		Items []moviesdom.Movie `json:"items"`
+		Total int               `json:"total"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&page2); err != nil {
+		t.Fatal(err)
+	}
+	if page2.Items[0].ID != 1 || page2.Items[1].ID != 2 {
+		t.Errorf("year-asc page1 = %d,%d, want 1,2", page2.Items[0].ID, page2.Items[1].ID)
+	}
+
+	// An unknown sort value is ignored (natural order), never a 500.
+	rec = getJSON(t, s.Handler(), "/api/v1/movies?sort=banana", token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unknown sort status = %d, want 200", rec.Code)
+	}
+	var page3 struct {
+		Items []moviesdom.Movie `json:"items"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&page3); err != nil {
+		t.Fatal(err)
+	}
+	if page3.Items[0].ID != 1 {
+		t.Errorf("unknown sort page1[0] = %d, want 1 (natural order)", page3.Items[0].ID)
+	}
+}
+
 func TestSetMovieMonitored(t *testing.T) {
 	repo := newListMoviesRepo()
 	id := repo.seed(moviesdom.Movie{Title: "Dune", Monitored: true})

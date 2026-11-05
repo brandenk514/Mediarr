@@ -183,6 +183,7 @@ paths:
         - $ref: "#/components/parameters/ListMonitored"
         - $ref: "#/components/parameters/ListPage"
         - $ref: "#/components/parameters/ListPageSize"
+        - $ref: "#/components/parameters/MovieListSort"
       responses:
         "200":
           description: One page of movies.
@@ -4315,6 +4316,25 @@ components:
         type: integer
         minimum: 1
         maximum: 100
+    MovieListSort:
+      name: sort
+      in: query
+      required: false
+      description: >-
+        Server-side ordering for the Movies grid (#70). One of the six grid
+        sort options — title / year / added, each ascending or descending.
+        Sorting happens before pagination, so a sort surfaces rows that sit
+        beyond page 1 of the natural order. Omit for the natural (insertion)
+        order.
+      schema:
+        type: string
+        enum:
+          - title-asc
+          - title-desc
+          - year-asc
+          - year-desc
+          - added-asc
+          - added-desc
     HistoryLimit:
       name: limit
       in: query

@@ -246,11 +246,15 @@ export type Title = components["schemas"]["BookTitle"]
 export type QueueItem = components["schemas"]["DashboardQueueItem"]
 
 // ListQuery is the optional list input (q / monitored / page / page_size).
+// `sort` is the server-side grid ordering, currently honored only by the
+// Movies list (#70); the other kinds ignore it. The value must be one of the
+// Movies sort options from the spec (title / year / added × asc / desc).
 export interface ListQuery {
   q?: string
   monitored?: boolean
   page?: number
   page_size?: number
+  sort?: components["parameters"]["MovieListSort"]
 }
 
 // QueueFilter is the optional queue-list input (q / kind / state / page / page_size).

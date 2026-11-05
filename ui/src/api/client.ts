@@ -190,6 +190,9 @@ function buildListQuery(q?: ListQuery): string {
   if (typeof q.monitored === 'boolean') params.set('monitored', String(q.monitored))
   if (q.page) params.set('page', String(q.page))
   if (q.page_size) params.set('page_size', String(q.page_size))
+  // #70: server-side grid ordering, serialized like the other list params so
+  // the backend (not the browser) sorts the full set before paging.
+  if (q.sort) params.set('sort', q.sort)
   const s = params.toString()
   return s ? `?${s}` : ''
 }
