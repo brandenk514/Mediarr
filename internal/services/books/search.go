@@ -45,6 +45,13 @@ func (o *openLibrarySearcher) SearchWorks(ctx context.Context, author, title str
 	if err != nil {
 		return nil, err
 	}
+	return mapWorkHits(res), nil
+}
+
+// mapWorkHits maps Open Library work-level provider hits to domain hits:
+// first author name (from the provider's "author" extra) and the first
+// publish year.
+func mapWorkHits(res []providers.Result) []dom.BookSearchHit {
 	out := make([]dom.BookSearchHit, 0, len(res))
 	for _, r := range res {
 		out = append(out, dom.BookSearchHit{
@@ -55,7 +62,29 @@ func (o *openLibrarySearcher) SearchWorks(ctx context.Context, author, title str
 			CoverURL: r.Extra["cover"],
 		})
 	}
-	return out, nil
+	return out
+}
+
+// SearchWorkByISBN implements the MT1 isbnLookup surface: it resolves an
+// ISBN to its Open Library work (the books lookup's `isbn:` / bare-13-digit
+// id syntax, and the Goodreads-id chain's second leg).
+func (o *openLibrarySearcher) SearchWorkByISBN(ctx context.Context, isbn string) ([]dom.BookSearchHit, error) {
+	res, err := o.ol.SearchWorkByISBN(ctx, isbn)
+	if err != nil {
+		return nil, err
+	}
+	return mapWorkHits(res), nil
+}
+
+// SearchWorkByASIN implements the MT1 asinLookup surface: it resolves an
+// Amazon ASIN to its Open Library work (the books lookup's `asin:` / bare
+// "B"+9-alnum id syntax).
+func (o *openLibrarySearcher) SearchWorkByASIN(ctx context.Context, asin string) ([]dom.BookSearchHit, error) {
+	res, err := o.ol.SearchWorkByASIN(ctx, asin)
+	if err != nil {
+		return nil, err
+	}
+	return mapWorkHits(res), nil
 }
 
 // SearchWorkByKey resolves a known OpenLibrary work key to its work — the
@@ -68,15 +97,5 @@ func (o *openLibrarySearcher) SearchWorkByKey(ctx context.Context, key string) (
 	if err != nil {
 		return nil, err
 	}
-	out := make([]dom.BookSearchHit, 0, len(res))
-	for _, r := range res {
-		out = append(out, dom.BookSearchHit{
-			ID:       r.ID,
-			Name:     r.Title,
-			Author:   r.Extra["author"],
-			Year:     r.Year,
-			CoverURL: r.Extra["cover"],
-		})
-	}
-	return out, nil
+	return mapWorkHits(res), nil
 }
