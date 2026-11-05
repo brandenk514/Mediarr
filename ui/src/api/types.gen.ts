@@ -2188,10 +2188,39 @@ export interface paths {
          *     re-adding) and `library_id` (the matching row id; 0 when not
          *     added). Plain-text only: ISBN/ASIN/Goodreads id-lookup syntax is a
          *     separate metadata work item (MT1), not part of B2.
+         *
+         *     MT3: a query that is itself an OpenLibrary work key (e.g.
+         *     "OL59863W") takes the cached path — a fresh resolved-work row is
+         *     served from the provenance store without an Open Library call; an
+         *     expired or missing row re-fetches and upserts the row.
          */
         get: operations["lookupBooks"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search/books/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Force a re-fetch of one book work's Open Library metadata (MT3 refresh).
+         * @description MT3 (cache + provenance): the resolved-work store is the single
+         *     source for "was this resolved from Open Library, when, under what
+         *     key". This refresh command bypasses the TTL — it re-fetches the
+         *     work by its OpenLibrary work key, upserts the provenance row
+         *     (re-anchoring `fetched_at`), and returns the refreshed row.
+         */
+        post: operations["refreshBookMetadata"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3566,6 +3595,33 @@ export interface components {
              * @description The matching author id for BOTH hit kinds; 0 when not added. For kind=book this is what the UI navigates to (/books/{author_id}).
              */
             author_id?: number;
+        };
+        /**
+         * @description One resolved book work with provenance (MT3): the OpenLibrary work
+         *     key, its title/author/year/cover, where it was resolved from
+         *     (`source`) under which source-native id (`source_id` — the OL key
+         *     for now; the Readarr id at the B6 migration), and when the row was
+         *     last fetched (`fetched_at`, the TTL anchor).
+         */
+        BookWorkMetadata: {
+            /** @description The resolved OpenLibrary work key (bare id, e.g. "OL8189755W"). */
+            work_key: string;
+            /** @description The provenance source (e.g. "openlibrary"). */
+            source: string;
+            /** @description The source-native id (the OL key for now; Readarr id at the B6 migration). */
+            source_id: string;
+            title: string;
+            /** @description The work's author; empty when unknown. */
+            author?: string;
+            /** @description The work's first publish year; 0 when unknown. */
+            year?: number;
+            /** @description The cover image URL; empty when the source has no cover. */
+            cover_url?: string;
+            /**
+             * Format: date-time
+             * @description When the row was last fetched from its source (the TTL anchor).
+             */
+            fetched_at: string;
         };
         BookTitle: {
             /** Format: int64 */
@@ -9489,6 +9545,35 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
+            502: components["responses"]["BadGateway"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    refreshBookMetadata: {
+        parameters: {
+            query: {
+                /** @description The OpenLibrary work key (bare "OL…W" or "/works/OL…W"). */
+                key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The refreshed provenance row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookWorkMetadata"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["Internal"];
             502: components["responses"]["BadGateway"];
             503: components["responses"]["ServiceUnavailable"];
