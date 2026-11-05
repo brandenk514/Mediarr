@@ -21,6 +21,11 @@ import { E2E_PASSWORD, E2E_USER, signIn } from './login'
 
 const PROBE_AUTHOR = 'Ursula K. Le Guin'
 const PROBE_BOOK = 'The Dispossessed'
+// The Open Library work key for PROBE_BOOK (the repo's canonical probe
+// work — the same key the backend MT1 fixtures use). It drives the MT2
+// id-lookup edition path: a keyed lookup opens the modal with the
+// provider-fed editions (or the manual fallback when OL has none).
+const PROBE_WORK_KEY = 'OL59863W'
 
 async function apiToken(request: APIRequestContext): Promise<string> {
   const login = await request.post('/api/v1/auth/login', {
@@ -71,6 +76,11 @@ test('the add page renders the Readarr shell (search, back link)', async ({ page
   await expect(page.getByTestId('book-add-title')).toBeVisible()
   await expect(page.getByTestId('book-search-input')).toBeVisible()
   await expect(page.getByTestId('book-add-back')).toBeVisible()
+
+  // MT1: the lookup box advertises the id-lookup syntax (client-side hint —
+  // no provider round-trip needed).
+  await expect(page.getByTestId('book-search-hint')).toContainText('isbn:')
+  await expect(page.getByTestId('book-search-hint')).toContainText('olid:')
 })
 
 test('combined search renders kind-tagged rows and the modal has the Readarr fields', async ({
@@ -232,6 +242,13 @@ test('add a book through a book hit; the title lands monitored under its author'
     await expect(page.getByTestId('add-book-modal')).toBeVisible()
     await expect(page.getByTestId('add-book-byline')).toContainText(PROBE_AUTHOR)
 
+    // MT2: a plain-text work has no work key to fetch editions with, so the
+    // modal offers the manual edition fallback with its note (the automatic
+    // editions fetch is never attempted for a non-key query).
+    await expect(page.getByTestId('add-book-editions-section')).toBeVisible()
+    await expect(page.getByTestId('add-book-edition-manual')).toBeVisible()
+    await expect(page.getByTestId('add-book-editions-note')).toContainText('work-key lookups')
+
     const [titleResponse] = await Promise.all([
       page.waitForResponse(
         (r) =>
@@ -277,4 +294,58 @@ test('add a book through a book hit; the title lands monitored under its author'
   await expect(page).toHaveURL(/\/books\/\d+$/)
   await expect(page.getByTestId('author-detail')).toBeVisible()
   await expect(page.getByTestId('author-detail').getByText(PROBE_BOOK)).toBeVisible()
+})
+
+test('a work-key id lookup opens the modal with provider-fed editions or the manual fallback (MT2)', async ({
+  page,
+}) => {
+  await page.goto('/books/add')
+  await signIn(page)
+  await expect(page).toHaveURL(/\/books\/add$/)
+
+  // A prefixed work key is an id-lookup query: a single kind=book hit. When
+  // Open Library is unreachable in this environment the lookup fails (502)
+  // and the test skips, like the search-based tests above.
+  await page.getByTestId('book-search-input').fill(`olid:${PROBE_WORK_KEY}`)
+  await expect(
+    page
+      .getByTestId('book-results')
+      .or(page.getByTestId('book-search-error'))
+      .or(page.getByTestId('book-search-unavailable')),
+  ).toBeVisible({ timeout: 30_000 })
+  if (!(await page.getByTestId('book-results').count())) {
+    test.skip(true, 'Open Library id-lookup unavailable in this environment')
+    return
+  }
+
+  // The id hit renders as an ordinary selectable work row.
+  const row = page.locator('div[data-testid^="book-result-book-"]')
+  if (!(await row.count())) {
+    test.skip(true, `no book hit for ${PROBE_WORK_KEY} in this environment`)
+    return
+  }
+  await row.first().click()
+  await expect(page.getByTestId('add-book-modal')).toBeVisible()
+  await expect(page.getByTestId('add-book-editions-section')).toBeVisible()
+
+  // MT2: the keyed work offers the fetched editions, or — when OL has no
+  // editions for it (the plan's coverage-gap risk) — the manual fallback
+  // with its short note. Either way the add flow never dead-ends.
+  await expect(
+    page.getByTestId('add-book-editions').or(page.getByTestId('add-book-edition-manual')),
+  ).toBeVisible({ timeout: 30_000 })
+
+  if (await page.getByTestId('add-book-editions').count()) {
+    // Provider-fed editions: every row carries a monitored toggle, checked
+    // by default (the disabled unmonitorable ones are excluded).
+    const toggles = page.locator('input[data-testid^="add-book-edition-mon-"]')
+    expect(await toggles.count()).toBeGreaterThan(0)
+    for (let i = 0; i < (await toggles.count()); i++) {
+      const toggle = toggles.nth(i)
+      if (await toggle.isDisabled()) continue
+      expect(await toggle.isChecked()).toBe(true)
+    }
+  } else {
+    await expect(page.getByTestId('add-book-editions-note')).toContainText('unavailable')
+  }
 })
