@@ -2,6 +2,7 @@ package books
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -29,6 +30,11 @@ type WorkMetadata struct {
 	Year      int
 	CoverURL  string
 	FetchedAt time.Time
+	// EditionsJSON is the MT2 work's editions (the serialized []WorkEdition
+	// the work-details fetch caches with the row, so a fresh row serves its
+	// editions without an Open Library call). nil = no editions known for
+	// the row (a search-only resolution carries none).
+	EditionsJSON json.RawMessage
 }
 
 // MetadataStore persists resolved works with provenance (MT3). It is the
