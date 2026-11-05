@@ -148,12 +148,16 @@ func (o *OpenLibrary) SearchWorks(ctx context.Context, author, title string) ([]
 }
 
 // ---------------------------------------------------------------------------
-// Readarr B6 (MT1 minimal): id-based lookups. The drop-in migration needs to
-// resolve a source book to its OpenLibrary work key by a stable id — the
-// "metadata-source swap" of the migration. These two search.json id filters
-// are the minimal resolver the migration needs (the plan's `isbn:` / `key:`
-// filters); Goodreads/ASIN ids are not indexed by Open Library search, so
-// those fall back to the plain-text title+author search (SearchWorks).
+// Readarr B6 (MT1 minimal) / MT1: id-based lookups. The drop-in migration
+// (B6) resolves a source book to its OpenLibrary work key by a stable id —
+// the "metadata-source swap" of the migration; MT1 extends the same lookups
+// to ASINs and routes them in the user-facing lookup.
+//
+// Filter choice (verified against the keyless production API): search.json
+// only accepts the declared solr query via `q` — a field-prefixed query
+// (`isbn:…`, `key:…`) or a plain full-text term. The legacy `id=` parameter
+// is not part of the public API and is silently ignored (0 docs), so every
+// id lookup below goes through `q`.
 // ---------------------------------------------------------------------------
 
 // NormalizeOLID folds a work key ("/works/OL8189755W", "OL8189755W", or a
@@ -173,16 +177,50 @@ var olWorkIDRe = regexp.MustCompile(`^OL[0-9]+W$`)
 // folds the key forms to it).
 func IsOLWorkID(s string) bool { return olWorkIDRe.MatchString(strings.TrimSpace(s)) }
 
+// normalizeISBN drops the hyphens and spaces an ISBN may carry (Open Library
+// normalizes the same way before indexing its isbn field).
+func normalizeISBN(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r != '-' && r != ' ' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // SearchWorkByISBN resolves an ISBN (13 or 10 digit) to its OpenLibrary work
-// (a single Result carrying the work key as ID) via the search.json `id=isbn:`
-// filter. Empty slice when no work is indexed for the ISBN.
+// (a single Result carrying the work key as ID) via the search.json `isbn:`
+// field query. The ISBN is normalized first (hyphens/spaces stripped). Empty
+// slice when no work is indexed for the ISBN.
 func (o *OpenLibrary) SearchWorkByISBN(ctx context.Context, isbn string) ([]Result, error) {
-	isbn = strings.TrimSpace(isbn)
+	isbn = normalizeISBN(strings.TrimSpace(isbn))
 	if isbn == "" {
 		return nil, nil
 	}
 	values := url.Values{}
-	values.Set("id", "isbn:"+isbn)
+	values.Set("q", "isbn:"+isbn)
+	values.Set("limit", "5")
+	resp, err := o.search(ctx, values)
+	if err != nil {
+		return nil, err
+	}
+	return olWorkResults(resp), nil
+}
+
+// SearchWorkByASIN resolves an Amazon ASIN to its OpenLibrary work via a
+// full-text `q=<ASIN>` search: Open Library indexes each edition's amazon
+// identifier (aggregated onto the work), and the ASIN token matches it.
+// There is no declared `amazon_id` filter on search.json (the `id=amazon_id:`
+// form is silently ignored); the full-text term is the reliable keyless path
+// (verified against production). Empty slice when no work carries the ASIN.
+func (o *OpenLibrary) SearchWorkByASIN(ctx context.Context, asin string) ([]Result, error) {
+	asin = strings.TrimSpace(asin)
+	if asin == "" {
+		return nil, nil
+	}
+	values := url.Values{}
+	values.Set("q", asin)
 	values.Set("limit", "5")
 	resp, err := o.search(ctx, values)
 	if err != nil {
@@ -192,15 +230,16 @@ func (o *OpenLibrary) SearchWorkByISBN(ctx context.Context, isbn string) ([]Resu
 }
 
 // SearchWorkByKey resolves a known OpenLibrary work key (or bare OL id) to its
-// work via the search.json `id=olid:` filter. This is the "already an OL key"
-// fast path of the migration's id swap (method "source").
+// work via the search.json `key:` field query. This is the "already an OL key"
+// fast path of the migration's id swap (method "source") and the MT3 cached
+// lookup's re-fetch.
 func (o *OpenLibrary) SearchWorkByKey(ctx context.Context, key string) ([]Result, error) {
 	k := NormalizeOLID(key)
 	if k == "" {
 		return nil, nil
 	}
 	values := url.Values{}
-	values.Set("id", "olid:"+k)
+	values.Set("q", "key:"+k)
 	values.Set("limit", "5")
 	resp, err := o.search(ctx, values)
 	if err != nil {

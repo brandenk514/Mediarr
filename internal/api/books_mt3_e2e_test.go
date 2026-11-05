@@ -56,8 +56,11 @@ func (s *mt3MemStore) upsertCount() int {
 	return s.upserts
 }
 
-// mt3OLStub is a stub Open Library /search.json that answers the `id=olid:`
-// key lookup and counts every hit (the "did we call Open Library?" meter).
+// mt3OLStub is a stub Open Library /search.json that answers the `q=key:`
+// work-key lookup and counts every hit (the "did we call Open Library?"
+// meter). (MT1 moved the id lookups off the legacy `id=` parameter — which
+// the keyless production API silently ignores — onto the declared `q` solr
+// query, so the stub parses `q` the same way.)
 func mt3OLStub(t *testing.T, calls *int) string {
 	t.Helper()
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,9 +69,9 @@ func mt3OLStub(t *testing.T, calls *int) string {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		olID := r.URL.Query().Get("id")
+		q := r.URL.Query().Get("q")
 		w.Header().Set("Content-Type", "application/json")
-		if olID == "olid:OL59863W" {
+		if q == "key:OL59863W" {
 			docs := []map[string]any{
 				{"key": "/works/OL59863W", "title": "The Dispossessed", "author_name": []string{"Ursula K. Le Guin"}, "first_publish_year": 1974, "cover_i": 12345},
 			}
