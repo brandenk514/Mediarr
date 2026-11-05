@@ -48,10 +48,34 @@ func (o *openLibrarySearcher) SearchWorks(ctx context.Context, author, title str
 	out := make([]dom.BookSearchHit, 0, len(res))
 	for _, r := range res {
 		out = append(out, dom.BookSearchHit{
-			ID:     r.ID,
-			Name:   r.Title,
-			Author: r.Extra["author"],
-			Year:   r.Year,
+			ID:       r.ID,
+			Name:     r.Title,
+			Author:   r.Extra["author"],
+			Year:     r.Year,
+			CoverURL: r.Extra["cover"],
+		})
+	}
+	return out, nil
+}
+
+// SearchWorkByKey resolves a known OpenLibrary work key to its work — the
+// MT3 cached-path surface on top of dom.BookSearcher (the combined lookup
+// consults the provenance store before calling it, and the refresh command
+// drives it with a forced re-fetch). It wraps the provider's MT1-minimal
+// id lookup; workKeySearcher in the service type-asserts for it.
+func (o *openLibrarySearcher) SearchWorkByKey(ctx context.Context, key string) ([]dom.BookSearchHit, error) {
+	res, err := o.ol.SearchWorkByKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dom.BookSearchHit, 0, len(res))
+	for _, r := range res {
+		out = append(out, dom.BookSearchHit{
+			ID:       r.ID,
+			Name:     r.Title,
+			Author:   r.Extra["author"],
+			Year:     r.Year,
+			CoverURL: r.Extra["cover"],
 		})
 	}
 	return out, nil

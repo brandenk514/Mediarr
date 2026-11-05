@@ -619,6 +619,10 @@ func run(logSvc *system.LogService) error {
 		DefaultProfile: "Best",
 		Metrics:        m,
 		Searcher:       bookssvc.NewOpenLibrarySearcher(olProvider),
+		// MT3: the resolved-work provenance store (the TTL cache in front of
+		// keyless Open Library) + its TTL (config; 0 = the 7d domain default).
+		MetadataStore: postgres.NewBookMetadataStore(pg.DB()),
+		MetadataTTL:   cfg.BooksMetadataTTL,
 	})
 	srv.SetBooks(&api.BooksDeps{Svc: booksSvc})
 	logger.Info("books pipeline ready",

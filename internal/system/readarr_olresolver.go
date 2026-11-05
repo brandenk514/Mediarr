@@ -2,19 +2,10 @@ package system
 
 import (
 	"context"
-	"regexp"
 	"strings"
 
 	"github.com/brandenk514/mediarr/internal/providers"
 )
-
-// olWorkKeyRe is the OpenLibrary work-id shape ("OL12345W"). A source
-// foreignBookId matching it is already an OpenLibrary work key (the "source"
-// fast path of the id swap).
-var olWorkKeyRe = regexp.MustCompile(`^OL[0-9]+W$`)
-
-// isOLWorkKey reports whether s is a bare OpenLibrary work id.
-func isOLWorkKey(s string) bool { return olWorkKeyRe.MatchString(strings.TrimSpace(s)) }
 
 // olBookIDLookup is the minimal OpenLibrary surface the resolver needs (the
 // B6/MT1 id-based lookups + the plain-text work search fallback).
@@ -50,7 +41,7 @@ func NewOpenLibraryBookIDResolver(ol *providers.OpenLibrary) *OpenLibraryBookIDR
 // ResolveWorkKey implements ReadarrBookIDResolver.
 func (r *OpenLibraryBookIDResolver) ResolveWorkKey(ctx context.Context, id ReadarrBookIdentity) (string, string, error) {
 	// 1. The source already carries an OL work key — confirm it resolves.
-	if key := providers.NormalizeOLID(id.ForeignBookID); key != "" && isOLWorkKey(key) {
+	if key := providers.NormalizeOLID(id.ForeignBookID); key != "" && providers.IsOLWorkID(key) {
 		if r.OL != nil {
 			if hits, err := r.OL.SearchWorkByKey(ctx, key); err == nil && len(hits) > 0 {
 				return hits[0].ID, "source", nil
@@ -73,7 +64,7 @@ func (r *OpenLibraryBookIDResolver) ResolveWorkKey(ctx context.Context, id Reada
 		if c == "" {
 			continue
 		}
-		if isOLWorkKey(c) {
+		if providers.IsOLWorkID(c) {
 			continue // handled above
 		}
 		if hits, err := r.OL.SearchWorkByISBN(ctx, c); err == nil && len(hits) > 0 {

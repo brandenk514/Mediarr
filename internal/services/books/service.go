@@ -24,6 +24,7 @@ import (
 	"github.com/brandenk514/mediarr/internal/indexers"
 	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/paging"
+	"github.com/brandenk514/mediarr/internal/providers"
 	"github.com/brandenk514/mediarr/internal/queue"
 	"github.com/brandenk514/mediarr/internal/store"
 )
@@ -70,13 +71,35 @@ type Deps struct {
 	// Searcher, when non-nil, backs the combined plain-text books lookup
 	// (Readarr B2). It is the keyless Open Library adapter in production; nil
 	// (tests, no provider) makes the lookup answer a not-configured error the
-	// API maps to 503.
+	// API maps to 503. When it also implements workKeySearcher, a query that
+	// is itself an OpenLibrary work key takes the MT3 cached path.
 	Searcher dom.BookSearcher
+	// MetadataStore, when non-nil, is the MT3 resolved-work provenance
+	// store: the lookup consults it before Open Library (a fresh row is
+	// served without a provider call), work resolutions upsert into it, and
+	// the refresh command forces a re-fetch into it. Nil (tests without a
+	// Postgres pool) = uncached lookup; refresh answers not-configured.
+	MetadataStore dom.MetadataStore
+	// MetadataTTL bounds how long a store row is fresh before a re-fetch
+	// (MT3). <= 0 falls back to dom.DefaultMetadataTTL (7d).
+	MetadataTTL time.Duration
 }
 
 // ErrSearcherNotConfigured is returned by BooksLookup when no metadata
 // searcher is wired (the API maps it to 503, the keyless-adapter convention).
 var ErrSearcherNotConfigured = fmt.Errorf("books: metadata searcher not configured")
+
+// ErrMetadataStoreNotConfigured is returned by RefreshWorkMetadata when the
+// MT3 provenance store is not wired (the API maps it to 503).
+var ErrMetadataStoreNotConfigured = fmt.Errorf("books: metadata store not configured")
+
+// ErrWorkNotFound is returned by RefreshWorkMetadata when Open Library has
+// no work under the requested key (the API maps it to 404).
+var ErrWorkNotFound = fmt.Errorf("books: work not found in openlibrary")
+
+// ErrWorkKeyRequired is returned when a work-key operation gets an empty key
+// (the API validates first and maps it to 400).
+var ErrWorkKeyRequired = fmt.Errorf("books: work key is required")
 
 // ErrInvalidAddParams is returned when an add/update request carries a value
 // that is not one of the known enum values (Readarr B2); the API maps it to
@@ -248,11 +271,40 @@ func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult
 	if s.deps.Searcher == nil {
 		return nil, ErrSearcherNotConfigured
 	}
+	// MT3: a query that is itself an OpenLibrary work key takes the cached
+	// path — a fresh provenance-store row is served without an Open Library
+	// call; an expired or missing row triggers a re-fetch that upserts the
+	// row. (The store is consulted FIRST, so a repeated key lookup never
+	// hammers keyless OL while the row is fresh.)
+	if key := providers.NormalizeOLID(q); providers.IsOLWorkID(key) {
+		return s.lookupWorkByKey(ctx, key)
+	}
+	return s.lookupText(ctx, q)
+}
+
+// lookupText is the Readarr B2 combined plain-text lookup: one query fans
+// out to the metadata searcher's author search and work search and returns
+// a single kind-tagged list (author hits first, then book hits). Each hit
+// carries `added` (true when that author — kind=author — or that author +
+// title — kind=book — already exists in the books library, so the UI
+// navigates instead of re-adding) and `library_id` (the matching row id; 0
+// when not added).
+//
+// One failing search leg degrades gracefully: the other leg's hits are
+// still returned (best-effort, like the other keyless search endpoints).
+// (MT3) Work hits are additionally upserted into the provenance store —
+// the write-through that keeps it the single source for "was this resolved
+// from Open Library, when, under what key".
+func (s *Service) lookupText(ctx context.Context, q string) ([]dom.LookupResult, error) {
 	authorHits, aerr := s.deps.Searcher.SearchAuthors(ctx, q)
 	workHits, werr := s.deps.Searcher.SearchWorks(ctx, "", q)
 	if aerr != nil && werr != nil {
 		return nil, fmt.Errorf("books: lookup: %w", aerr)
 	}
+	// Best-effort write-through (MT3): a store failure must not fail the
+	// lookup — the cache/provenance is an enhancement over the keyless
+	// search, not a precondition for it.
+	_ = s.recordWorkMetadata(ctx, workHits)
 
 	// Index the library for the `added` flag (case-insensitive, trimmed).
 	authors, aerr2 := s.deps.Repo.ListAuthors(ctx)
@@ -262,16 +314,6 @@ func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult
 	authorID := make(map[string]int64, len(authors))
 	for _, a := range authors {
 		authorID[foldName(a.Name)] = a.ID
-	}
-	books, berr := s.deps.Repo.ListBooks(ctx)
-	if berr != nil {
-		return nil, fmt.Errorf("books: lookup: list books: %w", berr)
-	}
-	titleID := make(map[string]int64, len(books))
-	titleAuthor := make(map[string]int64, len(books))
-	for _, b := range books {
-		titleID[foldName(b.AuthorName)+"\x00"+foldName(b.Name)] = b.ID
-		titleAuthor[foldName(b.AuthorName)+"\x00"+foldName(b.Name)] = b.AuthorID
 	}
 
 	out := make([]dom.LookupResult, 0, len(authorHits)+len(workHits))
@@ -285,19 +327,11 @@ func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult
 			AuthorID:  id,
 		})
 	}
-	for _, h := range workHits {
-		aid, ok := titleID[foldName(h.Author)+"\x00"+foldName(h.Name)]
-		out = append(out, dom.LookupResult{
-			Kind:      dom.LookupBook,
-			Name:      h.Name,
-			Author:    h.Author,
-			Year:      h.Year,
-			Added:     ok,
-			LibraryID: aid,
-			AuthorID:  titleAuthor[foldName(h.Author)+"\x00"+foldName(h.Name)],
-		})
+	workResults, err := s.workLookupResults(ctx, workHits)
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	return append(out, workResults...), nil
 }
 
 // foldName normalizes a name for case-insensitive library matching.

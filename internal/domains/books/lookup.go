@@ -14,14 +14,17 @@ const (
 )
 
 // BookSearchHit is one plain-text metadata search hit (an author candidate
-// or a work) coming from a BookSearcher. Display-only: the books model keys
-// an author by name and a title by (author, name), so no provider id is
-// stored (the work key, when present, is display-only).
+// or a work) coming from a BookSearcher. The author/title fields are
+// display-only: the books model keys an author by name and a title by
+// (author, name), so no provider id is stored in the library (the work key,
+// when present, is display-only there too). CoverURL (MT3) is not serialized
+// in the lookup response — it flows into the resolved-work provenance store.
 type BookSearchHit struct {
-	ID     string // provider key; "" for authors (no stable provider id exists)
-	Name   string // author name (author hits) or work title (book hits)
-	Author string // book hits: the work's author ("" = unknown); "" for author hits
-	Year   int    // book hits: first publish year (0 = unknown); 0 for author hits
+	ID       string // provider key; "" for authors (no stable provider id exists)
+	Name     string // author name (author hits) or work title (book hits)
+	Author   string // book hits: the work's author ("" = unknown); "" for author hits
+	Year     int    // book hits: first publish year (0 = unknown); 0 for author hits
+	CoverURL string // book hits (MT3): cover image URL ("" = unknown)
 }
 
 // BookSearcher is the keyless plain-text metadata search the combined books
