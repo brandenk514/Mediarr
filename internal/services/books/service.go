@@ -96,6 +96,13 @@ type Deps struct {
 	// section document). Nil (tests without settings) falls back to the
 	// seeded defaults.
 	MetadataProfiles MetadataProfileProvider
+	// GoogleBooks, when non-nil AND configured, is the MT5 optional
+	// Google Books secondary source: the combined plain-text lookup runs
+	// it only when Open Library produced zero book hits for a
+	// plain-text query (OL remains the source of truth; GB never
+	// supplements, it fills the empty gap). Nil or not-configured =
+	// leg disabled (skip, no error, no 503 — the lookup is unchanged).
+	GoogleBooks GoogleBooksSearcher
 }
 
 // ErrSearcherNotConfigured is returned by BooksLookup when no metadata
@@ -332,7 +339,7 @@ func (s *Service) BooksLookupProfile(ctx context.Context, q, profileName string)
 	if key := providers.NormalizeOLID(q); providers.IsOLWorkID(key) {
 		return s.lookupWorkByKey(ctx, key, f)
 	}
-	return s.lookupText(ctx, q, f)
+	return s.lookupText(ctx, q, f, true)
 }
 
 // lookupText is the Readarr B2 combined plain-text lookup: one query fans
@@ -351,7 +358,7 @@ func (s *Service) BooksLookupProfile(ctx context.Context, q, profileName string)
 // the work hits BEFORE the write-through: a hit the profile drops is not
 // presented, so it earns no provenance row (the store records resolved
 // works, not filtered-out candidates).
-func (s *Service) lookupText(ctx context.Context, q string, f *dom.ProfileFilters) ([]dom.LookupResult, error) {
+func (s *Service) lookupText(ctx context.Context, q string, f *dom.ProfileFilters, plainText bool) ([]dom.LookupResult, error) {
 	authorHits, aerr := s.deps.Searcher.SearchAuthors(ctx, q)
 	workHits, werr := s.deps.Searcher.SearchWorks(ctx, "", q)
 	if aerr != nil && werr != nil {
@@ -362,8 +369,21 @@ func (s *Service) lookupText(ctx context.Context, q string, f *dom.ProfileFilter
 	}
 	// Best-effort write-through (MT3): a store failure must not fail the
 	// lookup — the cache/provenance is an enhancement over the keyless
-	// search, not a precondition for it.
+	// search, not a precondition for it. (MT5: the Google Books leg is
+	// appended AFTER this, so its hits earn no provenance rows — the
+	// store is OL provenance for the editions flow.)
 	_ = s.recordWorkMetadata(ctx, workHits)
+
+	// (MT5) Google Books is the secondary source: it fills a gap, never
+	// supplements. A plain-text query (the `plainText` flag: id-syntax
+	// paths that degrade to this text search must NOT run the leg — ids
+	// are unambiguous and OL stays their source of truth) whose OL leg
+	// produced zero book hits (after MT4 profile filtering) gets GB's
+	// hits (capped, profile-filtered) appended. OL-with-hits + GB
+	// configured => OL only.
+	if plainText && len(workHits) == 0 {
+		workHits = s.googleBooksLeg(ctx, q, f)
+	}
 
 	// Index the library for the `added` flag (case-insensitive, trimmed).
 	authors, aerr2 := s.deps.Repo.ListAuthors(ctx)

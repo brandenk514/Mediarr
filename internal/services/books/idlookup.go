@@ -50,13 +50,13 @@ func (s *Service) lookupIDWork(ctx context.Context, kind dom.IDKind, value strin
 	case dom.IDKindISBN:
 		var v isbnLookup
 		if v, ok = s.deps.Searcher.(isbnLookup); !ok {
-			return s.lookupText(ctx, value, f)
+			return s.lookupText(ctx, value, f, false)
 		}
 		lookup = v.SearchWorkByISBN
 	case dom.IDKindASIN:
 		var v asinLookup
 		if v, ok = s.deps.Searcher.(asinLookup); !ok {
-			return s.lookupText(ctx, value, f)
+			return s.lookupText(ctx, value, f, false)
 		}
 		lookup = v.SearchWorkByASIN
 	default:

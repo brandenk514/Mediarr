@@ -66,7 +66,7 @@ func (s *Service) lookupWorkByKey(ctx context.Context, key string, f *dom.Profil
 	}
 	ks, ok := s.deps.Searcher.(workKeySearcher)
 	if !ok {
-		return s.lookupText(ctx, key, f)
+		return s.lookupText(ctx, key, f, false)
 	}
 	hits, err := ks.SearchWorkByKey(ctx, key)
 	if err != nil {
@@ -103,12 +103,21 @@ func (s *Service) workLookupResults(ctx context.Context, workHits []dom.BookSear
 	out := make([]dom.LookupResult, 0, len(workHits))
 	for _, h := range workHits {
 		aid, ok := titleID[foldName(h.Author)+"\x00"+foldName(h.Name)]
+		// The MT2 work key is the OL work key the add flow fetches
+		// editions with. A Google Books hit (MT5) has none — its ID is
+		// a Google volume id, not an OL work key — so its work key stays
+		// empty (the UI's manual-add fallback handles it; by design GB
+		// hits never get an editions fetch).
+		workKey := h.ID
+		if h.Source == dom.SourceGoogleBooks {
+			workKey = ""
+		}
 		out = append(out, dom.LookupResult{
 			Kind:      dom.LookupBook,
 			Name:      h.Name,
 			Author:    h.Author,
 			Year:      h.Year,
-			WorkKey:   h.ID, // the OL work key (the hit's ID) — MT2 editions fetch
+			WorkKey:   workKey,
 			Added:     ok,
 			LibraryID: aid,
 			AuthorID:  titleAuthor[foldName(h.Author)+"\x00"+foldName(h.Name)],

@@ -3704,7 +3704,7 @@ paths:
   /api/v1/search/books/lookup:
     get:
       tags: [search]
-      summary: Combined plain-text books lookup (authors + works) via Open Library.
+      summary: Combined plain-text books lookup (authors + works) via Open Library (optional Google Books gap-fill).
       operationId: lookupBooks
       description: |
         Readarr B2: one query fans out to Open Library's author search and
@@ -3777,6 +3777,27 @@ paths:
 
         `profile` empty/absent = no filtering (the pre-MT4 response,
         byte-identical); an unknown profile name is a 400.
+
+        MT5 (optional Google Books secondary source): when a Google Books
+        API key is configured (`MEDIARR_GOOGLE_BOOKS_API_KEY` — its
+        presence is the enable flag, no separate flag), the lookup falls
+        back to Google Books for a PLAIN-TEXT query when Open Library
+        produced zero book hits (after profile filtering, the filtered
+        view is what the user sees). Google Books is NEVER the primary
+        source — it only fills the empty gap: id-lookup queries
+        (isbn:/asin:/goodreads:/olid: and the bare forms) and
+        OL-with-hits queries never consult it. Fallback hits are capped
+        at 10 and, when a `profile` is present, filtered through the same
+        two-tier profile: a Google Books volume carries a language (tier
+        1) but no indexed-edition count, so the popularity proxy is N/A
+        for it — a fallback hit passes `minimum_popularity` only when the
+        minimum is 0. Fallback hits carry an EMPTY `work_key` (their id
+        is a Google Books volume id, not an Open Library work key) — the
+        UI's manual-add fallback handles them, and they are never written
+        to the provenance store (OL provenance for the editions flow).
+        The wire shape is unchanged: no `source` field is added. A
+        failing Google Books leg never breaks the lookup (the secondary
+        source is best-effort): the OL-only result is returned as usual.
       parameters:
         - $ref: "#/components/parameters/SearchQuery"
         - $ref: "#/components/parameters/BookMetadataProfile"
