@@ -2179,7 +2179,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Combined plain-text books lookup (authors + works) via Open Library.
+         * Combined plain-text books lookup (authors + works) via Open Library (optional Google Books gap-fill).
          * @description Readarr B2: one query fans out to Open Library's author search and
          *     work search; the response is a single kind-tagged list (author hits
          *     first, then book hits). Each hit carries `added` (true when that
@@ -2216,6 +2216,61 @@ export interface paths {
          *
          *     An id query that matches no work (or whose Goodreads chain fails)
          *     returns an empty list (200), never an error.
+         *
+         *     MT4 (optional `profile` parameter): a named book metadata profile
+         *     (the settings profiles section's `book_metadata_profiles`) is
+         *     applied server-side to the lookup's BOOK hits; author hits are never
+         *     filtered (Readarr metadata profiles filter books, not authors). The
+         *     filters are two-tier, because keyless Open Library exposes different
+         *     data per surface:
+         *
+         *     - Tier 1 (search document): `allowed_languages` (a hit passes when
+         *       ANY of its languages is in the list; an empty list passes
+         *       everything; a hit with no language data fails a non-empty list),
+         *       `skip_missing_release_date` (a hit with no first publish year is
+         *       dropped), and `minimum_popularity` — the documented POPULARITY
+         *       PROXY: keyless Open Library exposes no popularity score, so a hit
+         *       passes a minimum N only when its search document reports >= N
+         *       indexed editions; a hit with an unknown edition count fails any
+         *       positive minimum (an unknown count cannot satisfy one).
+         *     - Tier 2 (work document): `skip_no_isbn_asin` (the work document
+         *       must contain at least one edition carrying an ISBN or an ASIN),
+         *       `skip_broken_parts` (the hit holds a numbered series membership in
+         *       a series the work document indexes with fewer than two distinct
+         *       volume labels — a broken set; no numbered membership passes), and
+         *       `skip_secondary_series` (the work references series but none of
+         *       the references is numbered — a secondary-only membership). These
+         *       run only for hits that survive tier 1; the work document is read
+         *       from the provenance store when cached (zero provider calls) or
+         *       fetched (capped: the first 25 uncached hits per request),
+         *       read-only — a profile-filter read never writes the store. A hit
+         *       tier 2 cannot verify (a non-OpenLibrary hit, a missing store row
+         *       with a failed/missing fetch, or the fetch cap exhausted) is KEPT:
+         *       the filters are best-effort over the keyless search, not a gate.
+         *
+         *     `profile` empty/absent = no filtering (the pre-MT4 response,
+         *     byte-identical); an unknown profile name is a 400.
+         *
+         *     MT5 (optional Google Books secondary source): when a Google Books
+         *     API key is configured (`MEDIARR_GOOGLE_BOOKS_API_KEY` — its
+         *     presence is the enable flag, no separate flag), the lookup falls
+         *     back to Google Books for a PLAIN-TEXT query when Open Library
+         *     produced zero book hits (after profile filtering, the filtered
+         *     view is what the user sees). Google Books is NEVER the primary
+         *     source — it only fills the empty gap: id-lookup queries
+         *     (isbn:/asin:/goodreads:/olid: and the bare forms) and
+         *     OL-with-hits queries never consult it. Fallback hits are capped
+         *     at 10 and, when a `profile` is present, filtered through the same
+         *     two-tier profile: a Google Books volume carries a language (tier
+         *     1) but no indexed-edition count, so the popularity proxy is N/A
+         *     for it — a fallback hit passes `minimum_popularity` only when the
+         *     minimum is 0. Fallback hits carry an EMPTY `work_key` (their id
+         *     is a Google Books volume id, not an Open Library work key) — the
+         *     UI's manual-add fallback handles them, and they are never written
+         *     to the provenance store (OL provenance for the editions flow).
+         *     The wire shape is unchanged: no `source` field is added. A
+         *     failing Google Books leg never breaks the lookup (the secondary
+         *     source is best-effort): the OL-only result is returned as usual.
          */
         get: operations["lookupBooks"];
         put?: never;
@@ -2275,6 +2330,19 @@ export interface paths {
          *     back to the (stale) cached row; with no cached row either, the
          *     fetch error propagates (502). A work with no editions returns an
          *     empty list.
+         *
+         *     MT4 (optional `profile` parameter): a named book metadata profile
+         *     (the settings profiles section's `book_metadata_profiles`) applies
+         *     its PER-EDITION filter subset to the work's editions:
+         *     `allowed_languages` (an edition passes when ANY of its languages is
+         *     in the list; empty list passes; no language data fails a non-empty
+         *     list), `skip_missing_release_date` (an edition with no publish year
+         *     is dropped), and `skip_no_isbn_asin` (an edition with neither an
+         *     ISBN nor an ASIN is dropped). The WORK-level filters
+         *     (`minimum_popularity`, `skip_broken_parts`, `skip_secondary_series`)
+         *     do NOT apply per edition — they decide whether the WORK is
+         *     eligible, which the lookup already decided. An empty/absent
+         *     `profile` = no filtering (byte-identical); an unknown name is a 400.
          */
         get: operations["getBookWorkEditions"];
         put?: never;
@@ -5014,14 +5082,25 @@ export interface components {
         /**
          * @description A named set of server-side book metadata filters (Readarr B3; the
          *     Readarr "metadata profile" content fields). B3 ships the model and
-         *     listing; applying the filters to search results is the separate MT4
-         *     metadata work item.
+         *     listing; MT4 applies a named profile's filters server-side to the
+         *     books lookup and the editions endpoint (the optional `profile`
+         *     parameter on both).
          */
         BookMetadataProfile: {
             id: number;
             name: string;
             description: string;
-            /** @description Only books with a popularity score at or above this value; 0 = no minimum. */
+            /**
+             * @description Only books at or above this popularity; 0 = no minimum.
+             *     Popularity proxy (MT4): keyless Open Library exposes no
+             *     popularity score, so the applied filter uses the work's
+             *     INDEXED-EDITION COUNT as the documented proxy — a hit passes a
+             *     minimum N only when its search document (or cached work
+             *     document) reports >= N indexed editions; a hit with an unknown
+             *     edition count fails any positive minimum (an unknown count
+             *     cannot satisfy one; MT5 Google Books hits, which carry no
+             *     edition count, pass only when the minimum is 0).
+             */
             minimum_popularity: number;
             /** @description Skip books with no release date. */
             skip_missing_release_date: boolean;
@@ -5864,6 +5943,15 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description MT4: an optional named book metadata profile (the settings profiles
+         *     section's `book_metadata_profiles`) whose filters are applied
+         *     server-side. Empty/absent = no filtering (the pre-MT4 response,
+         *     byte-identical); an unknown name is a 400. See each endpoint's
+         *     description for the tier-1/tier-2 semantics and the
+         *     minimum-popularity proxy (indexed-edition count).
+         */
+        BookMetadataProfile: string;
         PathID: number;
         PathEditionID: number;
         PathSeason: number;
@@ -9631,6 +9719,15 @@ export interface operations {
             query: {
                 /** @description Free-text search query. */
                 query: components["parameters"]["SearchQuery"];
+                /**
+                 * @description MT4: an optional named book metadata profile (the settings profiles
+                 *     section's `book_metadata_profiles`) whose filters are applied
+                 *     server-side. Empty/absent = no filtering (the pre-MT4 response,
+                 *     byte-identical); an unknown name is a 400. See each endpoint's
+                 *     description for the tier-1/tier-2 semantics and the
+                 *     minimum-popularity proxy (indexed-edition count).
+                 */
+                profile?: components["parameters"]["BookMetadataProfile"];
             };
             header?: never;
             path?: never;
@@ -9647,6 +9744,7 @@ export interface operations {
                     "application/json": components["schemas"]["BookLookupResult"][];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
             502: components["responses"]["BadGateway"];
@@ -9684,7 +9782,17 @@ export interface operations {
     };
     getBookWorkEditions: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description MT4: an optional named book metadata profile (the settings profiles
+                 *     section's `book_metadata_profiles`) whose filters are applied
+                 *     server-side. Empty/absent = no filtering (the pre-MT4 response,
+                 *     byte-identical); an unknown name is a 400. See each endpoint's
+                 *     description for the tier-1/tier-2 semantics and the
+                 *     minimum-popularity proxy (indexed-edition count).
+                 */
+                profile?: components["parameters"]["BookMetadataProfile"];
+            };
             header?: never;
             path: {
                 /** @description The OpenLibrary work key (bare "OL…W" or "/works/OL…W"). */
