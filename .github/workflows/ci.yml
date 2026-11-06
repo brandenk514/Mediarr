@@ -491,9 +491,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          # 0.x versions are pre-1.0: mark them as GitHub pre-releases so
-          # nobody lands on a beta by accident.
-          PRERELEASE=( )
-          [[ "$TAG" =~ ^v0\. ]] && PRERELEASE=(--prerelease)
-          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --latest "${PRERELEASE[@]}"
+          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --latest
           echo "release $TAG created"
