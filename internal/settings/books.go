@@ -175,7 +175,8 @@ func BookProfileNames() map[string]bool {
 // popularity, skip no-release-date / no-ISBN-ASIN / broken parts /
 // secondary-series books, allowed languages. B3 ships the model + listing
 // (seeded in the profiles document, like the music metadata profiles);
-// applying the filters to search results is the separate MT4 work item.
+// MT4 applies a named profile's filters server-side to the books lookup and
+// the editions endpoint (the optional profile parameter on both).
 // ---------------------------------------------------------------------------
 
 // BookMetadataProfile is one named set of book metadata filters.
@@ -183,8 +184,17 @@ type BookMetadataProfile struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	// MinimumPopularity is the lowest book popularity score accepted;
-	// 0 = no minimum.
+	// MinimumPopularity is the lowest book popularity accepted; 0 = no
+	// minimum.
+	//
+	// Popularity proxy (MT4): keyless Open Library exposes no popularity
+	// score, so the applied filter uses the work's INDEXED-EDITION COUNT as
+	// the documented proxy: a hit passes a minimum N only when its search
+	// document (or cached work document) reports >= N indexed editions. A
+	// hit with an unknown edition count fails any positive minimum — an
+	// unknown count cannot satisfy one (the same rule applies to the MT5
+	// Google Books secondary-source hits, which carry no edition count at
+	// all, so they pass only when the minimum is 0).
 	MinimumPopularity int `json:"minimum_popularity"`
 	// SkipMissingReleaseDate skips books with no release date.
 	SkipMissingReleaseDate bool `json:"skip_missing_release_date"`

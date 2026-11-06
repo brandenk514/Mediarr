@@ -632,13 +632,23 @@ export const client = {
   // Readarr B2: the combined plain-text books lookup (Open Library author +
   // work search in one call, kind-tagged hits; authors first). The old
   // authors/works endpoints stay for the later metadata work item.
-  lookupBooks: (q: string) =>
-    request<BookLookupResult[]>('GET', `/search/books/lookup?query=${encodeURIComponent(q)}`),
+  // MT4: the optional `profile` (a named book metadata profile) filters the
+  // book hits server-side; an empty/absent name omits the parameter
+  // entirely (no filtering — the pre-MT4 request).
+  lookupBooks: (q: string, profile?: string) =>
+    request<BookLookupResult[]>(
+      'GET',
+      `/search/books/lookup?query=${encodeURIComponent(q)}${profile ? `&profile=${encodeURIComponent(profile)}` : ''}`,
+    ),
   // Readarr MT2: a work's provider-fed editions for the add flow. Cache-first
   // on the server (the MT3 provenance store + 7d TTL); a work with no
-  // editions answers an empty list.
-  getBookWorkEditions: (workKey: string) =>
-    request<BookWorkDetails>('GET', `/search/books/works/${encodeURIComponent(workKey)}/editions`),
+  // editions answers an empty list. MT4: the optional `profile` applies the
+  // profile's per-edition filters server-side (absent = no filtering).
+  getBookWorkEditions: (workKey: string, profile?: string) =>
+    request<BookWorkDetails>(
+      'GET',
+      `/search/books/works/${encodeURIComponent(workKey)}/editions${profile ? `?profile=${encodeURIComponent(profile)}` : ''}`,
+    ),
   searchBookWorks: (q: string, author: string) => {
     const params = new URLSearchParams()
     params.set('query', q)

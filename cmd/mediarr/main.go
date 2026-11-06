@@ -611,6 +611,11 @@ func run(logSvc *system.LogService) error {
 	// one instance so the lookup and the author/work searches use the same
 	// (optionally overridden) base URL.
 	olProvider := providers.NewOpenLibrary()
+	// MT5: the optional Google Books secondary source. A non-empty API
+	// key is the enablement flag (no separate flag); when unset the
+	// adapter is not configured and the books service skips the leg
+	// (the lookup is unchanged — OL only).
+	gbProvider := providers.NewGoogleBooks(cfg.Providers.GoogleBooksAPIKey)
 	booksSvc := bookssvc.New(bookssvc.Deps{
 		Repo:           postgres.NewBooksRepo(pg.DB()),
 		Indexers:       indexersFor(booksFake),
@@ -627,6 +632,13 @@ func run(logSvc *system.LogService) error {
 		// (the keyless Goodreads page adapter; best-effort — an outage
 		// degrades to an empty result, never a lookup failure).
 		GoodreadsResolver: providers.NewGoodreads(),
+		// MT4: the named book metadata profiles (the settings profiles
+		// section document) behind the lookup/editions profile parameter.
+		MetadataProfiles: bookssvc.NewSettingsProfileProvider(settingsRepo),
+		// MT5: the optional Google Books secondary leg (enabled by a
+		// non-empty API key; fills the empty-gap for plain-text queries
+		// only — never supplements, never primary).
+		GoogleBooks: bookssvc.NewGoogleBooksSearcher(gbProvider),
 	})
 	srv.SetBooks(&api.BooksDeps{Svc: booksSvc})
 	logger.Info("books pipeline ready",

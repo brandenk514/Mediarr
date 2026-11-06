@@ -30,7 +30,29 @@ type workDetailsFetcher interface {
 // store row serves the row's cached data; no searcher or fetch surface
 // serves the store's view (not-configured when the store is empty too);
 // nothing anywhere surfaces the fetch error (the API maps it to 502).
+//
+// (MT4) The optional named metadata profile is GetWorkEditionsProfile's
+// profileName parameter; this entry point is the no-profile form (the
+// pre-MT4 behavior, byte-identical).
 func (s *Service) GetWorkEditions(ctx context.Context, workKey string) (dom.WorkDetails, error) {
+	return s.GetWorkEditionsProfile(ctx, workKey, "")
+}
+
+// GetWorkEditionsProfile is GetWorkEditions with an optional named metadata
+// profile (MT4): the named profile is resolved against the live book
+// metadata profiles (an unknown name is ErrUnknownMetadataProfile, the API
+// 400s), and the per-edition filter subset is applied to the work's
+// editions: allowed-languages, skip-missing-release-date (the edition's
+// publish year), and skip-no-ISBN/ASIN (the edition's own identifiers).
+// The work-level filters (minimum-popularity, broken parts, secondary
+// series) do NOT apply per edition — they decide whether the WORK is
+// eligible, which the lookup already decided (see
+// dom.ProfileFilters.PassEdition). profileName "" = no filtering.
+func (s *Service) GetWorkEditionsProfile(ctx context.Context, workKey, profileName string) (dom.WorkDetails, error) {
+	f, err := s.profileFilters(ctx, profileName)
+	if err != nil {
+		return dom.WorkDetails{}, err
+	}
 	key := providers.NormalizeOLID(workKey)
 	if key == "" {
 		return dom.WorkDetails{}, ErrWorkKeyRequired
@@ -46,7 +68,7 @@ func (s *Service) GetWorkEditions(ctx context.Context, workKey string) (dom.Work
 		// Missing row (or a store error): fall through to the fetch.
 	}
 	if cached != nil && dom.IsFresh(cached.FetchedAt, time.Now(), s.metadataTTL()) {
-		return detailsFromRow(*cached), nil
+		return s.applyEditionProfile(detailsFromRow(*cached), f), nil
 	}
 
 	// The fetch path needs a searcher with the work-details surface.
@@ -59,7 +81,7 @@ func (s *Service) GetWorkEditions(ctx context.Context, workKey string) (dom.Work
 		// Cannot fetch (no searcher, or a plain fake): a (stale) store row
 		// beats nothing; otherwise not-configured (the API 503s).
 		if cached != nil {
-			return detailsFromRow(*cached), nil
+			return s.applyEditionProfile(detailsFromRow(*cached), f), nil
 		}
 		return dom.WorkDetails{}, ErrSearcherNotConfigured
 	}
@@ -68,7 +90,7 @@ func (s *Service) GetWorkEditions(ctx context.Context, workKey string) (dom.Work
 	if err != nil {
 		// Degraded: a (stale) store row beats a failed fetch.
 		if cached != nil {
-			return detailsFromRow(*cached), nil
+			return s.applyEditionProfile(detailsFromRow(*cached), f), nil
 		}
 		return dom.WorkDetails{}, err
 	}
@@ -77,7 +99,20 @@ func (s *Service) GetWorkEditions(ctx context.Context, workKey string) (dom.Work
 	// refreshed with the fetched editions — best-effort, it must not fail
 	// the read.
 	_ = s.upsertWorkDetails(ctx, details)
-	return details, nil
+	return s.applyEditionProfile(details, f), nil
+}
+
+// applyEditionProfile applies the per-edition profile subset (MT4) to a
+// work's editions: a nil filter is the no-op (pre-MT4 output, unchanged).
+func (s *Service) applyEditionProfile(details dom.WorkDetails, f *dom.ProfileFilters) dom.WorkDetails {
+	if f == nil {
+		return details
+	}
+	details.Editions = s.filterEditions(details.Editions, f)
+	if details.Editions == nil {
+		details.Editions = []dom.WorkEdition{} // the wire shape serializes []
+	}
+	return details
 }
 
 // detailsFromRow materializes a WorkDetails from a provenance-store row: the

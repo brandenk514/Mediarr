@@ -35,25 +35,47 @@ func (s *Service) metadataTTL() time.Duration {
 // store read failure degrades to the re-fetch path (the cache must never
 // break the lookup); a searcher without a key lookup surface degrades to
 // the plain-text path.
-func (s *Service) lookupWorkByKey(ctx context.Context, key string) ([]dom.LookupResult, error) {
+//
+// (MT4) A named profile (non-nil f) filters the resulting book hits; a
+// store-served row's tier-1 facts come from the row's cached editions
+// (zero provider calls) — a row without cached editions carries unknown
+// facts, and the filters treat unknown as "cannot verify" per the domain
+// rules (e.g. a non-empty language allowlist drops an unknown-language
+// hit).
+func (s *Service) lookupWorkByKey(ctx context.Context, key string, f *dom.ProfileFilters) ([]dom.LookupResult, error) {
 	if s.deps.MetadataStore != nil {
 		if w, ok, err := s.deps.MetadataStore.GetWork(ctx, key); err == nil && ok {
 			if dom.IsFresh(w.FetchedAt, time.Now(), s.metadataTTL()) {
-				return s.workLookupResults(ctx, []dom.BookSearchHit{{
+				hit := dom.BookSearchHit{
 					ID: w.WorkKey, Name: w.Title, Author: w.Author,
 					Year: w.Year, CoverURL: w.CoverURL,
-				}})
+				}
+				// MT4: derive the tier-1 facts from the row's cached
+				// editions when present (the work document's data, no
+				// provider call) — the filtered view stays stable across
+				// the cache boundary.
+				hit.Languages, hit.EditionCount = tier1FactsFromRowEditions(w.EditionsJSON)
+				hits := []dom.BookSearchHit{hit}
+				if f != nil {
+					hits = s.filterWorkHits(ctx, hits, f)
+				}
+				return s.workLookupResults(ctx, hits)
 			}
 		}
 		// Missing row (or a store error): fall through to the re-fetch.
 	}
 	ks, ok := s.deps.Searcher.(workKeySearcher)
 	if !ok {
-		return s.lookupText(ctx, key)
+		return s.lookupText(ctx, key, f, false)
 	}
 	hits, err := ks.SearchWorkByKey(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("books: lookup: %w", err)
+	}
+	// MT4: filter before the write-through (a dropped hit earns no
+	// provenance row).
+	if f != nil {
+		hits = s.filterWorkHits(ctx, hits, f)
 	}
 	_ = s.recordWorkMetadata(ctx, hits)
 	return s.workLookupResults(ctx, hits)
@@ -81,12 +103,21 @@ func (s *Service) workLookupResults(ctx context.Context, workHits []dom.BookSear
 	out := make([]dom.LookupResult, 0, len(workHits))
 	for _, h := range workHits {
 		aid, ok := titleID[foldName(h.Author)+"\x00"+foldName(h.Name)]
+		// The MT2 work key is the OL work key the add flow fetches
+		// editions with. A Google Books hit (MT5) has none — its ID is
+		// a Google volume id, not an OL work key — so its work key stays
+		// empty (the UI's manual-add fallback handles it; by design GB
+		// hits never get an editions fetch).
+		workKey := h.ID
+		if h.Source == dom.SourceGoogleBooks {
+			workKey = ""
+		}
 		out = append(out, dom.LookupResult{
 			Kind:      dom.LookupBook,
 			Name:      h.Name,
 			Author:    h.Author,
 			Year:      h.Year,
-			WorkKey:   h.ID, // the OL work key (the hit's ID) — MT2 editions fetch
+			WorkKey:   workKey,
 			Added:     ok,
 			LibraryID: aid,
 			AuthorID:  titleAuthor[foldName(h.Author)+"\x00"+foldName(h.Name)],

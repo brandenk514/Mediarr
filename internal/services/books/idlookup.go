@@ -40,20 +40,23 @@ type GoodreadsResolver interface {
 // Degradation: a searcher without the surface falls back to the plain-text
 // path for the raw id value; an Open Library failure surfaces as an error
 // the API maps to 502 (the keyless-adapter convention).
-func (s *Service) lookupIDWork(ctx context.Context, kind dom.IDKind, value string) ([]dom.LookupResult, error) {
+//
+// (MT4) A named profile (non-nil f) filters the resolved book hits before
+// the write-through (a dropped hit earns no provenance row).
+func (s *Service) lookupIDWork(ctx context.Context, kind dom.IDKind, value string, f *dom.ProfileFilters) ([]dom.LookupResult, error) {
 	var lookup func(ctx context.Context, id string) ([]dom.BookSearchHit, error)
 	var ok bool
 	switch kind {
 	case dom.IDKindISBN:
 		var v isbnLookup
 		if v, ok = s.deps.Searcher.(isbnLookup); !ok {
-			return s.lookupText(ctx, value)
+			return s.lookupText(ctx, value, f, false)
 		}
 		lookup = v.SearchWorkByISBN
 	case dom.IDKindASIN:
 		var v asinLookup
 		if v, ok = s.deps.Searcher.(asinLookup); !ok {
-			return s.lookupText(ctx, value)
+			return s.lookupText(ctx, value, f, false)
 		}
 		lookup = v.SearchWorkByASIN
 	default:
@@ -62,6 +65,11 @@ func (s *Service) lookupIDWork(ctx context.Context, kind dom.IDKind, value strin
 	hits, err := lookup(ctx, value)
 	if err != nil {
 		return nil, fmt.Errorf("books: lookup: %w", err)
+	}
+	// MT4: filter before the write-through (a dropped hit earns no
+	// provenance row).
+	if f != nil {
+		hits = s.filterWorkHits(ctx, hits, f)
 	}
 	// Best-effort write-through (MT1, MT3 convention): a store failure must
 	// not fail the lookup — the provenance is an enhancement over the
@@ -76,7 +84,10 @@ func (s *Service) lookupIDWork(ctx context.Context, kind dom.IDKind, value strin
 // never an error: Goodreads is a best-effort scraped source and an outage
 // must not break the rest of the lookup (the UI shows "no results"). The
 // Open Library leg (once the ISBN is known) fails as usual.
-func (s *Service) lookupGoodreads(ctx context.Context, id string) ([]dom.LookupResult, error) {
+//
+// (MT4) A named profile (non-nil f) filters the resolved book hits before
+// the write-through (a dropped hit earns no provenance row).
+func (s *Service) lookupGoodreads(ctx context.Context, id string, f *dom.ProfileFilters) ([]dom.LookupResult, error) {
 	if s.deps.GoodreadsResolver == nil {
 		return []dom.LookupResult{}, nil
 	}
@@ -91,6 +102,11 @@ func (s *Service) lookupGoodreads(ctx context.Context, id string) ([]dom.LookupR
 	hits, err := v.SearchWorkByISBN(ctx, isbn)
 	if err != nil {
 		return nil, fmt.Errorf("books: lookup: %w", err)
+	}
+	// MT4: filter before the write-through (a dropped hit earns no
+	// provenance row).
+	if f != nil {
+		hits = s.filterWorkHits(ctx, hits, f)
 	}
 	_ = s.recordWorkMetadata(ctx, hits)
 	return s.workLookupResults(ctx, hits)

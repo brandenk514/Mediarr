@@ -154,11 +154,14 @@ rest by the vault; it is the durable settings surface the UI renders.
 | --- | --- | --- |
 | `MEDIARR_TMDB_API_KEY` | — (optional) | TMDB v3 API key for the movies and TV (TMDB) search endpoints. |
 | `MEDIARR_TVDB_API_KEY` | — (optional) | TVDB v4 API key for the TV (TVDB) series search endpoint. |
+| `MEDIARR_GOOGLE_BOOKS_API_KEY` | — (optional) | Google Books API key for the books secondary source (MT5). A non-empty key is the enable flag for the books lookup's gap-fill: a plain-text query that Open Library answers with zero book hits falls back to Google Books (capped at 10 hits). It is never the primary source — Open Library remains the source of truth, and id-lookup queries never consult it. |
 
 MusicBrainz and Open Library are keyless and need no configuration. Provider
 keys are **optional at boot**: an unset key makes the corresponding search
 endpoint answer 503 "provider not configured" at request time (the UI
-surfaces it inline) instead of failing startup.
+surfaces it inline) instead of failing startup. Google Books is the
+exception in shape (not in optionality): an unset key does not 503 any
+endpoint — it simply leaves the books lookup Open-Library-only.
 
 ---
 

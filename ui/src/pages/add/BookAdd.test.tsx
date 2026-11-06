@@ -706,3 +706,105 @@ describe('MT2 provider-fed editions in the add flow', () => {
     expect(await screen.findByTestId('books-landing')).toBeInTheDocument()
   })
 })
+
+describe('MT4 metadata profile on the lookup + editions calls', () => {
+  // A work-key id-lookup hit (the MT2 shape): a single kind=book row that
+  // drives the editions fetch from the query.
+  const idBookHit: BookLookupResult = {
+    kind: 'book',
+    name: 'The Dispossessed',
+    author: '',
+    year: 1974,
+    added: false,
+    library_id: 0,
+    author_id: 0,
+  }
+
+  // One monitorable edition so the provider list renders (the default mock
+  // answers an empty list, which routes to the manual form).
+  const oneEdition: BookWorkDetails = {
+    work_key: 'OL59863W',
+    title: 'The Dispossessed',
+    editions: [
+      {
+        key: 'OL25828717M',
+        title: 'The Dispossessed (Essays in Science Fiction)',
+        isbn: '9781910902434',
+        formats: ['EPUB'],
+        languages: ['eng'],
+        publishers: ['Island Books'],
+        publish_date: '2018-08-31',
+        year: 2018,
+        pages: 348,
+      },
+    ],
+  }
+
+  // The metadata profile names arrive async; wait for the modal + the
+  // populated select before picking.
+  async function awaitMetadataProfileOptions() {
+    await screen.findByTestId('add-book-modal')
+    const metaProfile = screen.getByTestId('add-book-metadata-profile') as HTMLSelectElement
+    await waitFor(() =>
+      expect(Array.from(metaProfile.options).map((o) => o.value)).toEqual([
+        '',
+        'Default',
+        'E-book Only',
+      ]),
+    )
+    return metaProfile
+  }
+
+  it('passes the selected metadata profile to the lookup call (and re-runs it)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), 'le guin')
+    await user.click(await screen.findByTestId('book-result-author-0'))
+    // The first lookup (before a profile is picked) sends no profile param.
+    await waitFor(() => expect(client.lookupBooks).toHaveBeenCalledTimes(1))
+    expect(client.lookupBooks).toHaveBeenLastCalledWith('le guin')
+    const metaProfile = await awaitMetadataProfileOptions()
+    await user.selectOptions(metaProfile, 'Default')
+    // Picking a profile re-runs the lookup with `profile` set.
+    await waitFor(() => expect(client.lookupBooks).toHaveBeenCalledWith('le guin', 'Default'))
+    expect(client.lookupBooks).toHaveBeenCalledTimes(2)
+  })
+
+  it("omits the profile param for '— None —' (the pre-MT4 call)", async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), 'le guin')
+    await user.click(await screen.findByTestId('book-result-author-0'))
+    const metaProfile = await awaitMetadataProfileOptions()
+    // Pick a profile, then back to '— None —'.
+    await user.selectOptions(metaProfile, 'Default')
+    await waitFor(() => expect(client.lookupBooks).toHaveBeenCalledWith('le guin', 'Default'))
+    await user.selectOptions(metaProfile, '')
+    // '— None —' re-sends the parameter-less lookup (exactly one argument).
+    await waitFor(() => {
+      const calls = vi.mocked(client.lookupBooks).mock.calls
+      expect(calls.length).toBe(3)
+      expect(calls[calls.length - 1]).toEqual(['le guin'])
+    })
+  })
+
+  it('passes the selected metadata profile to the editions call too', async () => {
+    vi.mocked(client.lookupBooks).mockResolvedValue([idBookHit])
+    vi.mocked(client.getBookWorkEditions).mockResolvedValue(oneEdition)
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByTestId('book-search-input'), 'olid:OL59863W')
+    await user.click(await screen.findByTestId('book-result-book-0'))
+    await screen.findByTestId('add-book-editions')
+    // The first editions fetch (no profile picked) sends no profile param.
+    expect(client.getBookWorkEditions).toHaveBeenCalledTimes(1)
+    expect(client.getBookWorkEditions).toHaveBeenLastCalledWith('OL59863W')
+    const metaProfile = await awaitMetadataProfileOptions()
+    await user.selectOptions(metaProfile, 'E-book Only')
+    // Picking a profile re-fetches the editions with `profile` set.
+    await waitFor(() =>
+      expect(client.getBookWorkEditions).toHaveBeenCalledWith('OL59863W', 'E-book Only'),
+    )
+    expect(client.getBookWorkEditions).toHaveBeenCalledTimes(2)
+  })
+})

@@ -164,14 +164,25 @@ func toLookupWire(results []booksdom.LookupResult) []bookLookupResult {
 // hits) each carrying `added`/`library_id`. No searcher wired (no Open Library
 // provider) answers 503; an upstream failure answers 502 (the keyless-adapter
 // convention).
+//
+// (MT4) The optional profile=<name> query parameter resolves a named book
+// metadata profile (the settings profiles section document) whose filters
+// drop ineligible BOOK hits; author hits are never filtered. An unknown
+// profile name answers 400; absent/empty = no filtering (the pre-MT4
+// response, byte-identical).
 func (s *Server) lookupBooks(w http.ResponseWriter, r *http.Request) {
 	if s.booksDeps == nil || s.booksDeps.Svc == nil {
 		writeError(w, http.StatusServiceUnavailable, "books is not configured")
 		return
 	}
 	q := r.URL.Query().Get("query")
-	results, err := s.booksDeps.Svc.BooksLookup(r.Context(), q)
+	profile := r.URL.Query().Get("profile")
+	results, err := s.booksDeps.Svc.BooksLookupProfile(r.Context(), q, profile)
 	if err != nil {
+		if errors.Is(err, bookssvc.ErrUnknownMetadataProfile) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if errors.Is(err, bookssvc.ErrSearcherNotConfigured) {
 			writeError(w, http.StatusServiceUnavailable, "openlibrary is not configured")
 			return
@@ -270,17 +281,27 @@ type bookWorkDetails struct {
 // searcher/store 503; an Open Library failure 502 (the keyless-adapter
 // convention); a stale cached row is served when the fetch fails
 // (degradation, still 200).
+//
+// (MT4) The optional profile=<name> query parameter applies the named
+// book metadata profile's per-edition filters (allowed-languages,
+// skip-missing-release-date, skip-no-ISBN/ASIN) to each edition; the
+// work-level filters (popularity, series) do not apply per edition. An
+// unknown profile name answers 400; absent/empty = no filtering (the
+// pre-MT4 response, byte-identical).
 func (s *Server) getBookWorkEditions(w http.ResponseWriter, r *http.Request) {
 	if s.booksDeps == nil || s.booksDeps.Svc == nil {
 		writeError(w, http.StatusServiceUnavailable, "books is not configured")
 		return
 	}
 	workKey := r.PathValue("workKey")
-	details, err := s.booksDeps.Svc.GetWorkEditions(r.Context(), workKey)
+	profile := r.URL.Query().Get("profile")
+	details, err := s.booksDeps.Svc.GetWorkEditionsProfile(r.Context(), workKey, profile)
 	if err != nil {
 		switch {
 		case errors.Is(err, bookssvc.ErrWorkKeyRequired):
 			writeError(w, http.StatusBadRequest, "workKey is required (an OpenLibrary work key, e.g. OL8189755W)")
+		case errors.Is(err, bookssvc.ErrUnknownMetadataProfile):
+			writeError(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, bookssvc.ErrSearcherNotConfigured), errors.Is(err, bookssvc.ErrMetadataStoreNotConfigured):
 			writeError(w, http.StatusServiceUnavailable, "openlibrary is not configured")
 		default:
