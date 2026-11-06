@@ -10,6 +10,14 @@ import (
 // the keyless Open Library adapter (MT3).
 const SourceOpenLibrary = "openlibrary"
 
+// SourceGoogleBooks is the source tag for hits produced by the optional
+// Google Books secondary leg (MT5). It marks a BookSearchHit (the server-
+// side marker — the wire hit shape has no source field) and would be the
+// provenance source tag if a GB work were ever stored (it is not: the MT3
+// store caches OL-resolved works for the editions flow, and GB hits have
+// no OL work key).
+const SourceGoogleBooks = "googlebooks"
+
 // DefaultMetadataTTL is how long a cached resolved-work row is considered
 // fresh before the lookup re-fetches it from its source. Open Library is
 // keyless with no SLA, so we do not re-fetch per request — but a week is

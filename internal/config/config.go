@@ -88,9 +88,16 @@ type DownloadSAB struct {
 // corresponding search endpoint answer 503 "provider not configured", which
 // the UI surfaces inline. MusicBrainz and Open Library are keyless and need
 // no config.
+//
+// GoogleBooksAPIKey (MT5) is the Google Books API key: a non-empty key
+// ENABLES the optional books secondary source (no separate enabled flag —
+// the presence of the key is the config flag). Unlike TMDB/TVDB, an unset
+// key does not 503 any endpoint: the books lookup simply never runs the
+// Google Books leg (Open Library remains the sole source).
 type Providers struct {
-	TMDBAPIKey string // TMDB v3 API key (movies + tv search)
-	TVDBAPIKey string // TVDB v4 API key (series search)
+	TMDBAPIKey        string // TMDB v3 API key (movies + tv search)
+	TVDBAPIKey        string // TVDB v4 API key (series search)
+	GoogleBooksAPIKey string // Google Books API key (MT5 books secondary source)
 }
 
 // DSN is a validated PostgreSQL connection string.
@@ -196,9 +203,13 @@ func Load(env map[string]string) (*Config, error) {
 
 	// Metadata providers (#42) — optional; an unset key disables that
 	// provider's search endpoint (503 at request time, not boot time).
+	// Google Books (MT5) is the exception in shape, not in optionality:
+	// an unset key does not 503 any endpoint — it simply disables
+	// the books lookup's secondary leg (the lookup stays OL-only).
 	cfg.Providers = Providers{
-		TMDBAPIKey: env["MEDIARR_TMDB_API_KEY"],
-		TVDBAPIKey: env["MEDIARR_TVDB_API_KEY"],
+		TMDBAPIKey:        env["MEDIARR_TMDB_API_KEY"],
+		TVDBAPIKey:        env["MEDIARR_TVDB_API_KEY"],
+		GoogleBooksAPIKey: env["MEDIARR_GOOGLE_BOOKS_API_KEY"],
 	}
 
 	// Books metadata cache TTL (MT3) — default 7d lives in the domain

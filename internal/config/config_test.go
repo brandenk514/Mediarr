@@ -120,6 +120,32 @@ func TestLoad_ExplicitOverrides(t *testing.T) {
 	}
 }
 
+func TestLoad_GoogleBooksKey(t *testing.T) {
+	// Unset: empty (the MT5 leg stays disabled — no boot failure, unlike
+	// the required keys).
+	cfg, err := Load(baseEnv())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Providers.GoogleBooksAPIKey != "" {
+		t.Errorf("GoogleBooksAPIKey = %q, want empty when unset", cfg.Providers.GoogleBooksAPIKey)
+	}
+	if cfg.Providers.TMDBAPIKey != "" || cfg.Providers.TVDBAPIKey != "" {
+		t.Error("TMDB/TVDB keys should stay empty when unset")
+	}
+
+	// Set: the non-empty key is the enablement flag for the secondary leg.
+	env := baseEnv()
+	env["MEDIARR_GOOGLE_BOOKS_API_KEY"] = "a1b2c3d4e5"
+	cfg, err = Load(env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Providers.GoogleBooksAPIKey != "a1b2c3d4e5" {
+		t.Errorf("GoogleBooksAPIKey = %q, want a1b2c3d4e5", cfg.Providers.GoogleBooksAPIKey)
+	}
+}
+
 func TestLoad_IndexerHealthInterval(t *testing.T) {
 	// Unset: defaults to 0 (worker runs a single initial sweep, on-demand
 	// tests still work).

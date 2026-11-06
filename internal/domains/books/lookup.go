@@ -30,6 +30,17 @@ type BookSearchHit struct {
 	// response. Book hits only.
 	Languages    []string // the hit's language codes (nil = unknown)
 	EditionCount int      // indexed-edition count — the popularity proxy (0 = unknown)
+	// Source (MT5): which metadata source produced the hit — "" = Open
+	// Library (the primary source; the field is there so the marker is
+	// explicit) or SourceGoogleBooks = the optional secondary leg.
+	// Server-side marker only: the wire hit shape has NO source field
+	// (the lookup response is unchanged by MT5) — a Google Books hit
+	// simply carries an empty work key (its ID is a Google volume id,
+	// not an OpenLibrary work key), and the UI's manual-add fallback
+	// handles it (that is by design: GB hits never get editions, since
+	// the editions flow is keyed by OL work). The MT3 provenance store
+	// likewise never holds GB rows.
+	Source string
 }
 
 // BookSearcher is the keyless plain-text metadata search the combined books
