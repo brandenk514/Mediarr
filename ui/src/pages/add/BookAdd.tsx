@@ -31,7 +31,17 @@ type MonitorPolicy = 'all' | 'future' | 'missing' | 'existing' | 'first' | 'last
 
 export function BookAddPage() {
   const navigate = useNavigate()
-  const search = useCallback((q: string) => client.lookupBooks(q), [])
+  // MT4: the add modal's metadata profile, lifted to the page so the
+  // debounced lookup can pass it as the server-side `profile` filter.
+  // '' ("— None —") omits the parameter entirely (no filtering — the
+  // pre-MT4 call); picking a profile re-runs the lookup so the result list
+  // shows the filtered view.
+  const [metadataProfile, setMetadataProfile] = useState('')
+  const search = useCallback(
+    (q: string) =>
+      metadataProfile ? client.lookupBooks(q, metadataProfile) : client.lookupBooks(q),
+    [metadataProfile],
+  )
   const { text, setText, state } = useDebouncedSearch<BookLookupResult>(search)
 
   // The B2 add modal: a kind-tagged hit plus the form fields it opens on.
@@ -75,6 +85,8 @@ export function BookAddPage() {
         <AddBookModal
           hit={selected}
           searchText={text}
+          metadataProfile={metadataProfile}
+          onMetadataProfileChange={setMetadataProfile}
           onClose={() => setSelected(null)}
           onAdded={() => navigate('/books')}
         />
@@ -211,15 +223,21 @@ export function resolveEditionFormat(formats?: string[]): AddEditionRequest['for
 // AddBookModal is the B2 "Add New Author/Book" modal — the ArtistAdd layout
 // with the books field set: Root Folder → Monitor (the 7 states) → Quality
 // Profile → Metadata Profile (B3: both live selects) → Tags, with the
-// start-search checkbox + green Add button in the footer.
+// start-search checkbox + green Add button in the footer. MT4: the selected
+// metadata profile is owned by the page (the search + editions calls pass
+// it as the server-side `profile` filter) — the select mirrors it.
 function AddBookModal({
   hit,
   searchText,
+  metadataProfile,
+  onMetadataProfileChange,
   onClose,
   onAdded,
 }: {
   hit: BookLookupResult
   searchText: string
+  metadataProfile: string
+  onMetadataProfileChange: (name: string) => void
   onClose: () => void
   onAdded: () => void
 }) {
@@ -228,10 +246,9 @@ function AddBookModal({
   const [monitorPolicy, setMonitorPolicy] = useState<MonitorPolicy>('all')
   const [profile, setProfile] = useState('')
   const [profiles, setProfiles] = useState<ProfilesResponse | null>(null)
-  // Readarr B3: the metadata profile name (the seeded "Default" book
-  // metadata profile and any user-created ones). Empty = none (server
-  // default).
-  const [metadataProfile, setMetadataProfile] = useState('')
+  // Readarr B3: the book metadata profile NAMES for the select (the seeded
+  // "Default" profile and any user-created ones). The selected name lives on
+  // the page (MT4) — '' = none (server default, no filtering).
   const [metadataProfiles, setMetadataProfiles] = useState<string[] | null>(null)
   const [tags, setTags] = useState<string[]>([])
   const [tagDraft, setTagDraft] = useState('')
@@ -270,8 +287,14 @@ function AddBookModal({
   useEffect(() => {
     if (!workKey) return
     let cancelled = false
-    client
-      .getBookWorkEditions(workKey)
+    // MT4: a selected metadata profile filters the editions server-side
+    // (the per-edition subset); '' omits the parameter. The select's change
+    // handler drops the previous list back to the loading state before this
+    // effect re-runs with the new profile.
+    const editions = metadataProfile
+      ? client.getBookWorkEditions(workKey, metadataProfile)
+      : client.getBookWorkEditions(workKey)
+    editions
       .then((d) => {
         if (cancelled) return
         if ((d.editions ?? []).length === 0) {
@@ -286,7 +309,7 @@ function AddBookModal({
     return () => {
       cancelled = true
     }
-  }, [workKey])
+  }, [workKey, metadataProfile])
 
   useEffect(() => {
     let cancelled = false
@@ -699,7 +722,13 @@ function AddBookModal({
           <select
             id="book-metadata-profile"
             value={metadataProfile}
-            onChange={(e) => setMetadataProfile(e.target.value)}
+            onChange={(e) => {
+              // MT4: a new profile re-fetches the work's editions (and the
+              // lookup) — drop the previous list back to the loading state.
+              setWorkDetails(null)
+              setEditionsUnavailable(false)
+              onMetadataProfileChange(e.target.value)
+            }}
             data-testid="add-book-metadata-profile"
           >
             <option value="">— None —</option>
