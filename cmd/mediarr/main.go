@@ -627,6 +627,9 @@ func run(logSvc *system.LogService) error {
 		// (the keyless Goodreads page adapter; best-effort — an outage
 		// degrades to an empty result, never a lookup failure).
 		GoodreadsResolver: providers.NewGoodreads(),
+		// MT4: the named book metadata profiles (the settings profiles
+		// section document) behind the lookup/editions profile parameter.
+		MetadataProfiles: bookssvc.NewSettingsProfileProvider(settingsRepo),
 	})
 	srv.SetBooks(&api.BooksDeps{Svc: booksSvc})
 	logger.Info("books pipeline ready",
