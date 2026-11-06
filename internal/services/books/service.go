@@ -90,6 +90,12 @@ type Deps struct {
 	// provider) makes a goodreads: query degrade to an empty result —
 	// a Goodreads outage never breaks the lookup.
 	GoodreadsResolver GoodreadsResolver
+	// MetadataProfiles, when non-nil, is the MT4 named metadata-profile
+	// source: lookup/editions requests with profile=<name> resolve the
+	// name against the live book metadata profiles (the settings profiles
+	// section document). Nil (tests without settings) falls back to the
+	// seeded defaults.
+	MetadataProfiles MetadataProfileProvider
 }
 
 // ErrSearcherNotConfigured is returned by BooksLookup when no metadata
@@ -273,7 +279,24 @@ func (s *Service) GetAuthor(ctx context.Context, id int64) (*dom.Author, error) 
 // returned (best-effort, like the other keyless search endpoints). Both legs
 // failing — or a nil searcher (no provider wired) — surfaces an error the API
 // maps to 502/503.
+//
+// (MT4) The optional named metadata profile is BooksLookupProfile's
+// profileName parameter; this entry point is the no-profile form (the
+// pre-MT4 behavior, byte-identical).
 func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult, error) {
+	return s.BooksLookupProfile(ctx, q, "")
+}
+
+// BooksLookupProfile is BooksLookup with an optional named metadata
+// profile (MT4): the named profile is resolved against the live book
+// metadata profiles (the settings profiles section document; an unknown
+// name is ErrUnknownMetadataProfile, the API 400s), and the profile's
+// filters are applied to the lookup's BOOK hits — two tiers, per the
+// domain (search-document facts first; work-document data only for the
+// survivors, via the MT3 store or a capped details fetch). Author hits
+// are never filtered (Readarr metadata profiles filter books, not
+// authors). profileName "" = no filtering (the pre-MT4 behavior).
+func (s *Service) BooksLookupProfile(ctx context.Context, q, profileName string) ([]dom.LookupResult, error) {
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return []dom.LookupResult{}, nil
@@ -281,19 +304,23 @@ func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult
 	if s.deps.Searcher == nil {
 		return nil, ErrSearcherNotConfigured
 	}
+	f, err := s.profileFilters(ctx, profileName)
+	if err != nil {
+		return nil, err
+	}
 	// MT1: id-lookup syntax routes to the id resolver instead of the
 	// plain-text search (the documented scheme, in the spec's lookup
 	// description).
 	if idq, ok := dom.ParseIDQuery(q); ok {
 		switch idq.Kind {
 		case dom.IDKindOL:
-			return s.lookupWorkByKey(ctx, providers.NormalizeOLID(idq.Value))
+			return s.lookupWorkByKey(ctx, providers.NormalizeOLID(idq.Value), f)
 		case dom.IDKindISBN:
-			return s.lookupIDWork(ctx, dom.IDKindISBN, idq.Value)
+			return s.lookupIDWork(ctx, dom.IDKindISBN, idq.Value, f)
 		case dom.IDKindASIN:
-			return s.lookupIDWork(ctx, dom.IDKindASIN, idq.Value)
+			return s.lookupIDWork(ctx, dom.IDKindASIN, idq.Value, f)
 		case dom.IDKindGoodreads:
-			return s.lookupGoodreads(ctx, idq.Value)
+			return s.lookupGoodreads(ctx, idq.Value, f)
 		}
 	}
 	// MT3: a query that is itself an OpenLibrary work key in the full key
@@ -303,9 +330,9 @@ func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult
 	// upserts the row. (The store is consulted FIRST, so a repeated key
 	// lookup never hammers keyless OL while the row is fresh.)
 	if key := providers.NormalizeOLID(q); providers.IsOLWorkID(key) {
-		return s.lookupWorkByKey(ctx, key)
+		return s.lookupWorkByKey(ctx, key, f)
 	}
-	return s.lookupText(ctx, q)
+	return s.lookupText(ctx, q, f)
 }
 
 // lookupText is the Readarr B2 combined plain-text lookup: one query fans
@@ -313,19 +340,25 @@ func (s *Service) BooksLookup(ctx context.Context, q string) ([]dom.LookupResult
 // a single kind-tagged list (author hits first, then book hits). Each hit
 // carries `added` (true when that author — kind=author — or that author +
 // title — kind=book — already exists in the books library, so the UI
-// navigates instead of re-adding) and `library_id` (the matching row id; 0
+// navigates instead of re-adding) and `library_id` (the matching row id, 0
 // when not added).
 //
 // One failing search leg degrades gracefully: the other leg's hits are
 // still returned (best-effort, like the other keyless search endpoints).
 // (MT3) Work hits are additionally upserted into the provenance store —
 // the write-through that keeps it the single source for "was this resolved
-// from Open Library, when, under what key".
-func (s *Service) lookupText(ctx context.Context, q string) ([]dom.LookupResult, error) {
+// from Open Library, when, under what key". (MT4) A named profile filters
+// the work hits BEFORE the write-through: a hit the profile drops is not
+// presented, so it earns no provenance row (the store records resolved
+// works, not filtered-out candidates).
+func (s *Service) lookupText(ctx context.Context, q string, f *dom.ProfileFilters) ([]dom.LookupResult, error) {
 	authorHits, aerr := s.deps.Searcher.SearchAuthors(ctx, q)
 	workHits, werr := s.deps.Searcher.SearchWorks(ctx, "", q)
 	if aerr != nil && werr != nil {
 		return nil, fmt.Errorf("books: lookup: %w", aerr)
+	}
+	if f != nil {
+		workHits = s.filterWorkHits(ctx, workHits, f)
 	}
 	// Best-effort write-through (MT3): a store failure must not fail the
 	// lookup — the cache/provenance is an enhancement over the keyless

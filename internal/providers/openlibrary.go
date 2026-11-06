@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -50,6 +51,12 @@ type olSearchResponse struct {
 		AuthorName       []string `json:"author_name"`
 		FirstPublishYear int      `json:"first_publish_year"`
 		CoverI           int      `json:"cover_i"` // cover id; 0 = no cover
+		// MT4 tier-1 facts: the search document already carries the
+		// language list and the indexed-edition count, so the profile
+		// filters (allowed languages, missing release date, the
+		// popularity proxy) evaluate without an extra provider call.
+		Language     []string `json:"language"` // ISO codes, e.g. ["eng"]
+		EditionCount int      `json:"edition_count"`
 	} `json:"docs"`
 }
 
@@ -60,6 +67,28 @@ func (o *OpenLibrary) search(ctx context.Context, values url.Values) (*olSearchR
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// olSearchExtras builds the display/MT4 extras shared by the two work-level
+// result mappers: the first author, the cover URL (when the doc has one),
+// and the MT4 tier-1 facts (the doc's language list and indexed-edition
+// count — the popularity proxy; absent fields map to ""/0 = unknown).
+func olSearchExtras(authorName []string, coverI int, language []string, editionCount int) map[string]string {
+	author := ""
+	if len(authorName) > 0 {
+		author = authorName[0]
+	}
+	extra := map[string]string{"author": author}
+	if c := olCoverURL(coverI); c != "" {
+		extra["cover"] = c
+	}
+	if len(language) > 0 {
+		extra["languages"] = strings.Join(language, ",")
+	}
+	if editionCount > 0 {
+		extra["edition_count"] = strconv.Itoa(editionCount)
+	}
+	return extra
 }
 
 // olCoverURL is the Open Library cover image for a search result's cover id
@@ -129,19 +158,11 @@ func (o *OpenLibrary) SearchWorks(ctx context.Context, author, title string) ([]
 		if d.Title == "" {
 			continue
 		}
-		author := ""
-		if len(d.AuthorName) > 0 {
-			author = d.AuthorName[0]
-		}
-		extra := map[string]string{"author": author}
-		if c := olCoverURL(d.CoverI); c != "" {
-			extra["cover"] = c
-		}
 		out = append(out, Result{
 			ID:    strings.TrimPrefix(d.Key, "/works/"),
 			Title: d.Title,
 			Year:  d.FirstPublishYear,
-			Extra: extra,
+			Extra: olSearchExtras(d.AuthorName, d.CoverI, d.Language, d.EditionCount),
 		})
 	}
 	return out, nil
@@ -256,19 +277,11 @@ func olWorkResults(resp *olSearchResponse) []Result {
 		if d.Key == "" {
 			continue
 		}
-		author := ""
-		if len(d.AuthorName) > 0 {
-			author = d.AuthorName[0]
-		}
-		extra := map[string]string{"author": author}
-		if c := olCoverURL(d.CoverI); c != "" {
-			extra["cover"] = c
-		}
 		out = append(out, Result{
 			ID:    strings.TrimPrefix(d.Key, "/works/"),
 			Title: d.Title,
 			Year:  d.FirstPublishYear,
-			Extra: extra,
+			Extra: olSearchExtras(d.AuthorName, d.CoverI, d.Language, d.EditionCount),
 		})
 	}
 	return out
@@ -287,15 +300,28 @@ const MaxWorkEditions = 50
 // work-details call. The service maps it onto the domain's WorkEdition
 // (provider layer never imports domains — the repo's adapter convention).
 type WorkEdition struct {
-	Key         string   // bare edition id, e.g. "OL47044678M"
-	Title       string   // edition title; "" when absent
-	ISBN        string   // preferred ISBN (first ISBN-13, else ISBN-10); "" when none
-	Formats     []string // file formats, e.g. ["EPUB", "PDF"]
-	Languages   []string // ISO 639-1 codes, e.g. ["eng"]
-	Publishers  []string // publisher names
-	PublishDate string   // raw OL publish-date string ("2017-06", "2017", ...)
-	Year        int      // leading year of PublishDate; 0 when unknown
-	Pages       int      // page count; 0 when unknown
+	Key         string      // bare edition id, e.g. "OL47044678M"
+	Title       string      // edition title; "" when absent
+	ISBN        string      // preferred ISBN (first ISBN-13, else ISBN-10); "" when none
+	ASIN        string      // Amazon identifier; "" when absent (MT4: counts as an identifier)
+	Formats     []string    // file formats, e.g. ["EPUB", "PDF"]
+	Languages   []string    // ISO 639-1 codes, e.g. ["eng"]
+	Publishers  []string    // publisher names
+	PublishDate string      // raw OL publish-date string ("2017-06", "2017", ...)
+	Year        int         // leading year of PublishDate; 0 when unknown
+	Pages       int         // page count; 0 when unknown
+	Series      []SeriesRef // series membership (MT4); empty when the doc has none
+}
+
+// SeriesRef is one series reference from an OpenLibrary edition document
+// (MT4): the series title and the numbered volume label. The service maps
+// it onto the domain's SeriesRef.
+type SeriesRef struct {
+	// Title is the series name.
+	Title string
+	// Volume is the numbered volume/part label ("1", "2", ...); "" when the
+	// reference is unnumbered (secondary membership).
+	Volume string
 }
 
 // WorkDetails is the Open Library work document as fetched by
@@ -329,15 +355,51 @@ type olAuthorRef struct {
 
 // olEditionDoc is the subset of an OpenLibrary edition document.
 type olEditionDoc struct {
-	Key           string   `json:"key"` // "/works/OL66554W/OL47044678M"
-	Title         string   `json:"title"`
-	ISBN10        []string `json:"isbn_10"`
-	ISBN13        []string `json:"isbn_13"`
-	Formats       []string `json:"formats"`   // e.g. ["EPUB", "PDF"]
-	Languages     []any    `json:"languages"` // strings, or objects with key/code
-	Publishers    []string `json:"publishers"`
-	PublishDate   string   `json:"publish_date"` // raw: "2017-06", "2017", ...
-	NumberOfPages int      `json:"number_of_pages"`
+	Key           string        `json:"key"` // "/works/OL66554W/OL47044678M"
+	Title         string        `json:"title"`
+	ISBN10        []string      `json:"isbn_10"`
+	ISBN13        []string      `json:"isbn_13"`
+	ASIN          string        `json:"amazon_id"` // Amazon identifier; "" when absent (MT4)
+	Formats       []string      `json:"formats"`   // e.g. ["EPUB", "PDF"]
+	Languages     []any         `json:"languages"` // strings, or objects with key/code
+	Publishers    []string      `json:"publishers"`
+	PublishDate   string        `json:"publish_date"` // raw: "2017-06", "2017", ...
+	NumberOfPages int           `json:"number_of_pages"`
+	Series        []olSeriesRef `json:"series"` // series membership (MT4); absent for most works
+}
+
+// olSeriesRef is the series membership on an OpenLibrary edition document
+// (MT4): "series" is a list of {"title": ..., "volume": N} objects. Volume
+// is present (a number or a string) when the membership is primary — the
+// edition is volume N of the series — and absent when the reference is
+// unnumbered/secondary (the work merely belongs to the series).
+type olSeriesRef struct {
+	Title  string `json:"title"`
+	Volume any    `json:"volume"` // number, string, or nil
+}
+
+// olSeriesVolume renders a raw series volume value into its label: "1",
+// "2.5", ... for numbers (integral values render without a decimal point),
+// the trimmed string as-is, and "" for nil/zero/unknown.
+func olSeriesVolume(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(t)
+	case float64: // json decodes numbers to float64
+		if t == 0 {
+			return ""
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case int:
+		if t == 0 {
+			return ""
+		}
+		return strconv.Itoa(t)
+	default:
+		return ""
+	}
 }
 
 // GetWorkDetails fetches the OpenLibrary work document for a work key (bare
@@ -389,13 +451,28 @@ func olWorkEditions(eds []olEditionDoc) []WorkEdition {
 			Key:         editionID(e.Key),
 			Title:       e.Title,
 			ISBN:        editionISBN(e.ISBN13, e.ISBN10),
+			ASIN:        e.ASIN,
 			Formats:     e.Formats,
 			Languages:   editionLanguages(e.Languages),
 			Publishers:  e.Publishers,
 			PublishDate: e.PublishDate,
 			Year:        editionYear(e.PublishDate),
 			Pages:       e.NumberOfPages,
+			Series:      editionSeries(e.Series),
 		})
+	}
+	return out
+}
+
+// editionSeries normalizes the edition document's series references (skips
+// entries without a title); empty when the document has none.
+func editionSeries(refs []olSeriesRef) []SeriesRef {
+	out := make([]SeriesRef, 0, len(refs))
+	for _, r := range refs {
+		if strings.TrimSpace(r.Title) == "" {
+			continue
+		}
+		out = append(out, SeriesRef{Title: r.Title, Volume: olSeriesVolume(r.Volume)})
 	}
 	return out
 }

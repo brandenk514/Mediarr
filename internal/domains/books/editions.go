@@ -31,6 +31,16 @@ type WorkEdition struct {
 	Year int
 	// Pages is the edition's page count; 0 when unknown.
 	Pages int
+	// ASIN is the edition's Amazon identifier (amazon_id); "" when the
+	// edition document has none. It feeds the MT4 skip-no-ISBN/ASIN filter
+	// (an Amazon-only edition still counts as identified).
+	ASIN string
+	// Series is the edition's series references (the provider's series
+	// data on the edition document: title + numbered volume when the
+	// membership is primary). Empty when the document has none — the MT4
+	// series filters then have nothing to act on for this edition
+	// (documented degradation, see profile.go).
+	Series []SeriesRef
 }
 
 // WorkDetails is the full Open Library detail of one work (MT2): the

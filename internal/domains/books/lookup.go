@@ -25,6 +25,11 @@ type BookSearchHit struct {
 	Author   string // book hits: the work's author ("" = unknown); "" for author hits
 	Year     int    // book hits: first publish year (0 = unknown); 0 for author hits
 	CoverURL string // book hits (MT3): cover image URL ("" = unknown)
+	// MT4 tier-1 facts (the provider search-document data): consumed by
+	// the server-side profile filters, never serialized in the lookup
+	// response. Book hits only.
+	Languages    []string // the hit's language codes (nil = unknown)
+	EditionCount int      // indexed-edition count — the popularity proxy (0 = unknown)
 }
 
 // BookSearcher is the keyless plain-text metadata search the combined books
@@ -55,4 +60,10 @@ type LookupResult struct {
 	Added     bool
 	LibraryID int64
 	AuthorID  int64
+	// MT4 tier-1 facts (kind=book): the provider search-document data the
+	// server-side profile filters consume. Never serialized in the lookup
+	// response (the wire shape mirrors the spec's BookLookupResult); nil/0
+	// = the source did not say (a store-served cached row, for instance).
+	Languages    []string
+	EditionCount int
 }

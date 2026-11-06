@@ -2,6 +2,8 @@ package books
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	dom "github.com/brandenk514/mediarr/internal/domains/books"
 	"github.com/brandenk514/mediarr/internal/providers"
@@ -50,7 +52,10 @@ func (o *openLibrarySearcher) SearchWorks(ctx context.Context, author, title str
 
 // mapWorkHits maps Open Library work-level provider hits to domain hits:
 // first author name (from the provider's "author" extra) and the first
-// publish year.
+// publish year, plus the MT4 tier-1 facts (the search document's language
+// list and indexed-edition count — the popularity proxy — from the
+// provider's "languages"/"edition_count" extras; absent extras map to
+// nil/0 = unknown).
 func mapWorkHits(res []providers.Result) []dom.BookSearchHit {
 	out := make([]dom.BookSearchHit, 0, len(res))
 	for _, r := range res {
@@ -60,9 +65,44 @@ func mapWorkHits(res []providers.Result) []dom.BookSearchHit {
 			Author:   r.Extra["author"],
 			Year:     r.Year,
 			CoverURL: r.Extra["cover"],
+			// MT4 tier-1 facts: the search document's languages (comma-
+			// joined extra) and indexed-edition count (the popularity
+			// proxy).
+			Languages:    splitExtras(r.Extra["languages"]),
+			EditionCount: intExtras(r.Extra["edition_count"]),
 		})
 	}
 	return out
+}
+
+// splitExtras splits a comma-joined extras string into trimmed codes
+// (nil when empty) — the provider's "languages" extra carries the
+// search document's language list.
+func splitExtras(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// intExtras parses an extras string as an int (0 when absent/unparseable)
+// — the provider's "edition_count" extra.
+func intExtras(s string) int {
+	if strings.TrimSpace(s) == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // SearchWorkByISBN implements the MT1 isbnLookup surface: it resolves an
@@ -100,20 +140,27 @@ func (o *openLibrarySearcher) GetWorkDetails(ctx context.Context, key string) (d
 }
 
 // mapWorkDetails maps the provider's WorkDetails onto the domain's
-// WorkDetails.
+// WorkDetails (including the MT4 edition fields: the edition's Amazon
+// identifier and series references — the tier-2 filter data).
 func mapWorkDetails(d providers.WorkDetails) dom.WorkDetails {
 	eds := make([]dom.WorkEdition, 0, len(d.Editions))
 	for _, e := range d.Editions {
+		series := make([]dom.SeriesRef, 0, len(e.Series))
+		for _, r := range e.Series {
+			series = append(series, dom.SeriesRef{Title: r.Title, Volume: r.Volume})
+		}
 		eds = append(eds, dom.WorkEdition{
 			Key:         e.Key,
 			Title:       e.Title,
 			ISBN:        e.ISBN,
+			ASIN:        e.ASIN,
 			Formats:     e.Formats,
 			Languages:   e.Languages,
 			Publishers:  e.Publishers,
 			PublishDate: e.PublishDate,
 			Year:        e.Year,
 			Pages:       e.Pages,
+			Series:      series,
 		})
 	}
 	return dom.WorkDetails{
