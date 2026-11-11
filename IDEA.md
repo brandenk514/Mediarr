@@ -1,0 +1,1 @@
+This is an application to manage all your digital media. This repository is combined ARR stack for digital media management. We have combined Sonarr, Radarr, Lidarr, Readarr, and Prowlarr into a monolith since they shared +80% of the same code. 
