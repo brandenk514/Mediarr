@@ -1,0 +1,26 @@
+# Build-context isolation for deploy/Dockerfile.
+#
+# The ui-build stage runs `npm ci` from the committed lockfile and rebuilds
+# the dist from source, so host-side Node toolchain state, local secrets,
+# VCS metadata, and stale build output must never enter the context.
+#
+# This daemon's BuildKit anchors slash-less patterns to the context root
+# only, so every recursive exclusion is written explicitly with the `**/`
+# prefix (which matches the root and any depth). Proven by
+# test/image/context_sentinel_test.go (real build-context sentinel test).
+
+# VCS metadata, at any depth
+**/.git
+**/.git/**
+
+# Local secrets — never in a build context, at any depth
+**/.env
+**/.env.*
+
+# Node toolchain — the image always rebuilds from source; host node state is
+# never part of the build
+**/node_modules
+**/node_modules/**
+
+# Host-side UI build output — the image always rebuilds the dist from source
+ui/dist

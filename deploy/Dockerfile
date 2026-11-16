@@ -1,10 +1,12 @@
 # syntax=docker/dockerfile:1
 #
-# Multi-stage build: full Go toolchain in "build", static binary on distroless
-# in "runtime". The runtime image has NO shell, NO package manager, and no
+# Multi-stage build: full Go toolchain in "build", Node 22 toolchain in
+# "ui-build", and the static binary plus the built UI on distroless in
+# "runtime". The runtime image has NO shell, NO package manager, and no
 # writable filesystem outside explicitly declared volumes.
 
 ARG GO_VERSION=1.27.4
+ARG NODE_VERSION=22
 
 # ---- build -----------------------------------------------------------------
 FROM golang:${GO_VERSION}-bookworm AS build
@@ -36,6 +38,26 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         -X main.buildTime=${BUILD_DATE}" \
       -o /out/mediarr ./cmd/mediarr
 
+# ---- ui-build ----------------------------------------------------------------
+# The UI is built from source inside the image pipeline: `npm ci` installs
+# strictly from the committed ui/package-lock.json (single source of npm
+# dependencies — no hand edits, no drift) and `npm run build` (tsc -b &&
+# vite build) produces the complete dist. Only the finished dist crosses
+# into the runtime stage: node, npm, node_modules, and the rest of the
+# toolchain stay in this stage. node:22-bookworm matches the `ui` CI job's
+# toolchain (Node 22, .github/workflows/ci.yml) and the golang bookworm
+# family.
+FROM node:${NODE_VERSION}-bookworm AS ui-build
+WORKDIR /app
+
+# Lockfile and ui/.npmrc first (its legacy-peer-deps setting npm ci must
+# honor), for layer caching.
+COPY ui/package.json ui/package-lock.json ui/.npmrc ./
+RUN npm ci --no-audit --no-fund
+
+COPY ui/ .
+RUN npm run build
+
 # ---- runtime ---------------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
@@ -49,6 +71,11 @@ COPY --from=build /out/mediarr /mediarr
 # mounted volumes inherit that ownership so the nonroot user can write them.
 COPY --from=build --chown=nonroot:nonroot --chmod=775 /writables/downloads /downloads
 COPY --from=build --chown=nonroot:nonroot --chmod=775 /writables/media /media
+
+# The complete built UI (index.html + hashed assets + public/ files), read-only
+# on the rootfs and owned by the app user so the nonroot runtime can read it.
+# Served from this path by #87; this task only ships the asset placement.
+COPY --from=ui-build --chown=nonroot:nonroot /app/dist /home/nonroot/ui
 
 EXPOSE 8080
 
