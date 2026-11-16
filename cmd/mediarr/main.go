@@ -899,6 +899,15 @@ func run(logSvc *system.LogService) error {
 		wantedSvc.SetNFOWriter(&metawrite.Writer{Enabled: true, Language: "en"})
 	}
 
+	// Same-origin UI (#87): the built Vite UI (asset root cfg.UIDir — the
+	// #88 image contract path /home/nonroot/ui in the image, overridable
+	// via MEDIARR_UI_DIR for local dev) is served by this same server with
+	// SPA fallback. Registered after every API/health/metrics route so the
+	// reserved families (segment-boundary: /api, /healthz, /readyz,
+	// /version, /metrics) never fall through to the SPA; /apiary is a UI
+	// path, not a reserved one.
+	srv.SetUI(&api.UIDeps{Dir: cfg.UIDir})
+
 	logger.Info("server starting", "addr", cfg.HTTPAddr)
 	return srv.Serve(ctx,
 		cfg.HTTPAddr,

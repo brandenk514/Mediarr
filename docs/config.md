@@ -84,6 +84,7 @@ All optional; sensible defaults apply.
 | `MEDIARR_READ_TIMEOUT` | `15` | HTTP read timeout, **seconds**. |
 | `MEDIARR_WRITE_TIMEOUT` | `60` | HTTP write timeout, **seconds**. |
 | `MEDIARR_SHUTDOWN_TIMEOUT` | `10` | Seconds to drain in-flight requests on graceful shutdown. |
+| `MEDIARR_UI_DIR` | `/home/nonroot/ui` | Asset root of the built UI (Vite dist) served same-origin with SPA fallback (#87). In the image this is the #88 contract path; point it at your local dist for development. A missing root 404s UI paths and leaves API/health routes unaffected. |
 
 Numeric values that fail to parse (e.g. `MEDIARR_READ_TIMEOUT=abc`) fall back
 to the default rather than aborting startup — the loader treats these as
@@ -226,6 +227,10 @@ MEDIARR_HTTP_BASE_URL=http://localhost:8080
 # MEDIARR_READ_TIMEOUT=15
 # MEDIARR_WRITE_TIMEOUT=60
 # MEDIARR_SHUTDOWN_TIMEOUT=10
+# Asset root of the built UI, served same-origin with SPA fallback (#87).
+# Defaults to the image's contract path (#88); for local dev point it at
+# your Vite dist — a missing root 404s UI paths, API/health unaffected.
+# MEDIARR_UI_DIR=/home/nonroot/ui
 
 # ---- Postgres -------------------------------------------------------------
 # sslmode=disable is fine for local dev; use require for TLS deployments.
