@@ -426,7 +426,7 @@ func TestUI_SymlinkEscapeBlocked(t *testing.T) {
 	if err := os.Symlink(filepath.Join(base, "secret.txt"), link); err != nil {
 		t.Skipf("symlinks unavailable on this platform: %v", err)
 	}
-	defer os.Remove(link)
+	defer func() { _ = os.Remove(link) }()
 
 	s := newUIServer(t, fx.dir)
 	rec := doUIRequest(t, s, http.MethodGet, "/escape-link.txt")

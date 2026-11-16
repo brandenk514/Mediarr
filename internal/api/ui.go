@@ -136,7 +136,7 @@ func (s *Server) serveUI(dir string) http.HandlerFunc {
 				probe = strings.TrimSuffix(rel, "/")
 			}
 			if f, err := os.OpenInRoot(dir, probe); err == nil {
-				defer f.Close()
+				defer func() { _ = f.Close() }()
 				if st, serr := f.Stat(); serr == nil {
 					if st.Mode().IsRegular() && !strings.HasSuffix(rel, "/") {
 						// ServeContent handles HEAD (headers only),
@@ -169,7 +169,7 @@ func (s *Server) serveUI(dir string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		st, serr := f.Stat()
 		if serr != nil || !st.Mode().IsRegular() {
 			http.NotFound(w, r)
