@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, client } from '../../../api/client'
 import type {
   DownloadClient,
@@ -392,6 +392,14 @@ function LibraryOverridesPane({
   )
 }
 
+// Maps the API's checksum_verify field (absent/null = use the default, bool =
+// explicit) to the select's tristate value: '' = default (null), 'true' =
+// verify, 'false' = skip.
+function checksumVerifyValue(verify: boolean | null | undefined): '' | 'true' | 'false' {
+  if (verify === null || verify === undefined) return ''
+  return verify ? 'true' : 'false'
+}
+
 function LibraryColumn({
   kind,
   override,
@@ -408,20 +416,26 @@ function LibraryColumn({
   const [path, setPath] = useState(override.path)
   const [quality, setQuality] = useState(override.quality_profile)
   // Checksum tristate: '' = default (null), 'true' = verify, 'false' = skip.
-  const [checksum, setChecksum] = useState<'' | 'true' | 'false'>('')
+  // Seeded from the override at mount; a hardcoded '' previously made the sync
+  // effect below load-bearing for the select's initial value.
+  const [checksum, setChecksum] = useState<'' | 'true' | 'false'>(
+    () => checksumVerifyValue(override.checksum_verify),
+  )
   const { busy, error, submit } = useSubmit()
   const [saved, setSaved] = useState(false)
 
+  // The initializers above are already seeded from `override`, so the sync
+  // effect must not re-apply that same override: a mount-time flush that
+  // lands after user input clobbers the entered value (the CI flake in #97).
+  // The ref holds the override the state was seeded with; only a *new*
+  // override (e.g. after a save) resyncs the fields.
+  const seededWith = useRef(override)
   useEffect(() => {
+    if (seededWith.current === override) return
+    seededWith.current = override
     setPath(override.path)
     setQuality(override.quality_profile)
-    setChecksum(
-      override.checksum_verify === null || override.checksum_verify === undefined
-        ? ''
-        : override.checksum_verify
-          ? 'true'
-          : 'false',
-    )
+    setChecksum(checksumVerifyValue(override.checksum_verify))
   }, [override])
 
   const prefix = `lib-${kind}`
