@@ -67,6 +67,13 @@ type Config struct {
 
 	// Providers configures the metadata-provider API keys (#42).
 	Providers Providers
+
+	// UI
+	// UIDir is the asset root of the built UI that the API server serves
+	// same-origin with SPA fallback (#87). In the image it is the #88
+	// contract path; point it at a local dist for development. A missing
+	// root 404s UI paths and leaves API/health routes unaffected.
+	UIDir string
 }
 
 // DownloadQB configures the qBittorrent Web API client (#36).
@@ -125,6 +132,9 @@ func Load(env map[string]string) (*Config, error) {
 		RedisDB:         getInt(env, "MEDIARR_REDIS_DB", 0),
 		MediaRoot:       get("MEDIARR_MEDIA_ROOT", "/media/movies"),
 		DownloadsDir:    get("MEDIARR_DOWNLOADS_DIR", "/downloads"),
+		// UI asset root for same-origin serving (#87); the default is the
+		// image's #88 contract path.
+		UIDir: get("MEDIARR_UI_DIR", "/home/nonroot/ui"),
 	}
 
 	// Postgres DSN (required)

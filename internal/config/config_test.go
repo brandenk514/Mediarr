@@ -272,3 +272,25 @@ func TestLoad_BooksMetadataTTL(t *testing.T) {
 		t.Errorf("BooksMetadataTTL = %v, want 0 (invalid = domain default)", cfg.BooksMetadataTTL)
 	}
 }
+
+// TestLoad_UIDir covers the #87 asset-root knob: the default is the #88
+// image contract path, and an explicit override (local dev) wins.
+func TestLoad_UIDir(t *testing.T) {
+	cfg, err := Load(baseEnv())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.UIDir != "/home/nonroot/ui" {
+		t.Errorf("UIDir = %q, want /home/nonroot/ui (the #88 image contract)", cfg.UIDir)
+	}
+
+	env := baseEnv()
+	env["MEDIARR_UI_DIR"] = "/tmp/local-ui-dist"
+	cfg, err = Load(env)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.UIDir != "/tmp/local-ui-dist" {
+		t.Errorf("UIDir = %q, want /tmp/local-ui-dist (explicit override)", cfg.UIDir)
+	}
+}
