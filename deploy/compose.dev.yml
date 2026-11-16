@@ -4,6 +4,8 @@
 #   docker compose -f deploy/compose.dev.yml up --build
 #
 # Brings up: mediarr (built from source) + Postgres 16 + Redis 7.
+# The mediarr service serves the API and the built UI (SPA) on :8080,
+# so this one stack is the whole app (issue #89).
 # All data lives in named volumes. Stop with: docker compose down
 
 name: mediarr-dev
