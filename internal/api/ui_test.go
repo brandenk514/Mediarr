@@ -513,6 +513,61 @@ func TestUI_TrailingSlashAssetIs404(t *testing.T) {
 	}
 }
 
+// Review lesson 4b: a trailing slash never serves file content and never
+// lists a directory, but it must not 404 a client-routing deep link either.
+// /movies/ and /settings/ (missing, no extension) serve index.html, while
+// /assets/ and /nested/deep/ (existing directories) and
+// /assets/app-abc123.js/ (an existing regular file addressed with a
+// trailing slash) all 404 — the full rule pinned in one test.
+func TestUI_TrailingSlashDeepLinkServesIndex(t *testing.T) {
+	fx := newUIFixture(t)
+	s := newUIServer(t, fx.dir)
+
+	// Client-routing deep links: index.html byte-for-byte.
+	for _, p := range []string{"/movies/", "/settings/"} {
+		rec := doUIRequest(t, s, http.MethodGet, p)
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s status = %d, want 200 (body: %q)", p, rec.Code, rec.Body.String())
+			continue
+		}
+		if rec.Body.String() != uiIndexHTML {
+			t.Errorf("GET %s served %q, want index.html", p, rec.Body.String())
+		}
+	}
+
+	// HEAD /movies/ mirrors GET /movies/: same status and headers, no body.
+	g := doUIRequest(t, s, http.MethodGet, "/movies/")
+	h := doUIRequest(t, s, http.MethodHead, "/movies/")
+	if h.Code != g.Code {
+		t.Errorf("HEAD /movies/ status = %d vs GET status = %d", h.Code, g.Code)
+	}
+	if h.Code != http.StatusOK {
+		t.Errorf("HEAD /movies/ status = %d, want 200", h.Code)
+	}
+	if h.Header().Get("Content-Type") != g.Header().Get("Content-Type") {
+		t.Errorf("HEAD /movies/ Content-Type = %q, want %q (GET's)", h.Header().Get("Content-Type"), g.Header().Get("Content-Type"))
+	}
+	if h.Header().Get("Content-Length") != g.Header().Get("Content-Length") {
+		t.Errorf("HEAD /movies/ Content-Length = %q, want %q (GET's)", h.Header().Get("Content-Length"), g.Header().Get("Content-Length"))
+	}
+	if h.Body.Len() != 0 {
+		t.Errorf("HEAD /movies/ body = %q, want empty", h.Body.String())
+	}
+
+	// Pinned 404s: an existing directory is never listed, a regular file is
+	// not addressable with a trailing slash, and none of these may serve the
+	// SPA body.
+	for _, p := range []string{"/assets/", "/nested/deep/", "/assets/app-abc123.js/"} {
+		rec := doUIRequest(t, s, http.MethodGet, p)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s status = %d, want 404 (no listing, no file with trailing slash)", p, rec.Code)
+		}
+		if rec.Body.String() == uiIndexHTML || strings.Contains(rec.Body.String(), "app-abc123.js") || strings.Contains(rec.Body.String(), "chunk-xyz.js") {
+			t.Errorf("GET %s leaked an SPA/directory body: %q", p, rec.Body.String())
+		}
+	}
+}
+
 // ---- Review lesson 1: the mux owns canonicalisation (// double slash) -----
 // The handler must not hand-roll redirects from request-derived URLs; the
 // // request gets the mux's own canonical redirect to the clean path.

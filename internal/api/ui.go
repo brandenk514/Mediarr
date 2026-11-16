@@ -66,9 +66,12 @@ func hasFileExtension(seg string) bool {
 //     non-file methods);
 //   - existing regular files are served with their MIME type (HEAD mirrors
 //     GET minus the body); directories are 404 — never listed;
-//   - a missing file-like path (extension in the last segment, including
-//     trailing-slash forms like /assets/app.js/) is 404; any other missing
-//     path falls back to index.html so SPA deep links work;
+//   - a trailing slash never serves file content and never lists:
+//     /assets/ (an existing directory) and /assets/app.js/ (an existing
+//     file) are 404, but /movies/ is a client-routing deep link that
+//     falls back to index.html;
+//   - a missing file-like path (extension in the last non-empty segment)
+//     is 404, not the SPA.
 //   - containment: every file open goes through os.OpenInRoot, and the
 //     request path is validated before the open (no backslash, no NUL, no
 //     "."/".." segments) so traversal, encoded traversal (%2e%2e, %252f),
@@ -114,13 +117,6 @@ func (s *Server) serveUI(dir string) http.HandlerFunc {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		if p != "/" && strings.HasSuffix(p, "/") {
-			// A non-root trailing slash names a directory: no index, no
-			// listing — and this is what keeps /assets/app.js/ from
-			// falling through to the SPA via its empty final segment.
-			http.NotFound(w, r)
-			return
-		}
 		for _, seg := range strings.Split(p, "/") {
 			if seg == ".." || seg == "." {
 				http.NotFound(w, r)
@@ -128,23 +124,38 @@ func (s *Server) serveUI(dir string) http.HandlerFunc {
 			}
 		}
 
-		// 4. Serve the file if it exists (directories are 404: no listing).
+		// 4. Serve the file if it exists (directories are 404: no
+		//    listing). A trailing slash names a directory, so the open
+		//    probes the trimmed path: an existing directory is never
+		//    listed, and a regular file is not addressable with a
+		//    trailing slash either — both 404.
 		rel := strings.TrimPrefix(p, "/")
 		if rel != "" {
-			if f, err := os.OpenInRoot(dir, rel); err == nil {
+			probe := rel
+			if strings.HasSuffix(rel, "/") {
+				probe = strings.TrimSuffix(rel, "/")
+			}
+			if f, err := os.OpenInRoot(dir, probe); err == nil {
 				defer f.Close()
-				if st, serr := f.Stat(); serr == nil && st.Mode().IsRegular() {
-					// ServeContent handles HEAD (headers only),
-					// conditional requests, and the Content-Type from the
-					// file extension.
-					http.ServeContent(w, r, st.Name(), st.ModTime(), f)
-					return
+				if st, serr := f.Stat(); serr == nil {
+					if st.Mode().IsRegular() && !strings.HasSuffix(rel, "/") {
+						// ServeContent handles HEAD (headers only),
+						// conditional requests, and the Content-Type
+						// from the file extension.
+						http.ServeContent(w, r, st.Name(), st.ModTime(), f)
+						return
+					}
 				}
+				// A directory (never listed), a stat failure, or a
+				// regular file asked with a trailing slash.
 				http.NotFound(w, r)
 				return
 			}
-			// Missing (or unopenable, e.g. a rejected escape): a file-like
-			// name is a dead asset reference — 404, not the SPA.
+			// Missing (or unopenable, e.g. a rejected escape): a
+			// file-like name is a dead asset reference — 404, not the
+			// SPA. path.Base ignores trailing slashes, so
+			// /assets/app.js/ is file-like ("app.js") while /movies/ is
+			// a client-routing deep link that falls through.
 			if hasFileExtension(path.Base(rel)) {
 				http.NotFound(w, r)
 				return
