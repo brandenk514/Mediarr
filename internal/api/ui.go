@@ -8,7 +8,16 @@ package api
 
 import (
 	"net/http"
+	"os"
+	"path"
+	"strings"
 )
+
+// reservedUIPrefixes are the route families the UI catch-all must never
+// absorb. Membership is checked at path-SEGMENT boundaries: "/apiary" is a
+// UI path, not part of /api, and "/apiv2" is one too — only "/api" itself
+// and "/api/..." are reserved.
+var reservedUIPrefixes = []string{"/api", "/healthz", "/readyz", "/version", "/metrics"}
 
 // UIDeps bundles what same-origin UI serving (#87) needs.
 type UIDeps struct {
@@ -23,13 +32,138 @@ type UIDeps struct {
 // API/health/metrics route is registered: the literal "/" pattern is the
 // mux's lowest-priority match, so only unmatched requests (UI paths, and
 // unknown /api/* paths) reach it.
-//
-// NOTE (TDD red state): this is the minimal hook the failing suite in
-// ui_test.go needs to compile; it answers 404 to every request. The real
-// static-file handler with SPA fallback, containment, and method semantics
-// lands in the next commit.
 func (s *Server) SetUI(deps *UIDeps) {
-	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	})
+	s.mux.HandleFunc("/", s.serveUI(deps.Dir))
+}
+
+// isReservedUIPath reports whether p is at or under one of the reserved
+// route families, at a path-segment boundary.
+func isReservedUIPath(p string) bool {
+	for _, prefix := range reservedUIPrefixes {
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// hasFileExtension reports whether the final path segment carries an
+// extension (a dot not at the segment's first position). That marks the
+// request as an asset reference: a missing asset is a 404, whereas a
+// missing non-file-like path is a client-routing deep link that falls back
+// to index.html.
+func hasFileExtension(seg string) bool {
+	return strings.IndexByte(seg, '.') > 0
+}
+
+// serveUI builds the catch-all handler for asset root dir.
+//
+// Contract (issue #87):
+//   - reserved prefixes (/api/*, /healthz, /readyz, /version, /metrics —
+//     segment-boundary) never fall through: unknown /api paths answer a
+//     non-HTML JSON 404, never index.html;
+//   - GET/HEAD only — anything else is 405 (the SPA is never returned for
+//     non-file methods);
+//   - existing regular files are served with their MIME type (HEAD mirrors
+//     GET minus the body); directories are 404 — never listed;
+//   - a missing file-like path (extension in the last segment, including
+//     trailing-slash forms like /assets/app.js/) is 404; any other missing
+//     path falls back to index.html so SPA deep links work;
+//   - containment: every file open goes through os.OpenInRoot, and the
+//     request path is validated before the open (no backslash, no NUL, no
+//     "."/".." segments) so traversal, encoded traversal (%2e%2e, %252f),
+//     and symlink escapes can never leave dir.
+//
+// Path canonicalisation (// double slashes, /a/../b) is owned by
+// net/http.ServeMux — it issues the canonical redirect; this handler never
+// redirects. (Encoded dot-dot, %2e%2e, is NOT canonicalised by the mux and
+// reaches the handler as literal ".." segments: the segment check above is
+// what keeps those from being opened.)
+func (s *Server) serveUI(dir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if dir == "" {
+			// An empty root would make OpenInRoot a plain CWD-relative
+			// open; refuse the whole UI surface instead.
+			http.NotFound(w, r)
+			return
+		}
+		p := r.URL.Path // decoded; the query is already split by net/url
+
+		// 1. Reserved families: unknown API/health/metrics paths are API
+		//    errors, never the SPA.
+		if isReservedUIPath(p) {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+
+		// 2. Method semantics: the SPA fallback (and file serving) is
+		//    GET/HEAD only.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// 3. Reject shapes the mux's canonicalisation does not cover. A
+		//    backslash is not a legal path character (RFC 9110 pchar):
+		//    browsers normalise it to "/", raw clients don't, and /api\...
+		//    would otherwise slip past the segment-boundary check above.
+		//    NUL is never a filename. Encoded dot-dot (%2e%2e) decodes to
+		//    literal ".." segments that must 404, not be opened.
+		if strings.ContainsAny(p, "\\\x00") {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if p != "/" && strings.HasSuffix(p, "/") {
+			// A non-root trailing slash names a directory: no index, no
+			// listing — and this is what keeps /assets/app.js/ from
+			// falling through to the SPA via its empty final segment.
+			http.NotFound(w, r)
+			return
+		}
+		for _, seg := range strings.Split(p, "/") {
+			if seg == ".." || seg == "." {
+				http.NotFound(w, r)
+				return
+			}
+		}
+
+		// 4. Serve the file if it exists (directories are 404: no listing).
+		rel := strings.TrimPrefix(p, "/")
+		if rel != "" {
+			if f, err := os.OpenInRoot(dir, rel); err == nil {
+				defer f.Close()
+				if st, serr := f.Stat(); serr == nil && st.Mode().IsRegular() {
+					// ServeContent handles HEAD (headers only),
+					// conditional requests, and the Content-Type from the
+					// file extension.
+					http.ServeContent(w, r, st.Name(), st.ModTime(), f)
+					return
+				}
+				http.NotFound(w, r)
+				return
+			}
+			// Missing (or unopenable, e.g. a rejected escape): a file-like
+			// name is a dead asset reference — 404, not the SPA.
+			if hasFileExtension(path.Base(rel)) {
+				http.NotFound(w, r)
+				return
+			}
+		}
+
+		// 5. SPA fallback: the entry point, or 404 when the asset root (and
+		//    its index.html) is missing — the dev-without-a-build case.
+		f, err := os.OpenInRoot(dir, "index.html")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		st, serr := f.Stat()
+		if serr != nil || !st.Mode().IsRegular() {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeContent(w, r, "index.html", st.ModTime(), f)
+	}
 }
