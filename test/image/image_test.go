@@ -188,7 +188,7 @@ func parseTarInMemory(data []byte) (map[string][]byte, error) {
 		if name == "" || clean == "." {
 			continue
 		}
-		if hdr.Typeflag == tar.TypeReg || hdr.Typeflag == tar.TypeRegA {
+		if hdr.Typeflag == tar.TypeReg {
 			content, err := io.ReadAll(tr)
 			if err != nil {
 				return nil, fmt.Errorf("read tar file %q: %w", clean, err)
