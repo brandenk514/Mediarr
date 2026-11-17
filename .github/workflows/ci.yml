@@ -500,6 +500,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # Same tag derivation as the `docker` job: the runner has git, the
+      # build context does not (.dockerignore strips .git), and a shell-style
+      # `$(…)` in a build-arg is never evaluated by the Actions runner — it
+      # reaches the image build where it can corrupt the go build (the first
+      # scratch run of #90 died in `go tool link` over this). Compute the
+      # tag here, on the runner, and pass the already-evaluated value.
+      - name: Compute version
+        id: ver
+        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       # The PR-local image: single-arch, loaded into the daemon, NOT pushed.
       # Same build-args and gha cache namespace as the `docker` job, so the
       # expensive layers (go mod, npm ci) are shared.
@@ -509,7 +519,7 @@ jobs:
           context: .
           file: deploy/Dockerfile
           build-args: |
-            VERSION=sha-$(git rev-parse --short HEAD)
+            VERSION=${{ steps.ver.outputs.tag }}
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
           tags: mediarr:ci
