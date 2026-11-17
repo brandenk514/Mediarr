@@ -16,7 +16,7 @@
 #   gofmt / go vet / golangci-lint / unit tests + 60% coverage floor
 #                                       ... "lint-and-test" job
 #   govulncheck ............................ "lint-and-test" job (if installed)
-#   npm ci / npm audit / oxlint / tsc build / vitest ... "ui" job
+#   npm ci / audit gate (scripts/audit-gate.mjs) / oxlint / tsc build / vitest ... "ui" job
 #   semgrep p/golang + p/typescript ......... "semgrep" job (if installed)
 #   integration + e2e (testcontainers) ...... "lint-and-test" job (--full)
 #   load test ................................ "load" job (--load)
@@ -133,7 +133,7 @@ gate_ui() {
   # lockfile). These flags force the full tree regardless of the environment.
   ( cd ui \
     && npm ci --no-audit --no-fund --include=dev --include=optional \
-    && npm audit --audit-level=high \
+    && node scripts/audit-gate.mjs \
     && npm run lint \
     && npm run build \
     && npm run test )
