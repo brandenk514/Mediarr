@@ -7,7 +7,11 @@
     <title>mediarr</title>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <!-- RED-PROOF SCRATCH (issue #90, WO#15b): the root element and the
+         module script are intentionally removed so the ui-e2e job's
+         browser-surface probe (GET / expects id="root") fails, proving the
+         job goes red on a broken served SPA. This branch is throwaway and
+         must never be merged. -->
+    <div>BROKEN-SPA-RED-PROOF</div>
   </body>
 </html>
