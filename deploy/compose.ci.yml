@@ -1,0 +1,104 @@
+# Mediarr CI browser stack (issue #90).
+#
+# A throwaway, isolated copy of the app stack for the pull_request `ui-e2e`
+# job: it serves the PR-local image (built in the job, tagged `mediarr:ci`)
+# plus Postgres + Redis so Playwright can drive the real login form against
+# a fresh database.
+#
+# Isolation guarantees (the point of this file, distinct from
+# compose.dev.yml):
+#   - `name: mediarr-ci` — a distinct compose project, so its containers,
+#     networks, and volumes never collide with the local `mediarr-dev`
+#     project or its named volumes.
+#   - The app image is referenced by a local-only tag (`mediarr:ci`); this
+#     stack never pulls a registry image for the app. The job builds it.
+#   - Volumes are project-scoped (mediarr-ci_*). The job tears the project
+#     down with `down -v` (shell trap + an `if: always()` step), so a failed
+#     run leaves no containers, ports, or volumes behind.
+#
+# Usage (normally driven by .github/workflows/ci.yml):
+#   docker compose -f deploy/compose.ci.yml up -d
+#   docker compose -f deploy/compose.ci.yml down -v
+
+name: mediarr-ci
+
+services:
+  mediarr:
+    # Local-only tag: the ui-e2e job builds this image first (single-arch,
+    # loaded into the daemon) and compose runs it. No build: here on purpose
+    # — CI never rebuilds inside compose and never pulls from a registry.
+    image: mediarr:ci
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      MEDIARR_HTTP_ADDR: ":8080"
+      MEDIARR_HTTP_BASE_URL: "http://localhost:8080"
+      MEDIARR_POSTGRES_DSN: "postgres://mediarr:mediarr@postgres:5432/mediarr?sslmode=disable"
+      MEDIARR_REDIS_URL: "redis://redis:6379"
+      # Disposable CI key: first-boot auth + secret-at-rest only, inside an
+      # ephemeral stack that is destroyed with its volumes. Same pattern as
+      # the documented dev default in compose.dev.yml — not a shared secret.
+      MEDIARR_ENCRYPTION_KEY: ${MEDIARR_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      MEDIARR_AUTH_PINNING: "true"
+      MEDIARR_DOWNLOADS_DIR: "/downloads"
+      MEDIARR_MEDIA_ROOT: "/media/movies"
+    ports:
+      - "8080:8080"
+    # Same security posture as the real deployment (and as compose.dev.yml),
+    # so the browser job exercises the containerized UI under its actual
+    # constraints: read-only rootfs, the built UI mounted from the image,
+    # only the declared scratch dirs writable.
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - downloads:/downloads
+      - media:/media
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # CI wants a failure to be visible, not silently restarted.
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "/mediarr", "healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mediarr
+      POSTGRES_PASSWORD: mediarr
+      POSTGRES_DB: mediarr
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediarr -d mediarr"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# Project-scoped (mediarr-ci_*) and removed by the job's `down -v`; they are
+# never the long-lived mediarr-dev volumes.
+volumes:
+  pgdata:
+  redisdata:
+  downloads:
+  media:
