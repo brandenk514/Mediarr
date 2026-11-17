@@ -87,6 +87,25 @@ export E2E_PASSWORD="<password, at least 10 chars>"
      postgres:16-alpine
    docker run -d --name mediarr-verify-redis --network mediarr-verify \
      redis:7-alpine
+   ```
+
+   (The `mediarr`/`mediarr` Postgres pair is the documented dev default in
+   `deploy/compose.dev.yml` — it is not a secret; the throwaway stack is
+   destroyed in step 6.)
+
+   The minimal run has no compose-style health gate, so wait for Postgres
+   before starting the app (its migration pass is fatal on a refused
+   connection — otherwise the app can exit before Postgres finishes
+   initializing):
+
+   ```sh
+   until docker run --rm --network mediarr-verify postgres:16-alpine \
+     pg_isready -h mediarr-verify-pg -U mediarr; do sleep 1; done
+   ```
+
+   Then start the app container:
+
+   ```sh
    docker run -d --name mediarr-verify --network mediarr-verify \
      -p 8080:8080 \
      --read-only --tmpfs /tmp:rw,noexec,nosuid \
@@ -98,10 +117,6 @@ export E2E_PASSWORD="<password, at least 10 chars>"
      -e MEDIARR_DOWNLOADS_DIR=/downloads -e MEDIARR_MEDIA_ROOT=/media/movies \
      ghcr.io/brandenk514/mediarr:vX.Y.Z
    ```
-
-   (The `mediarr`/`mediarr` Postgres pair is the documented dev default in
-   `deploy/compose.dev.yml` — it is not a secret; the throwaway stack is
-   destroyed in step 6.)
 
 3. **Wait for readiness**:
 
