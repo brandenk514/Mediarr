@@ -1,13 +1,29 @@
 # mediarr UI
 
-React + TypeScript SPA for mediarr (M6). See `docs/PLAN.md` §12 — the UI is a
-separate build; the Go service is the source of truth for all data.
+React + TypeScript SPA for mediarr (M6). See `docs/PLAN.md` §12 — the UI is
+a separate build; the Go service is the source of truth for all data.
 
 ## Stack
 
 - Vite + React 19 + TypeScript (strict)
 - `react-router-dom` for routing
 - `vitest` + `@testing-library/react` for tests
+- Playwright (`ui/e2e/`) for browser E2E against a running stack
+
+## Container mode vs dev mode
+
+- **Container mode (what ships).** The UI is *built inside the image* by the
+  `ui-build` stage of `deploy/Dockerfile` (Node 22: `npm ci` from the
+  committed lockfile, then `npm run build`) and the finished `dist` lands at
+  `/home/nonroot/ui`. The Go server serves it same-origin on `:8080` with
+  SPA fallback (#87; see `docs/architecture.md` §11). Running the app needs
+  **no Node at all** — `npm ci`/`npm run build` only ever run in the build
+  stage or in CI. `MEDIARR_UI_DIR` points the server at the asset root
+  (default `/home/nonroot/ui`; a missing/empty root 404s UI paths only —
+  API and health routes are unaffected).
+- **Dev mode (source work).** The Vite dev server runs the UI from source on
+  `:5173` and proxies `/api` to the backend. This is for UI development
+  only — the container path above does not use it.
 
 ## Layout
 
@@ -28,7 +44,7 @@ module-level variable (`src/api/store.ts`) for the page session only —
 never written to `localStorage`/`sessionStorage`/cookies. A refresh drops the
 token and the user signs in again; that is a deliberate v1 trade-off.
 
-## Development
+## Development (dev mode)
 
 ```sh
 npm install          # add --include=dev if NODE_ENV=production is set

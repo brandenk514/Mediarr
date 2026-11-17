@@ -50,6 +50,127 @@ the log instead of the key.
 
 The SBOM for a run is the `mediarr-sbom` artifact of that Actions run.
 
+### Browser verification (UI)
+
+Since v0.3.0 the image ships the built UI, served same-origin on `:8080`
+(#86 decision A, shipped in #87/#88). Release acceptance includes a
+real-browser pass against the published image: **sign in → dashboard → one
+per-kind page** (`/movies`, `/tv`, `/music`, `/books`).
+
+Prerequisites: Docker (compose not required — this is the documented minimal
+run), a browser, and `cosign` (for the verify step above). Credentials use
+overridable placeholders in the `E2E_USER`/`E2E_PASSWORD` pattern
+(`ui/e2e/login.ts`) — pick your own username (3–32 chars of
+`[A-Za-z0-9_-]`) and password (≥ 10 chars); never paste the minted token
+anywhere:
+
+```sh
+export E2E_USER="<username>"
+export E2E_PASSWORD="<password, at least 10 chars>"
+```
+
+1. **Pull and verify the image** (the cosign step above):
+
+   ```sh
+   docker pull ghcr.io/brandenk514/mediarr:vX.Y.Z
+   cosign verify --key docs/cosign.pub ghcr.io/brandenk514/mediarr:vX.Y.Z
+   ```
+
+2. **Run the minimal stack** — throwaway Postgres + Redis + the published
+   image on one network, with the same constraints as the compose deployment
+   (read-only rootfs, `/tmp` tmpfs, the two declared media volumes):
+
+   ```sh
+   docker network create mediarr-verify
+   docker run -d --name mediarr-verify-pg --network mediarr-verify \
+     -e POSTGRES_USER=mediarr -e POSTGRES_PASSWORD=*** -e POSTGRES_DB=mediarr \
+     postgres:16-alpine
+   docker run -d --name mediarr-verify-redis --network mediarr-verify \
+     redis:7-alpine
+   docker run -d --name mediarr-verify --network mediarr-verify \
+     -p 8080:8080 \
+     --read-only --tmpfs /tmp:rw,noexec,nosuid \
+     -v mediarr-verify-downloads:/downloads \
+     -v mediarr-verify-media:/media \
+     -e MEDIARR_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+     -e 'MEDIARR_POSTGRES_DSN=postgres://mediarr:***@mediarr-verify-pg:5432/mediarr?sslmode=disable' \
+     -e MEDIARR_REDIS_URL=redis://mediarr-verify-redis:6379 \
+     -e MEDIARR_DOWNLOADS_DIR=/downloads -e MEDIARR_MEDIA_ROOT=/media/movies \
+     ghcr.io/brandenk514/mediarr:vX.Y.Z
+   ```
+
+   (The `mediarr`/`mediarr` Postgres pair is the documented dev default in
+   `deploy/compose.dev.yml` — it is not a secret; the throwaway stack is
+   destroyed in step 6.)
+
+3. **Wait for readiness**:
+
+   ```sh
+   for i in $(seq 1 60); do
+     curl -fsS http://localhost:8080/readyz && break
+     sleep 2
+   done
+   ```
+
+   Expected: a readiness JSON report containing `"status": "ok"` (Postgres +
+   Redis ping OK).
+
+4. **Seed the first-boot admin** (the README first-boot pattern; on an empty
+   `users` table this first `POST /api/v1/auth/login` mints the admin):
+
+   ```sh
+   curl -fsS -X POST http://localhost:8080/api/v1/auth/login \
+     -H 'Content-Type: application/json' \
+     -d "{\"username\":\"${E2E_USER}\",\"password\":\"${E2E_PASSWORD}\"}"
+   ```
+
+   Expected: `200` with a JSON body containing `token` (an opaque
+   `ma_`-prefixed secret — shown once, never stored or pasted), `user`,
+   `role`, and `token_prefix`.
+
+5. **The browser pass** — open **http://localhost:8080** in a real browser:
+
+   - `GET /` renders the login page (the SPA is served same-origin — 200,
+     not a 404);
+   - sign in with `E2E_USER` / `E2E_PASSWORD` → the **dashboard** renders
+     (live counts and queue cards, not an error card);
+   - visit one page per kind — `/movies`, `/tv`, `/music`, `/books` — each
+     renders its real header without unhandled JavaScript errors.
+
+   Automated equivalent (headless Chromium, the same checks — the spec the
+   `ui-e2e` CI job runs against the PR-local image):
+
+   ```sh
+   cd ui
+   npm ci
+   npx playwright install chromium   # once per machine
+   E2E_BASE_URL=http://localhost:8080 E2E_USER="$E2E_USER" E2E_PASSWORD="$E2E_PASSWORD" \
+     npx playwright test e2e/container-ui.spec.ts
+   ```
+
+   Expected: `5 passed` (sign-in + dashboard, one per-kind page).
+
+   Machine-checkable surface probes (the script the CI `smoke` job runs):
+
+   ```sh
+   BASE_URL=http://localhost:8080 scripts/ui-smoke.sh
+   ```
+
+   Expected: `ok:` lines for `GET /`, `GET /movies`, the hashed asset(s),
+   `GET /api/v1/auth/me → 401`, and `GET /api/v1/events → 401`, ending in
+   `=== ui-smoke: all probes passed ===`.
+
+6. **Teardown** (zero residue):
+
+   ```sh
+   docker rm -f mediarr-verify mediarr-verify-pg mediarr-verify-redis
+   docker volume rm mediarr-verify-downloads mediarr-verify-media
+   docker network remove mediarr-verify
+   ```
+
+The existing kind/Helm steps below and the cosign verification are unchanged
+and still part of acceptance.
+
 ## Dry run
 
 The workflow has a `workflow_dispatch` trigger with a `dry_run` boolean
