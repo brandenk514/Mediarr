@@ -83,7 +83,7 @@ export E2E_PASSWORD="<password, at least 10 chars>"
    ```sh
    docker network create mediarr-verify
    docker run -d --name mediarr-verify-pg --network mediarr-verify \
-     -e POSTGRES_USER=mediarr -e POSTGRES_PASSWORD=*** -e POSTGRES_DB=mediarr \
+     -e POSTGRES_USER=mediarr -e POSTGRES_PASSWORD=mediarr -e POSTGRES_DB=mediarr \
      postgres:16-alpine
    docker run -d --name mediarr-verify-redis --network mediarr-verify \
      redis:7-alpine
@@ -112,7 +112,7 @@ export E2E_PASSWORD="<password, at least 10 chars>"
      -v mediarr-verify-downloads:/downloads \
      -v mediarr-verify-media:/media \
      -e MEDIARR_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
-     -e 'MEDIARR_POSTGRES_DSN=postgres://mediarr:***@mediarr-verify-pg:5432/mediarr?sslmode=disable' \
+     -e 'MEDIARR_POSTGRES_DSN=postgres://mediarr:mediarr@mediarr-verify-pg:5432/mediarr?sslmode=disable' \
      -e MEDIARR_REDIS_URL=redis://mediarr-verify-redis:6379 \
      -e MEDIARR_DOWNLOADS_DIR=/downloads -e MEDIARR_MEDIA_ROOT=/media/movies \
      ghcr.io/brandenk514/mediarr:vX.Y.Z
