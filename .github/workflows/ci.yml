@@ -461,7 +461,147 @@ jobs:
           echo "=== /version ==="
           curl -fsS http://localhost:8080/version
           echo
+          # UI-surface probes (issue #90): the served SPA, a deep link, a
+          # hashed asset, and the reserved API routes. Same script the
+          # pull_request ui-e2e job runs, so push and PR assert one surface.
+          # (Push-only: on a PR this job is skipped, which is expected — the
+          # ui-e2e job carries these probes for the PR build.)
+          BASE_URL=http://localhost:8080 scripts/ui-smoke.sh
           docker compose -f deploy/compose.dev.yml down --remove-orphans
+
+  # ------------------------------------------------------------- e2e (PR)
+  # Browser-grade verification of the containerized UI (issue #90). Runs on
+  # pull_request ONLY: it builds the PR-local image locally (on pull_request
+  # the sha-<short> ghcr tag is never published, so this job must not pull any
+  # registry image for the app), serves it on an ISOLATED ephemeral compose
+  # stack (deploy/compose.ci.yml, project `mediarr-ci` — distinct from the
+  # local mediarr-dev project and its volumes), seeds the first-boot admin,
+  # and runs the Playwright subset that signs in through the REAL login form
+  # and navigates the dashboard + per-kind pages. The push-only `smoke` job
+  # above keeps its trigger; tag and workflow_dispatch(dry_run) behavior is
+  # unchanged (this job never runs on them).
+  ui-e2e:
+    name: UI E2E — Playwright on the PR-local compose stack
+    # Gate on the UI + Go pipelines: a PR that is already red there should
+    # not spend 25 minutes on a browser stack. Mirrors the `docker` job's
+    # needs. This job builds its own image, so it does NOT need `docker`.
+    needs: [lint-and-test, ui]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU (buildx)
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Same tag derivation as the `docker` job: the runner has git, the
+      # build context does not (.dockerignore strips .git), and a shell-style
+      # `$(…)` in a build-arg is never evaluated by the Actions runner — it
+      # reaches the image build where it can corrupt the go build (the first
+      # scratch run of #90 died in `go tool link` over this). Compute the
+      # tag here, on the runner, and pass the already-evaluated value.
+      - name: Compute version
+        id: ver
+        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The PR-local image: single-arch, loaded into the daemon, NOT pushed.
+      # Same build-args and gha cache namespace as the `docker` job, so the
+      # expensive layers (go mod, npm ci) are shared.
+      - name: Build PR-local image (single-arch, no publish)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/Dockerfile
+          build-args: |
+            VERSION=${{ steps.ver.outputs.tag }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          tags: mediarr:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Node 22 + Chromium (same toolchain the `ui` job uses; standard
+      # Playwright browser install — no new npm dependency).
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI deps + Chromium
+        working-directory: ui
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # Disposable first-boot admin for the ephemeral stack. Plain env
+      # defaults (NOT a secret): the user exists only inside this throwaway
+      # stack and is destroyed with its volumes on teardown (see
+      # deploy/compose.ci.yml and the PR body). E2E_USER/E2E_PASSWORD stay
+      # env-overridable, as consumed by ui/e2e/login.ts.
+      - name: Run browser E2E against the isolated compose stack
+        env:
+          E2E_BASE_URL: http://localhost:8080
+          BASE_URL: http://localhost:8080
+          E2E_USER: admin
+          E2E_PASSWORD: mediarr-dev123
+        run: |
+          set -euo pipefail
+          # Guaranteed cleanup on ANY exit (success or failure): the trap
+          # tears down the project and its volumes. A second `if: always()`
+          # step below is the safety net for step timeout/cancel.
+          teardown() { docker compose -f deploy/compose.ci.yml down -v --remove-orphans || true; }
+          trap teardown EXIT
+
+          docker compose -f deploy/compose.ci.yml up -d
+
+          # Wait for readiness (ready once postgres + redis are healthy and
+          # the app has booted).
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:8080/readyz >/dev/null 2>&1; then break; fi
+            if [ "$i" -eq 90 ]; then
+              docker compose -f deploy/compose.ci.yml logs || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+          # Seed the first-boot admin (README first-boot pattern): the first
+          # POST /api/v1/auth/login on an empty users table mints the admin.
+          curl -fsS -X POST http://localhost:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"${E2E_USER}\",\"password\":\"${E2E_PASSWORD}\"}"
+          echo
+
+          # UI-surface probes (the same script the push `smoke` job runs):
+          # SPA root, deep link, hashed asset, reserved API routes.
+          scripts/ui-smoke.sh
+
+          # The focused browser subset: real login form -> dashboard renders
+          # -> each per-kind page loads without unhandled errors. (The full
+          # 20-spec suite remains the local/manual bar; this keeps PR
+          # feedback fast per the issue's scope.)
+          (cd ui && npx playwright test e2e/container-ui.spec.ts)
+
+      # Safety-net teardown: `if: always()` so a step timeout/cancel still
+      # leaves zero containers/ports/volumes. Idempotent (the trap above may
+      # have already run it) and prints what (should be nothing) is left.
+      - name: "Teardown (always): remove stack + volumes"
+        if: always()
+        run: |
+          set -uo pipefail
+          docker compose -f deploy/compose.ci.yml down -v --remove-orphans || true
+          echo "=== leftover containers (expect none) ==="
+          docker ps -a --filter "label=com.docker.compose.project=mediarr-ci" --format '{{.Names}}' || true
+          echo "=== leftover volumes (expect none) ==="
+          docker volume ls --filter "name=mediarr-ci_" --format '{{.Name}}' || true
 
   # ------------------------------------------------------------- release
   release-notes:
