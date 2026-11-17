@@ -75,11 +75,12 @@ jobs:
           fi
 
       # Fail the build on high/critical advisories in the npm tree. An
-      # advisory that genuinely doesn't apply can be allowlisted here with
-      # a comment explaining why.
+      # advisory that genuinely doesn't apply can be allowlisted in
+      # ui/scripts/audit-gate.mjs (ALLOWLIST) with a comment explaining why
+      # and when the entry must be removed.
       - name: Dependency audit
         working-directory: ui
-        run: npm audit --audit-level=high
+        run: node scripts/audit-gate.mjs
 
       - name: Type-check + build
         working-directory: ui
