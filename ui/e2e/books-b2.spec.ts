@@ -242,12 +242,24 @@ test('add a book through a book hit; the title lands monitored under its author'
     await expect(page.getByTestId('add-book-modal')).toBeVisible()
     await expect(page.getByTestId('add-book-byline')).toContainText(PROBE_AUTHOR)
 
-    // MT2: a plain-text work has no work key to fetch editions with, so the
-    // modal offers the manual edition fallback with its note (the automatic
-    // editions fetch is never attempted for a non-key query).
+    // MT2: every kind=book hit carries the work key, so the modal fetches
+    // the work's editions with it — provider-fed rows when the source
+    // serves them, or the manual edition fallback with its note when the
+    // work/editions are unavailable in this environment (a throwaway
+    // stack's Open Library lookup 404s the work document). Either way the
+    // add flow never dead-ends; the keyed id-lookup test below asserts the
+    // editions list in depth.
     await expect(page.getByTestId('add-book-editions-section')).toBeVisible()
-    await expect(page.getByTestId('add-book-edition-manual')).toBeVisible()
-    await expect(page.getByTestId('add-book-editions-note')).toContainText('work-key lookups')
+    await expect(
+      page.getByTestId('add-book-editions').or(page.getByTestId('add-book-edition-manual')),
+    ).toBeVisible({ timeout: 30_000 })
+    if (!(await page.getByTestId('add-book-editions').count())) {
+      // Manual fallback note: both current variants (no work key /
+      // editions unavailable) share this tail.
+      await expect(page.getByTestId('add-book-editions-note')).toContainText(
+        'enter one manually below',
+      )
+    }
 
     const [titleResponse] = await Promise.all([
       page.waitForResponse(

@@ -125,33 +125,114 @@ test('the add-book modal carries a live metadata-profile select (B3)', async ({
 // The Edit Author modal's metadata-profile select (a disabled stub pre-B3)
 // is now live and pre-filled with the author's current profile. Non-mutating:
 // it opens the first author in the library and cancels.
+//
+// Deterministic on any stack (fresh or long-lived): the modal's picker is
+// populated lazily from the profiles settings document (book_metadata_profiles)
+// — a fresh stack seeds only the single 'Default' profile, so the test seeds
+// a second profile via the API (unique name) before opening the modal and
+// removes it best-effort afterwards. The assertion then expects both
+// profiles, and waits for the lazy population to settle before reading the
+// option set (reading it immediately would race the fetch).
+interface BookMetadataProfile {
+  id: number
+  name: string
+  description?: string
+  [key: string]: unknown
+}
+interface ProfilesDoc {
+  book_metadata_profiles?: BookMetadataProfile[]
+  [key: string]: unknown
+}
+
+async function profilesDoc(request: APIRequestContext, token: string): Promise<ProfilesDoc> {
+  const resp = await request.get('/api/v1/settings/profiles', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  expect(resp.status()).toBe(200)
+  return (await resp.json()) as ProfilesDoc
+}
+
 test('the edit-author modal carries a live metadata-profile select (B3)', async ({
   page,
+  request,
 }) => {
-  await page.goto('/books')
-  await signIn(page)
-  await expect(page).toHaveURL(/\/books$/)
+  const token = await apiToken(request)
+  const seededName = `e2e-b3-profile-${Date.now()}`
+  let seededAdded = false
+  try {
+    // Seed a second book metadata profile (a copy of the first, renamed)
+    // so the "more than just Default" expectation is deterministic on a
+    // fresh stack.
+    const doc = await profilesDoc(request, token)
+    const profiles = doc.book_metadata_profiles ?? []
+    if (!profiles.some((p) => p.name === seededName)) {
+      const base = profiles[0] ?? {}
+      const nextId = profiles.reduce((max, p) => Math.max(max, p.id), 0) + 1
+      doc.book_metadata_profiles = [
+        ...profiles,
+        { ...base, id: nextId, name: seededName, description: `Seeded by the e2e-b3 spec` },
+      ]
+      const put = await request.put('/api/v1/settings/profiles', {
+        data: doc,
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      expect(put.status()).toBeLessThan(300)
+      seededAdded = true
+    }
 
-  const grid = page.getByTestId('books-authors-grid')
-  await expect(grid).toBeVisible()
-  const cards = grid.locator('.poster-cell')
-  if (!(await cards.count())) {
-    test.skip(true, 'no authors in the library to open')
-    return
+    await page.goto('/books')
+    await signIn(page)
+    await expect(page).toHaveURL(/\/books$/)
+
+    const grid = page.getByTestId('books-authors-grid')
+    await expect(grid).toBeVisible()
+    const cards = grid.locator('.poster-cell')
+    if (!(await cards.count())) {
+      test.skip(true, 'no authors in the library to open')
+      return
+    }
+    await cards.first().click()
+    await expect(page).toHaveURL(/\/books\/\d+$/)
+    await expect(page.getByTestId('author-detail')).toBeVisible()
+
+    await page.getByTestId('author-detail-edit').click()
+    await expect(page.getByTestId('edit-modal')).toBeVisible()
+    await expect(page.getByTestId('edit-metadata-profile')).toBeEnabled()
+    // The picker populates lazily after the modal opens: wait for the
+    // seeded profile's option to appear before reading the option set.
+    // (expect.poll, not toBeVisible — options of a closed native select
+    // are never "visible" to Playwright's visibility check.)
+    const select = page
+      .getByTestId('edit-modal')
+      .getByTestId('edit-metadata-profile')
+    await expect
+      .poll(
+        async () => (await select.locator('option').allTextContents()),
+        { timeout: 10_000 },
+      )
+      .toContain(seededName)
+    const options = await select.locator('option').allTextContents()
+    // Both the seeded profiles and the spec's probe profile render — more
+    // than just the empty choice.
+    expect(options.length).toBeGreaterThan(1)
+    expect(options).toContain('Default')
+    expect(options).toContain(seededName)
+  } finally {
+    if (seededAdded) {
+      // Best-effort cleanup: drop the seeded profile again. A cleanup
+      // failure must not fail the test (the run already proved the point).
+      try {
+        const doc = await profilesDoc(request, token)
+        doc.book_metadata_profiles = (doc.book_metadata_profiles ?? []).filter(
+          (p) => p.name !== seededName,
+        )
+        await request.put('/api/v1/settings/profiles', {
+          data: doc,
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      } catch {
+        // best-effort
+      }
+    }
   }
-  await cards.first().click()
-  await expect(page).toHaveURL(/\/books\/\d+$/)
-  await expect(page.getByTestId('author-detail')).toBeVisible()
-
-  await page.getByTestId('author-detail-edit').click()
-  await expect(page.getByTestId('edit-modal')).toBeVisible()
-  await expect(page.getByTestId('edit-metadata-profile')).toBeEnabled()
-  // At least the seeded profiles (or the author's current value) render —
-  // more than just the empty choice.
-  const options = await page
-    .getByTestId('edit-modal')
-    .getByTestId('edit-metadata-profile')
-    .locator('option')
-    .allTextContents()
-  expect(options.length).toBeGreaterThan(1)
 })

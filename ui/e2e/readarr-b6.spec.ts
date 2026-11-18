@@ -2,23 +2,26 @@ import { execSync } from 'node:child_process'
 import { expect, test } from '@playwright/test'
 import { signIn } from './login'
 
-// B6 Readarr drop-in e2e, run against the dev stack (Vite :5173 → backend
-// :8081 → Postgres). The fake Readarr v0.4 server runs as the `fake-readarr`
-// container on the dev docker network — the migration dry-run fetch happens
-// INSIDE the backend container, so the fake must be reachable there by its
-// container name (not from the browser). The fake serves authors + books +
-// editions + a Calibre root folder with the v0.4 shapes (X-Api-Key auth).
+// B6 Readarr drop-in e2e. The fake Readarr v0.4 server runs as the
+// `fake-readarr` container on the stack's docker network — the migration
+// dry-run fetch happens INSIDE the backend container, so the fake must be
+// reachable there by its container name (not from the browser). The fake
+// serves authors + books + editions + a Calibre root folder with the v0.4
+// shapes (X-Api-Key auth).
 //
-// This spec drives a DRY RUN through the real UI and asserts the mapping
-// report (counts + item rows) plus the status transition to completed — and
-// that the dry run wrote nothing to Postgres (read-only contract).
+// Runs against any compose project: point E2E_BASE_URL at the stack and
+// E2E_PG_CONTAINER at its Postgres container (default: the long-lived
+// mediarr-dev project, e.g. set E2E_PG_CONTAINER=mediarr-ci-postgres-1 for
+// the throwaway deploy/compose.ci.yml stack).
 const FAKE_READARR_URL = 'http://fake-readarr:8888'
+// The Postgres container name (see the header note). The postgres password
+// is derived from the container's own environment at runtime (never inlined).
+const PG_CONTAINER = process.env.E2E_PG_CONTAINER ?? 'mediarr-dev-postgres-1'
 
 // pgCounts snapshots the row counts of every table a readarr migration
-// could touch. The postgres password is derived from the container's own
-// environment at runtime (never inlined).
+// could touch.
 function pgCounts(): Record<string, number> {
-  const pw = execSync(`docker exec mediarr-dev-postgres-1 sh -c 'echo $POSTGRES_PASSWORD'`, {
+  const pw = execSync(`docker exec ${PG_CONTAINER} sh -c 'echo $POSTGRES_PASSWORD'`, {
     encoding: 'utf8',
   }).trim()
   const tables = [
@@ -34,7 +37,7 @@ function pgCounts(): Record<string, number> {
   for (const t of tables) {
     out[t] = Number(
       execSync(
-        `docker exec -e PGPASSWORD=${pw} mediarr-dev-postgres-1 psql -U mediarr -d mediarr -tAc "SELECT count(*) FROM ${t}"`,
+        `docker exec -e PGPASSWORD=${pw} ${PG_CONTAINER} psql -U mediarr -d mediarr -tAc "SELECT count(*) FROM ${t}"`,
         { encoding: 'utf8' },
       ).trim(),
     )

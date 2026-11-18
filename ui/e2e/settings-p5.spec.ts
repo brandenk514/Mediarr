@@ -165,7 +165,12 @@ test('lidarr L3 music settings surfaces render (track naming, music quality, mus
   await page.getByTestId('settings-nav-profiles').click()
   await expect(page).toHaveURL(/\/settings\/profiles$/)
   await expect(page.getByRole('heading', { name: 'Music quality profiles' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Metadata profiles' })).toBeVisible()
+  // exact: 'Metadata profiles' is a substring of the sibling 'Book metadata
+  // profiles' heading (both render on this page) and Playwright's default
+  // name matching is a case-insensitive substring match — the non-exact
+  // locator resolves to 2 elements and strict mode rejects it.
+  await expect(page.getByRole('heading', { name: 'Metadata profiles', exact: true }))
+    .toBeVisible()
 
   // Metadata: the music metadata block (tag / scrub / consumers).
   await page.getByTestId('settings-nav-metadata').click()
