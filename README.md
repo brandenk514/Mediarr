@@ -48,9 +48,11 @@ handles caching and live event push.
   `/version`, structured JSON logs. Ship-included Prometheus + Grafana compose
   stack (`deploy/prometheus`, `deploy/grafana`,
   `deploy/compose.observability.yml`).
-- **Deployment.** Multi-arch distroless Docker image (nonroot, read-only
-  rootfs, healthcheck subcommand), dev compose stack, and a Helm chart with a
-  dev-parity security model (see `deploy/helm/README.md`).
+- **Deployment.** Multi-arch distroless Docker image (nonroot uid 65532,
+  read-only rootfs, healthcheck subcommand) that ships the built UI and serves
+  it same-origin on `:8080` — one compose stack is the whole app (API +
+  browser, no separate frontend service). Helm chart with a dev-parity
+  security model (see `deploy/helm/README.md`).
 
 ## Quick start
 
@@ -62,38 +64,80 @@ handles caching and live event push.
 > a VPN or a tunnel with access controls (Tailscale, Cloudflare Tunnel),
 > not a port forward.
 
-Requirements: Go 1.27+, Docker (for `make dev`), Node 22+ (for the UI).
+**Prerequisites: a Docker host (with the compose plugin) and a web
+browser — nothing else.** The deployment path needs no Go and no Node: the
+UI is built into the image and served by the backend on `:8080`.
 
 1. **Generate an encryption key** (the process cannot boot without it):
 
    ```sh
-   make key        # or: openssl rand -hex 32
+   export MEDIARR_ENCRYPTION_KEY="$(openssl rand -hex 32)"
    ```
 
-2. **Start the backend + Postgres + Redis:**
+   No output — the 64-hex key lives in the shell variable. (`make key`
+   prints one, if you prefer the Makefile target.)
+
+2. **Start the stack** — app + Postgres + Redis; this one stack is the
+   whole app:
 
    ```sh
-   export MEDIARR_ENCRYPTION_KEY=<the 64-hex key>
-   make dev        # docker compose -f deploy/compose.dev.yml up --build
+   docker compose -f deploy/compose.dev.yml up -d --build
    ```
 
-   The backend listens on `:8080`. `GET /` returning 404 is normal — the API
-   lives under `/api/v1/...`.
+   Only the backend's `:8080` is published. To stop later:
+   `docker compose -f deploy/compose.dev.yml down -v` (the `-v` also removes
+   the data volumes — that is how you reset to first boot).
 
-3. **First boot: create the admin.** While the `users` table is empty, the
-   first `POST /api/v1/auth/login` call creates the admin user (3–32 char
-   username of `[A-Za-z0-9_-]`, password ≥ 10 chars) and returns the API
-   token. Log in through the UI to get the token normally.
-
-4. **Run the UI (separate process, dev only):**
+3. **Wait for readiness** (pings the health probe until it answers):
 
    ```sh
-   cd ui && npm ci && npm run dev   # Vite on :5173, proxies /api → :8080
+   for i in $(seq 1 30); do
+     curl -fsS http://localhost:8080/readyz && break
+     sleep 2
+   done
    ```
+
+   Prints the readiness report JSON (with `"status": "ok"`) once Postgres and
+   Redis are healthy and the app has booted.
+
+4. **Open http://localhost:8080 in your browser and sign in.** On first boot
+   (empty `users` table), the username (3–32 chars of `[A-Za-z0-9_-]`) and
+   password (≥ 10 chars) you type into the login form **create the admin** —
+   that sign-in is the admin. API-first equivalent: the first
+   `POST /api/v1/auth/login` mints the admin and returns the token.
+
+That is the whole deployment: a signed-in dashboard at `:8080`, with the SPA
+and the API served same-origin by the single backend container.
 
 The only required env vars are `MEDIARR_ENCRYPTION_KEY` (64 hex chars),
 `MEDIARR_POSTGRES_DSN`, and `MEDIARR_REDIS_URL`; everything else has a
-default. See `.env.example` and `docs/config.md` for the full surface.
+default. The compose file fills the DSN and Redis URL for you; see
+`.env.example` and `docs/config.md` for the full surface.
+
+## Optional development mode (source / UI work)
+
+Everything in the quick start above is needed to **run** Mediarr. To work on
+the **source** you need toolchains — this section is for contributors, not
+deployers, and it does not apply to the container path above:
+
+- **Node 22+** — UI source work (the Vite dev loop below). Also the toolchain
+  of the image's `ui-build` stage (`deploy/Dockerfile`) and the `ui` CI job,
+  but you do not need it to run the app.
+- **Go 1.27+** — backend changes (`make build`, `make test`, the gates in
+  `make preflight`). Docker is still required for `make dev` and the
+  testcontainers integration tests.
+
+### Vite dev loop (UI source work)
+
+```sh
+cd ui && npm ci && npm run dev   # Vite on :5173, proxies /api → :8080
+```
+
+Run it against the compose stack from the quick start (or `make dev`); point
+the proxy at another instance with `MEDIARR_API_URL=http://host:port`.
+When serving the backend from a local build instead of the image, set
+`MEDIARR_UI_DIR` at your Vite dist (a missing/empty root 404s UI paths only —
+API and health routes are unaffected; `docs/config.md`).
 
 ## Repository layout
 
@@ -104,14 +148,17 @@ internal/              backend packages: api, auth, config, dashboard,
                        indexers, metrics, paging, postgres (+migrations/),
                        providers, queue, redis, secrets,
                        services/{movies,tv,music,books}, settings, store
-ui/                    Vite + React + TypeScript SPA (vitest)
-deploy/                Dockerfile, compose.dev.yml,
+ui/                    Vite + React + TypeScript SPA (vitest; Playwright
+                       browser e2e in ui/e2e/)
+deploy/                Dockerfile (3 stages: Go build, Node 22 ui-build,
+                       distroless runtime), compose.dev.yml,
                        compose.observability.yml, prometheus/, grafana/,
                        helm/ (chart + README + test.sh)
-docs/                  PLAN.md, architecture.md, config.md,
+docs/                  PLAN.md, architecture.md, config.md, openapi.md,
                        observability.md, loadtest.md
 test/                  e2e/ (pipeline E2E), loadtest/ (10k-item harness)
-scripts/               release-notes.sh
+scripts/               ci-preflight.sh, push-gate.sh, release-notes.sh,
+                       ui-smoke.sh (served-UI probes)
 .github/workflows/     ci.yml (the CI gate, incl. govulncheck/Semgrep/Trivy)
 ```
 
@@ -140,13 +187,22 @@ scripts/               release-notes.sh
 
 Base path `/api/v1`, Bearer-token auth (one admin user; the first login mints
 it). Public: `GET /healthz`, `GET /readyz`, `GET /version`,
-`POST /api/v1/auth/login`. Auth-gated: `auth/me`; `dashboard`; `queue`
-(+ per-kind history) and the live `WS /api/v1/events`; per-domain CRUD +
-`POST …/pipeline` for movies, TV (series/seasons/episodes), music
-(artist/album/track), and books (author/title/edition); indexer CRUD +
-test/stats; `search/*` (movies, tv, tv-tmdb, artists, books/authors,
-books/works) and `profiles`; settings (download-client, library overrides);
-and `GET /metrics`. Full route list: `docs/architecture.md` §4.
+`POST /api/v1/auth/login`. Auth-gated: everything else — `auth/me`,
+`dashboard`, `queue` (+ per-kind history) and the live `WS /api/v1/events`;
+per-domain CRUD + `POST …/pipeline` for movies, TV (series/seasons/episodes),
+music (artist/album/track), and books (author/title/edition); indexer
+CRUD + test/stats; `search/*` and `profiles`; settings (download-client,
+library overrides); plus the five-app parity surface (tags, quality/custom
+formats, connect, calendar, import, blocklist, media management, the
+Sonarr/Radarr/Lidarr/Prowlarr/Readarr drop-in migration endpoints) and
+`GET /metrics`.
+
+The full maintained route list is the **OpenAPI contract**:
+[`openapi.yaml`](openapi.yaml) is the source of truth for every `/api/v1`
+route and wire format, and [`docs/openapi.md`](docs/openapi.md) documents the
+conventions and the lockstep gates (CI structural check, generated UI
+types, and an e2e drift test that validates every operation against a live
+server).
 
 ## Documentation
 
@@ -155,6 +211,7 @@ and `GET /metrics`. Full route list: `docs/architecture.md` §4.
 | `docs/PLAN.md` | Original design intent, milestones M0–M7 |
 | `docs/architecture.md` | As-built architecture: components, module map, routes, auth, pipeline, data model, Redis usage, config & secrets, observability, deployment, testing |
 | `docs/config.md` | Full environment-variable reference + defaults |
+| `docs/openapi.md` | OpenAPI contract: wire-format conventions and lockstep gates |
 | `docs/observability.md` | Metrics reference and Prometheus/Grafana wiring |
 | `docs/loadtest.md` | Load-test methodology, thresholds, baseline |
 | `RELEASE.md` | Release process (tags, cosign signing, deployment) |
@@ -173,5 +230,7 @@ and `GET /metrics`. Full route list: `docs/architecture.md` §4.
 - `cd ui && npm test` — vitest (plus `npm run lint` / `npm run build`).
 - CI (`.github/workflows/ci.yml`) additionally gates on: `govulncheck`,
   **Semgrep** (`p/golang` + `p/typescript`, pinned `semgrep==1.181.0`),
-  **Trivy** image scan, SBOM, **cosign** keyless signing of published images,
-  a compose smoke test, and release-notes generation on tags.
+  **Trivy** image scan, SBOM, **cosign** signing of published images with the
+  repo release key (`docs/cosign.pub`), a compose smoke test (including the
+  served-UI probes in `scripts/ui-smoke.sh`), a Playwright browser E2E on the
+  PR-local image (`ui-e2e`), and release-notes generation on tags.

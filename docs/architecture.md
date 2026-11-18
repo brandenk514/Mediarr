@@ -1,17 +1,20 @@
-# Mediarr — Architecture (M2)
+# Mediarr — Architecture
 
-> This document is the M2 deliverable: an architecture overview of the **as-built**
-> system. For the original design intent and milestone history, read
-> [`docs/PLAN.md`](PLAN.md); for the full environment-variable reference,
-> [`docs/config.md`](config.md).
+> This document is the **as-built** architecture overview, carried past M2:
+> it reflects the five-app parity work (P1–P7), the Books metadata module,
+> and the v0.3.0 containerized UI (built UI shipped in the image and served
+> same-origin, #86/#87/#88). For the original design intent and milestone
+> history, read [`docs/PLAN.md`](PLAN.md); for the full environment-variable
+> reference, [`docs/config.md`](config.md); for the wire-format contract,
+> [`docs/openapi.md`](openapi.md).
 
 ## 1. System overview
 
 Mediarr is a single-operator media manager for **movies, TV, music, and books**,
 built as one Go binary plus a browser UI.
 
-- **Backend:** one Go binary (`cmd/mediarr`, Go 1.27 — `go.mod` is `go 1.27.1`,
-  CI builds with 1.27.2, module `github.com/brandenk514/mediarr`). The binary
+- **Backend:** one Go binary (`cmd/mediarr`, Go 1.27 — `go.mod` is `go 1.27.4`,
+  CI builds with 1.27.4, module `github.com/brandenk514/mediarr`). The binary
   starts Postgres and Redis clients, applies SQL migrations, and serves the
   HTTP API, the auth endpoints, `/metrics`, and the health probes from a single
   `net/http` `ServeMux`. It also supports a `mediarr healthcheck` subcommand
@@ -43,16 +46,11 @@ There are no background workers in the as-built system beyond one periodic loop
                 │                                                        │
   browser       │  ┌────────────────────────────────────────────────┐    │
   (React/TS     │  │ HTTP server (net/http ServeMux, :8080)         │    │
-  SPA in ui/)   │  │  /api/v1/...   Bearer-auth + WS /api/v1/events │    │
-  ──────────────┼──►│  /healthz  /readyz  /version  /metrics         │    │
+  SPA — in dev  │  │  /api/v1/...   Bearer-auth + WS /api/v1/events │    │
+  from Vite     │  │  / + /assets/...  built UI, same-origin (#87)  │    │
+  :5173, or in  │  │  (served from the image, #88)                  │    │
+  the image) ───┼──►│  /healthz  /readyz  /version  /metrics         │    │
        │       │  └────────────────────────────────────────────────┘    │
-       │ fetch/WS│                       │                               │
-       │ (Bearer│                       ▼                               │
-       └────────┼──  ┌────────────────────────────────────────────────┐ │
-                │    │ Services (per domain): movies tv music books   │ │
-                │    │   add → want → search → send → poll → import  │ │
-                │    └───────┬──────────────┬──────────────┬──────────┘ │
-                │            │              │              │            │
                 │            ▼              ▼              ▼            │
                 │  ┌────────────────┐ ┌──────────────┐ ┌──────────────┐ │
                 │  │ indexers/      │ │ downloads/   │ │ providers/   │ │
@@ -73,7 +71,7 @@ There are no background workers in the as-built system beyond one periodic loop
                 │            │ Postgres store (internal/postgres)   │   │
                 │            │ users, api_tokens, settings, indexers│   │
                 │            │ + per-domain catalog/wanted/queue/   │   │
-                │            │ history tables (migrations 0001-0007)│   │
+                │            │ history tables (migrations 0001-0033)│   │
                 │            └──────────────────────────────────────┘   │
                 │            ┌──────────────────────────────────────┐   │
                 │            │ Redis (internal/redis)               │   │
@@ -314,7 +312,16 @@ Health stats are exposed via `GET /api/v1/indexers/{id}/stats`.
 
 Migrations live in `internal/postgres/migrations/` (embedded SQL, applied in
 filename order, tracked in `schema_migrations`; the `pgcrypto` extension is
-required). As-built tables:
+required). The schema spans **33 migrations** (0001–0033): the core
+M0–M2 schema below (0001–0007) plus 0008–0033, which added the five-app
+parity work — root folders (with per-root default profiles and the Calibre
+link), the extended item fields (tags, series type/season folders, movie
+editions/collections/release date, music covers/labels/monitoring, book
+monitoring), the blocklist and search/import activity tables, the indexer
+hub (definitions, proxies, tags), the download-client registry, and
+notifications — and the Books metadata module (B1–B6, MT2/MT3). The table
+below documents the core schema; the migrations directory itself is the
+authoritative as-built schema.
 
 | Migration | Tables | Purpose |
 |---|---|---|
@@ -325,6 +332,7 @@ required). As-built tables:
 | `0005_books` | `book_authors`, `book_titles`, `book_editions` | Author → title → edition tree |
 | `0006_books_pipeline` | `book_wanted`, `book_queue`, `book_history` | Book pipeline rows |
 | `0007_indexers` | `indexers` | Indexer definitions: `kind`, `base_url`, **`api_key_encrypted`** (vault ciphertext; NULL = no key), free-form `settings_json` (protocol options — no per-adapter migration), `enabled`, `last_test` |
+| `0008`–`0033` | (parity + Books metadata, see above) | Root folders, extended item fields, blocklist + search/import activity, indexer hub (definitions/proxies/tags), download clients, notifications, Books B1–B6 + MT2/MT3 |
 
 Conventions:
 - **Per-domain prefixed tables** (`tv_*`, `music_*`, `book_*`) keep the four
@@ -397,23 +405,65 @@ Scoped per PLAN §5 — Redis is never the source of truth:
 
 ## 11. Deployment
 
-- **Dockerfile** (`deploy/Dockerfile`): multi-stage — `golang:1.27.2-bookworm`
-  build (module + build-cache mounts, `CGO_ENABLED=0`, `-trimpath`,
-  ldflags-stamped version/commit/build time, pre-created writable dirs
-  chowned to the app user so seeded named volumes inherit ownership) →
-  `distroless/static-debian12:nonroot` runtime: no shell, non-root user
-  (uid/gid 65532, baked into the base image), healthcheck via the binary's
-  own `healthcheck` subcommand.
-- **Compose (dev parity)** (`deploy/compose.dev.yml`, project `mediarr-dev`):
-  three services — `mediarr:dev` (built from source), `postgres:16-alpine`,
-  `redis:7-alpine` — with the backend the only published port
-  (`8080:8080`). The backend runs with a **read-only rootfs** (plus a `/tmp`
-  tmpfs), `cap_drop: ALL`, `no-new-privileges: true`, and the only writable
-  volumes (`/media`, `/downloads`). It declares
-  `depends_on: condition: service_healthy` for both datastores and is
-  health-checked itself via the `healthcheck` subcommand. The compose file
-  fills in the `MEDIARR_*` env vars (including a zeroed placeholder
-  `MEDIARR_ENCRYPTION_KEY` — override it for real use).
+- **Dockerfile** (`deploy/Dockerfile`): three stages —
+  - `golang:1.27.4-bookworm` build: module + build-cache mounts,
+    `CGO_ENABLED=0`, `-trimpath`, ldflags-stamped version/commit/build time,
+    and pre-created writable dirs (`/writables/downloads`, `/writables/media`)
+    so seeded named volumes inherit the app user's ownership.
+  - `node:22-bookworm` ui-build (#88): `npm ci` strictly from the committed
+    `ui/package-lock.json` (the single source of npm dependencies), then
+    `npm run build` (`tsc -b` + `vite build`). Only the finished `dist`
+    crosses into the runtime stage — node, npm, `node_modules`, and the rest
+    of the toolchain stay in the build stage. Node 22 matches the `ui` CI job
+    and the golang bookworm family.
+  - `distroless/static-debian12:nonroot` runtime: the `/mediarr` binary,
+    `/downloads` + `/media` as the only writable paths (chowned
+    `nonroot:nonroot` so mounted volumes are writable by the app), and the
+    complete built UI at **`/home/nonroot/ui`** (index.html + hashed assets +
+    `public/` files) — read-only on the rootfs, owned by the app user. No
+    shell, no package manager. `EXPOSE 8080`. Healthcheck via the binary's
+    own `healthcheck` subcommand (pings Postgres + Redis, exit 0/1).
+- **Same-origin UI serving (#86 decision A, shipped in #87).** The built UI
+  ships in the existing `mediarr` image and is served by the same Go server
+  on `:8080` — the maintainer's recorded hosting decision (2026-11-13, #86).
+  The serving contract lives in `internal/api/ui.go`: the UI catch-all
+  (`GET/HEAD` only) is wired as the lowest-priority `/` route, after every
+  API/health/metrics route, and serves the Vite dist from `MEDIARR_UI_DIR`
+  (default `/home/nonroot/ui`, the #88 image contract path) with SPA
+  fallback for client-side routing. Reserved route families (`/api`,
+  `/healthz`, `/readyz`, `/version`, `/metrics` — checked at path-segment
+  boundaries, so `/apiary` and `/apiv2` are UI paths, not API) never fall
+  through: unknown `/api` paths answer a JSON 404, never index.html. A
+  missing file-like path is a 404, not the SPA; directories are never
+  listed; every open goes through `os.OpenInRoot` with segment validation
+  (no traversal or symlink escape). A missing/empty asset root 404s UI paths
+  only — the dev-without-a-build case — and leaves API/health routes
+  unaffected. The historical alternative B (a separate frontend compose
+  service) is retained in #86 as context only; it is no longer the planning
+  basis.
+- **Compose** (`deploy/compose.dev.yml`, project `mediarr-dev`): the
+  operator quick start (README "Quick start"; #89) — **one stack is the whole
+  app**: `mediarr:dev` (built from source by default), `postgres:16-alpine`,
+  `redis:7-alpine`, with the backend the only published port (`8080:8080`)
+  serving both the API and the built UI. The backend runs with a **read-only
+  rootfs** (plus a `/tmp` tmpfs), `cap_drop: ALL`, `no-new-privileges:
+  true`, and the only writable volumes (`/media`, `/downloads` — the
+  mock-client scratch and imported media). It declares `depends_on:
+  condition: service_healthy` for both datastores and is health-checked
+  itself via the `healthcheck` subcommand. The compose file fills in the
+  `MEDIARR_*` env vars (including a zeroed placeholder
+  `MEDIARR_ENCRYPTION_KEY` — override it for real use). For releases, the
+  same acceptance flow runs the **published image** instead of the source
+  build (RELEASE.md, "Browser verification").
+- **Security model (shipped).** One distroless static image (no shell),
+  non-root user uid/gid 65532 (baked into the base image), read-only rootfs,
+  the only writable paths the declared media volumes, and the only
+  published-port surface `:8080` — the #86 decision keeps the UI inside that
+  one surface (no second service, no new ports, no second image to scan or
+  sign). Secrets never touch disk: `MEDIARR_ENCRYPTION_KEY` from the
+  environment, AES-256-GCM vault for indexer/download-client credentials at
+  rest. Helm (`deploy/helm/mediarr`) deploys the same dev-parity model into
+  Kubernetes.
 - **Helm** (`deploy/helm/mediarr`): deploys the same dev-parity stack into
   Kubernetes — `mediarr` (Deployment + Service, `/media` + `/downloads` as
   emptyDir in this dev chart), Postgres 16 (StatefulSet with a 1 Gi PVC via
@@ -427,7 +477,9 @@ Scoped per PLAN §5 — Redis is never the source of truth:
   render assertions); a live `helm install` on a kind cluster is part of the
   M7 release validation (see `RELEASE.md`).
 - **Release process:** see `RELEASE.md` (root of the repo) — tag-driven
-  release, cosign-signing of the image, and the kind install/verify steps.
+  release, cosign-signing of the image with the repo release key
+  (`docs/cosign.pub`), the browser UI verification step, and the
+  kind install/verify steps.
 
 ## 12. Testing strategy
 
@@ -476,12 +528,23 @@ Scoped per PLAN §5 — Redis is never the source of truth:
     **Trivy** image scan (fail on `CRITICAL,HIGH`, `ignore-unfixed`),
     **SBOM** (Trivy SPDX, uploaded as an artifact); on `main` and `v*` tags
     only: multi-arch (`amd64`, `arm64`) publish to
-    `ghcr.io/brandenk514/mediarr` + keyless **cosign** (v3.1.3, Fulcio)
-    signing and immediate signature verification; tag pushes additionally
-    promote the tag to `:latest` via `buildx imagetools`.
+    `ghcr.io/brandenk514/mediarr` + **cosign** (v3.1.3) signing with the
+    repo's long-lived release key (public key `docs/cosign.pub`, private key
+    in the `COSIGN_KEY`/`COSIGN_PASSWORD` repo secrets — the account has no
+    Actions OIDC, so keyless/Fulcio signing is not available; see
+    `RELEASE.md` §Signing key) and immediate `cosign verify --key
+    docs/cosign.pub`; tag pushes additionally promote the tag to `:latest`
+    via `buildx imagetools`.
   - `smoke` (pushes only) — `docker compose -f deploy/compose.dev.yml up
     -d --build`, then probe `/healthz`, `/readyz`, `/version` until ready,
-    then tear down.
+    then the served-UI probes (`scripts/ui-smoke.sh`: SPA root, client-route
+    deep link, hashed asset, reserved API routes), then tear down.
+  - `ui-e2e` (pull_request only) — builds the PR-local image (single-arch,
+    loaded into the daemon), serves it on an isolated ephemeral compose stack
+    (`deploy/compose.ci.yml`, project `mediarr-ci`), seeds the first-boot
+    admin, runs the served-UI probes, then the Playwright browser subset
+    (`ui/e2e/container-ui.spec.ts`: real login form → dashboard renders →
+    each per-kind page loads without unhandled JS errors).
   - `release-notes` (tag pushes only) — `scripts/release-notes.sh` renders
     notes from the issues referenced by the tag's commits and creates the
     GitHub release (`gh release create`).
