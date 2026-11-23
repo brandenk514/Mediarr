@@ -197,10 +197,7 @@ func (s *Service) ManualImport(ctx context.Context, req dom.ManualImport) (dom.M
 	if err != nil {
 		return empty, err
 	}
-	// CodeQL [go/path-injection] impPath is validated by resolveImportPath
-	// to be strictly inside s.mediaRoot (cleaned, absolute; ".." traversal
-	// and symlinks that escape the root are rejected), so the raw user value
-	// can never reach the filesystem here.
+	// codeql[go/path-injection] impPath is confined by resolveImportPath -> fsutil.ResolveConfined(s.mediaRoot, ...): absolute, cleaned, strictly inside mediaRoot, and symlinks escaping it are rejected, so raw req.FilePath never reaches os.Stat
 	if _, err := os.Stat(impPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return empty, dom.ErrFileNotFound
@@ -252,9 +249,5 @@ func (s *Service) resolveImportPath(p string) (string, error) {
 		}
 		return "", err
 	}
-	// CodeQL [go/path-injection] impPath is validated by fsutil.ResolveConfined
-	// to be strictly inside s.mediaRoot (cleaned, absolute; ".." traversal
-	// and symlinks that escape the root are rejected), so the raw user value
-	// can never reach the filesystem here.
 	return impPath, nil
 }

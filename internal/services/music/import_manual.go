@@ -66,9 +66,7 @@ func (s *Service) ManualImport(ctx context.Context, req wdom.ManualImport) (wdom
 		}
 		return empty, err
 	}
-	// CodeQL [go/path-injection] impPath is validated by fsutil.ResolveConfined
-	// to be strictly inside s.deps.MediaRoot, so the raw user value can
-	// never reach the filesystem here.
+	// codeql[go/path-injection] impPath is confined by fsutil.ResolveConfined(s.deps.MediaRoot, req.FilePath): absolute, cleaned, strictly inside the media root, and symlinks escaping it are rejected, so raw req.FilePath never reaches os.Stat
 	st, err := os.Stat(impPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -127,6 +125,7 @@ func (s *Service) importMusicFile(ctx context.Context, src string, artist *dom.A
 				if err != nil {
 					return nil, err
 				}
+				// codeql[go/path-injection] dest comes from placeMusicFile -> dom.PlanTrackImport: artist/album/title pass cleanPathSegment (path separators stripped) and the joined path must pass withinRoot(mediaRoot), so dest cannot traverse outside the media root
 				if _, statErr := os.Stat(dest); os.IsNotExist(statErr) {
 					if err := copyFile(src, dest); err != nil {
 						return nil, err
@@ -152,6 +151,7 @@ func (s *Service) importMusicFile(ctx context.Context, src string, artist *dom.A
 		}
 		plan = &dom.Import{SourcePath: src, DestPath: dest}
 	}
+	// codeql[go/path-injection] plan.DestPath comes from dom.PlanAlbumImport (or dom.AlbumDestPath on collision): cleanPathSegment components and a withinRoot(mediaRoot) check, so it cannot traverse outside the media root
 	if _, statErr := os.Stat(plan.DestPath); os.IsNotExist(statErr) {
 		if err := copyFile(plan.SourcePath, plan.DestPath); err != nil {
 			return nil, err

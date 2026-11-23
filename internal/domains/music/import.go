@@ -150,6 +150,7 @@ func PlanAlbumImport(root, artist, album, sourcePath string) (*Import, error) {
 
 // checkCollision returns ErrCollision if destPath exists, nil if it does not.
 func checkCollision(destPath string) error {
+	// codeql[go/path-injection] checkCollision is only called from PlanTrackImport/PlanAlbumImport after their withinRoot(root, destPath) check passes, with every name segment already through cleanPathSegment, so destPath cannot traverse outside root
 	if _, err := os.Stat(destPath); err == nil {
 		return fmt.Errorf("%w: %s", ErrCollision, destPath)
 	} else if !os.IsNotExist(err) {

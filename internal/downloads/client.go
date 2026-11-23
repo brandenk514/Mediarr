@@ -93,6 +93,7 @@ func (m *MockClient) Add(ctx context.Context, r Release) error {
 	}
 	f := filepath.Join(dir, r.FileName)
 	// A minimal placeholder payload; enough for the import step to move it.
+	// codeql[go/path-injection] r.FileName is built only by grabFileName (maps path separators to "_") or the pipeline fileNameFor helpers (replace every ".", so a ".." element is impossible), so filepath.Join(dir, r.FileName) stays inside the downloads dir
 	if err := os.WriteFile(f, []byte("mediarr-mock-download: "+r.Title+"\n"), 0o644); err != nil { //nolint:gosec // mock download stands in for a real media file; must be readable for the import step
 		return err
 	}
