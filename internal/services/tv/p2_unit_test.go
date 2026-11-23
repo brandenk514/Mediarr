@@ -2,12 +2,14 @@ package tv
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 
 	dom "github.com/brandenk514/mediarr/internal/domains/tv"
+	"github.com/brandenk514/mediarr/internal/fsutil"
 )
 
 // --- P2 parity tests: new series fields, series update, episode search,
@@ -196,12 +198,14 @@ func TestListHistory(t *testing.T) {
 }
 
 func TestScanLibrary(t *testing.T) {
-	svc, _ := setupService(t)
 	ctx := context.Background()
 
-	seeded, _ := svc.AddSeries(ctx, AddSeriesRequest{Title: "Severance", Year: "2022", Monitored: true})
-
+	// #107: the scan root is confined to the service's media root, so the
+	// fixture root doubles as the configured media root.
 	root := t.TempDir()
+	svc := New(Deps{Repo: newMemRepo(), MediaRoot: root, DefaultProfile: "HD-1080p"})
+
+	seeded, _ := svc.AddSeries(ctx, AddSeriesRequest{Title: "Severance", Year: "2022", Monitored: true})
 	// Known series: "Severance (2022)/Season 01/..." with two video files.
 	seasonDir := filepath.Join(root, "Severance (2022)", "Season 01")
 	if err := os.MkdirAll(seasonDir, 0o755); err != nil {
@@ -285,6 +289,68 @@ func TestScanLibrary(t *testing.T) {
 	// Empty root → error.
 	if _, err := svc.ScanLibrary(ctx, "  "); err == nil {
 		t.Error("expected error for empty root")
+	}
+}
+
+// TestScanLibrary_Confined (#107): a scan root that escapes the configured
+// media root is rejected before any filesystem access — an absolute path
+// outside the root, ".." traversal, and a symlink whose target is outside
+// the root. The in-root scan (including relative paths, rooted at the media
+// root) keeps working.
+func TestScanLibrary_Confined(t *testing.T) {
+	ctx := context.Background()
+	base := t.TempDir()
+	mediaRoot := filepath.Join(base, "media")
+	if err := os.MkdirAll(mediaRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// An in-root library folder (the happy-path scan target).
+	show := filepath.Join(mediaRoot, "Alpha Show (2020)", "Season 01")
+	if err := os.MkdirAll(show, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(show, "a.mkv"), []byte("0123456789"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// An out-of-root decoy with content: if the confinement is bypassed,
+	// the scan of it would succeed and expose it.
+	secret := filepath.Join(base, "secret")
+	if err := os.MkdirAll(secret, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(secret, "leak.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink inside the media root pointing at the out-of-root decoy.
+	if err := os.Symlink(secret, filepath.Join(mediaRoot, "escape")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	svc := New(Deps{Repo: newMemRepo(), MediaRoot: mediaRoot})
+
+	// In-root happy path: absolute.
+	report, err := svc.ScanLibrary(ctx, mediaRoot)
+	if err != nil {
+		t.Fatalf("in-root scan: %v", err)
+	}
+	if report.Scanned != 1 || len(report.Candidates) != 1 || report.Candidates[0].Title != "Alpha Show" {
+		t.Fatalf("in-root scan = %+v, want 1 candidate 'Alpha Show'", report)
+	}
+	// In-root happy path: relative (rooted at the media root, not the CWD).
+	if _, err := svc.ScanLibrary(ctx, "Alpha Show (2020)"); err != nil {
+		t.Errorf("relative in-root scan: %v", err)
+	}
+	// Absolute path outside the root.
+	if _, err := svc.ScanLibrary(ctx, secret); !errors.Is(err, fsutil.ErrPathOutsideRoot) {
+		t.Errorf("out-of-root absolute scan err = %v, want ErrPathOutsideRoot", err)
+	}
+	// ".." traversal out of the root.
+	if _, err := svc.ScanLibrary(ctx, filepath.Join(mediaRoot, "..", "secret")); !errors.Is(err, fsutil.ErrPathOutsideRoot) {
+		t.Errorf("..-traversal scan err = %v, want ErrPathOutsideRoot", err)
+	}
+	// Symlink that escapes the root.
+	if _, err := svc.ScanLibrary(ctx, filepath.Join(mediaRoot, "escape")); !errors.Is(err, fsutil.ErrPathOutsideRoot) {
+		t.Errorf("symlink-escape scan err = %v, want ErrPathOutsideRoot", err)
 	}
 }
 

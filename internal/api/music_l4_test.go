@@ -15,10 +15,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	rfdom "github.com/brandenk514/mediarr/internal/domains/rootfolders"
 	"github.com/brandenk514/mediarr/internal/providers"
+	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 	rfsvc "github.com/brandenk514/mediarr/internal/services/rootfolders"
 )
 
@@ -289,12 +291,16 @@ func TestL4_API_ImportMusic_ByPath(t *testing.T) {
 	music, books := newKindsMusicRepo(), newKindsBooksRepo()
 	f := newKindsServer(t, music, books)
 
+	// #107: import-by-path is confined to the music media root: the fixture
+	// library root doubles as the configured media root.
+	root := t.TempDir()
+	writeL4APILibrary(t, root)
+	f.s.musicDeps.Svc = musicsvc.New(musicsvc.Deps{Repo: music, MediaRoot: root, DefaultProfile: "FLAC"})
+
 	rec := f.post(t, "/api/v1/music/artists", map[string]any{"name": "Radiohead"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("add artist status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	root := t.TempDir()
-	writeL4APILibrary(t, root)
 
 	rec = f.post(t, "/api/v1/music/import", map[string]any{"path": root})
 	if rec.Code != http.StatusOK {
@@ -364,9 +370,54 @@ func TestL4_API_ImportMusic_MissingRoot(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unconfigured registry status = %d, want 400 body=%s", rec.Code, rec.Body.String())
 	}
-	// A path that does not exist: 404.
-	rec = f.post(t, "/api/v1/music/import", map[string]any{"path": filepath.Join(t.TempDir(), "nope")})
+	// A path inside the configured media root that does not exist: 404.
+	mediaRoot := t.TempDir()
+	f.s.musicDeps.Svc = musicsvc.New(musicsvc.Deps{Repo: music, MediaRoot: mediaRoot, DefaultProfile: "FLAC"})
+	rec = f.post(t, "/api/v1/music/import", map[string]any{"path": filepath.Join(mediaRoot, "nope")})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing path status = %d, want 404 body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestL4_API_ImportMusic_ByPath_OutOfRoot (#107): ad-hoc import paths that
+// escape the configured music media root are rejected with a 400 before the
+// filesystem is touched: an absolute path outside the root, ".."
+// traversal, and a symlink pointing out of the root.
+func TestL4_API_ImportMusic_ByPath_OutOfRoot(t *testing.T) {
+	music, books := newKindsMusicRepo(), newKindsBooksRepo()
+	f := newKindsServer(t, music, books)
+
+	base := t.TempDir()
+	mediaRoot := filepath.Join(base, "media")
+	if err := os.MkdirAll(mediaRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// An out-of-root decoy with content: pre-fix, scanning it succeeded.
+	secret := filepath.Join(base, "secret")
+	if err := os.MkdirAll(secret, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(secret, "leak.mp3"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(mediaRoot, "escape")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	f.s.musicDeps.Svc = musicsvc.New(musicsvc.Deps{Repo: music, MediaRoot: mediaRoot, DefaultProfile: "FLAC"})
+
+	cases := map[string]string{
+		"absolute path outside root":   secret,
+		"..-traversal out of root":     filepath.Join(mediaRoot, "..", "secret"),
+		"symlink pointing out of root": filepath.Join(mediaRoot, "escape"),
+	}
+	for name, p := range cases {
+		rec := f.post(t, "/api/v1/music/import", map[string]any{"path": p})
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400 body=%s", name, rec.Code, rec.Body.String())
+			continue
+		}
+		if !strings.Contains(rec.Body.String(), "media root") {
+			t.Errorf("%s: 400 body %q, want a message naming the media root", name, rec.Body.String())
+		}
 	}
 }

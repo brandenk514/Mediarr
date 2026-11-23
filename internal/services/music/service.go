@@ -21,6 +21,7 @@ import (
 
 	dom "github.com/brandenk514/mediarr/internal/domains/music"
 	"github.com/brandenk514/mediarr/internal/downloads"
+	"github.com/brandenk514/mediarr/internal/fsutil"
 	"github.com/brandenk514/mediarr/internal/indexers"
 	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/paging"
@@ -388,11 +389,21 @@ func (s *Service) RefreshArtist(ctx context.Context, artistID int64) (*dom.Artis
 // directly in it (a single-artist flat layout) is still a candidate: its
 // files are counted. Phase 1 ends at the report — no file moves, no artist
 // creation (the UI adds selected new artists through the add-artist flow).
+// The scan root is confined to the service's media root (#107), mirroring
+// the manual-import confinement: absolute paths outside the root, ".."
+// traversal, and symlinks that point out of the root are rejected.
 func (s *Service) ScanMusicLibrary(ctx context.Context, root string) (*dom.MusicImportReport, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, fmt.Errorf("music: import: root folder path is required")
 	}
-	clean := filepath.Clean(root)
+	// #107: confine the scan root to the configured media root before any
+	// filesystem access (fsutil.ResolveConfined rejects absolute paths
+	// outside the root, ".." traversal, and symlinks that escape it; a
+	// relative path is rooted at the media root, not the process CWD).
+	clean, err := fsutil.ResolveConfined(s.deps.MediaRoot, root)
+	if err != nil {
+		return nil, fmt.Errorf("music: import: root folder %q: %w", root, err)
+	}
 	entries, err := os.ReadDir(clean)
 	if err != nil {
 		return nil, fmt.Errorf("music: import: read root folder %q: %w", root, err)
