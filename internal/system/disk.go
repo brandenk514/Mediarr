@@ -38,9 +38,9 @@ func fsInt64(v uint64) int64 {
 	return int64(v)
 }
 
-// fsUint64 normalizes the statfs block-size field (int64 on Linux) into
-// uint64 for the block math; a non-positive size is treated as zero rather
-// than wrapping.
+// fsUint64 normalizes the statfs block-size field (int64 on Linux, uint32
+// on darwin) into uint64 for the block math; a non-positive size is treated
+// as zero rather than wrapping.
 func fsUint64(v int64) uint64 {
 	if v < 0 {
 		return 0
@@ -55,7 +55,9 @@ func syscallStatfs(path string) (total, used, free int64, err error) {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return 0, 0, 0, err
 	}
-	bsize := fsUint64(st.Bsize)
+	// st.Bsize is int64 on Linux and uint32 on darwin; the widening cast is
+	// explicit (a no-op on Linux).
+	bsize := fsUint64(int64(st.Bsize))
 	totalU := st.Blocks * bsize
 	freeU := st.Bavail * bsize
 	usedU := totalU
