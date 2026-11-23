@@ -8,6 +8,7 @@ package music
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	dom "github.com/brandenk514/mediarr/internal/domains/music"
+	"github.com/brandenk514/mediarr/internal/fsutil"
 	"github.com/brandenk514/mediarr/internal/providers"
 )
 
@@ -361,8 +363,12 @@ func writeL4Library(t *testing.T, root string) {
 
 func TestL4_ScanMusicLibrary(t *testing.T) {
 	repo := newMemRepo()
-	svc := New(Deps{Repo: repo})
 	ctx := context.Background()
+
+	// #107: the scan root is confined to the service's media root, so the
+	// fixture root doubles as the configured media root.
+	root := t.TempDir()
+	svc := New(Deps{Repo: repo, MediaRoot: root})
 
 	// Tracked artists with intentionally different casing, to pin the
 	// case-insensitive matching.
@@ -375,7 +381,6 @@ func TestL4_ScanMusicLibrary(t *testing.T) {
 		t.Fatalf("AddArtist: %v", err)
 	}
 
-	root := t.TempDir()
 	writeL4Library(t, root)
 
 	report, err := svc.ScanMusicLibrary(ctx, root)
@@ -407,8 +412,8 @@ func TestL4_ScanMusicLibrary(t *testing.T) {
 }
 
 func TestL4_ScanMusicLibrary_EmptyRoot(t *testing.T) {
-	svc := New(Deps{Repo: newMemRepo()})
 	root := t.TempDir()
+	svc := New(Deps{Repo: newMemRepo(), MediaRoot: root})
 	report, err := svc.ScanMusicLibrary(context.Background(), root)
 	if err != nil {
 		t.Fatalf("ScanMusicLibrary: %v", err)
@@ -419,11 +424,69 @@ func TestL4_ScanMusicLibrary_EmptyRoot(t *testing.T) {
 }
 
 func TestL4_ScanMusicLibrary_MissingRoot(t *testing.T) {
-	svc := New(Deps{Repo: newMemRepo()})
-	if _, err := svc.ScanMusicLibrary(context.Background(), filepath.Join(t.TempDir(), "nope")); err == nil {
+	mediaRoot := t.TempDir()
+	svc := New(Deps{Repo: newMemRepo(), MediaRoot: mediaRoot})
+	// A path inside the media root that does not exist: still an error.
+	if _, err := svc.ScanMusicLibrary(context.Background(), filepath.Join(mediaRoot, "nope")); err == nil {
 		t.Fatal("missing root must fail")
 	}
 	if _, err := svc.ScanMusicLibrary(context.Background(), "  "); err == nil {
 		t.Fatal("blank root must fail")
+	}
+}
+
+// TestL4_ScanMusicLibrary_Confined (#107): a scan root that escapes the
+// configured media root is rejected before any filesystem access — an
+// absolute path outside the root, ".." traversal, and a symlink whose
+// target is outside the root. The in-root scan (including relative paths,
+// rooted at the media root) keeps working.
+func TestL4_ScanMusicLibrary_Confined(t *testing.T) {
+	base := t.TempDir()
+	mediaRoot := filepath.Join(base, "media")
+	if err := os.MkdirAll(filepath.Join(mediaRoot, "Radiohead", "OK Computer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mediaRoot, "Radiohead", "OK Computer", "01 Airbag.flac"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// An out-of-root decoy with content: if the confinement is bypassed,
+	// the scan of it would succeed and expose it.
+	secret := filepath.Join(base, "secret")
+	if err := os.MkdirAll(secret, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(secret, "leak.mp3"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink inside the media root pointing at the out-of-root decoy.
+	if err := os.Symlink(secret, filepath.Join(mediaRoot, "escape")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	svc := New(Deps{Repo: newMemRepo(), MediaRoot: mediaRoot})
+
+	// In-root happy path: absolute.
+	report, err := svc.ScanMusicLibrary(context.Background(), mediaRoot)
+	if err != nil {
+		t.Fatalf("in-root scan: %v", err)
+	}
+	if report.Scanned != 1 || len(report.Candidates) != 1 || report.Candidates[0].Title != "Radiohead" {
+		t.Fatalf("in-root scan = %+v, want 1 candidate 'Radiohead'", report)
+	}
+	// In-root happy path: relative (rooted at the media root, not the CWD).
+	if _, err := svc.ScanMusicLibrary(context.Background(), "Radiohead"); err != nil {
+		t.Errorf("relative in-root scan: %v", err)
+	}
+	// Absolute path outside the root.
+	if _, err := svc.ScanMusicLibrary(context.Background(), secret); !errors.Is(err, fsutil.ErrPathOutsideRoot) {
+		t.Errorf("out-of-root absolute scan err = %v, want ErrPathOutsideRoot", err)
+	}
+	// ".." traversal out of the root.
+	if _, err := svc.ScanMusicLibrary(context.Background(), filepath.Join(mediaRoot, "..", "secret")); !errors.Is(err, fsutil.ErrPathOutsideRoot) {
+		t.Errorf("..-traversal scan err = %v, want ErrPathOutsideRoot", err)
+	}
+	// Symlink that escapes the root.
+	if _, err := svc.ScanMusicLibrary(context.Background(), filepath.Join(mediaRoot, "escape")); !errors.Is(err, fsutil.ErrPathOutsideRoot) {
+		t.Errorf("symlink-escape scan err = %v, want ErrPathOutsideRoot", err)
 	}
 }

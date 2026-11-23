@@ -408,7 +408,15 @@ func (s *Server) ImportLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 		rootPath = rf.Path
 	} else {
-		rootPath = req.Path
+		// #107: import by path stays, confined to the TV media root —
+		// out-of-root absolute paths, ".." traversal, and symlink escapes
+		// are rejected (400) before any filesystem access.
+		confined, err := confineImportPath(s.tvDeps.Svc.MediaRoot(), req.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		rootPath = confined
 	}
 	if rootPath == "" {
 		writeError(w, http.StatusBadRequest, "root_folder_id or path is required")

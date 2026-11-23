@@ -23,6 +23,7 @@ import (
 
 	dom "github.com/brandenk514/mediarr/internal/domains/tv"
 	"github.com/brandenk514/mediarr/internal/downloads"
+	"github.com/brandenk514/mediarr/internal/fsutil"
 	"github.com/brandenk514/mediarr/internal/indexers"
 	"github.com/brandenk514/mediarr/internal/metrics"
 	"github.com/brandenk514/mediarr/internal/paging"
@@ -368,15 +369,31 @@ func (s *Service) ListHistory(ctx context.Context, seriesID int64, limit int) ([
 	return entries, nil
 }
 
+// MediaRoot returns the configured TV media root. Import by path (the
+// "unmapped" case of the library-import endpoint) is confined to it (#107).
+func (s *Service) MediaRoot() string {
+	return s.deps.MediaRoot
+}
+
 // ScanLibrary scans a root folder for series candidates and matches each
 // against the tracked series (library import, phase 1: scan -> match ->
 // confirm). Each immediate subdirectory of the root is a candidate; video
 // files under it are counted recursively. A nonexistent root is an error.
+// The scan root is confined to the service's media root (#107), mirroring
+// the manual-import confinement: absolute paths outside the root, ".."
+// traversal, and symlinks that point out of the root are rejected.
 func (s *Service) ScanLibrary(ctx context.Context, root string) (*dom.ImportReport, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, fmt.Errorf("tv: import: root folder path is required")
 	}
-	clean := filepath.Clean(root)
+	// #107: confine the scan root to the configured media root before any
+	// filesystem access (fsutil.ResolveConfined rejects absolute paths
+	// outside the root, ".." traversal, and symlinks that escape it; a
+	// relative path is rooted at the media root, not the process CWD).
+	clean, err := fsutil.ResolveConfined(s.deps.MediaRoot, root)
+	if err != nil {
+		return nil, fmt.Errorf("tv: import: root folder %q: %w", root, err)
+	}
 	entries, err := os.ReadDir(clean)
 	if err != nil {
 		return nil, fmt.Errorf("tv: import: read root folder %q: %w", root, err)

@@ -18,11 +18,17 @@ var ErrPathOutsideRoot = errors.New("fsutil: path is outside the root")
 // ResolveConfined validates that p points at a file located strictly inside
 // root and returns its canonical (absolute, cleaned) form. It is the
 // defense against path injection on endpoints that accept user-supplied
-// file paths (the manual-import endpoints): p is user-supplied, so before
-// any filesystem access it is cleaned, resolved to an absolute path, and
-// required to stay inside root (a relative input is rooted there; an
-// absolute input must already be under it). Symlinks whose target escapes
-// root are rejected.
+// file paths (the manual-import and import-by-path endpoints): p is
+// user-supplied, so before any filesystem access it is cleaned, resolved
+// to an absolute path, and required to stay inside root (a relative input
+// is rooted there; an absolute input must already be under it). Symlinks
+// whose target escapes root are rejected.
+//
+// The symlink check compares resolved-to-resolved: the target's resolved
+// path is required to be under the root's resolved path, so the
+// confinement holds even when the root itself lives under a symlinked
+// mount point (e.g. macOS /var -> /private/var). The lexical check runs
+// first and is unconditional, so nothing outside the root is ever accepted.
 func ResolveConfined(root, p string) (string, error) {
 	p = strings.TrimSpace(p)
 	if p == "" {
@@ -43,9 +49,15 @@ func ResolveConfined(root, p string) (string, error) {
 		return "", ErrPathOutsideRoot
 	}
 	// A symlink anywhere in the path could point outside the root; reject
-	// it if its resolved target escapes.
+	// it if its resolved target escapes. Resolve the root as well: when
+	// the root lives under a symlinked mount point a lexical base would
+	// falsely reject in-root targets.
+	rootBase := base
+	if resolvedRoot, rerr := filepath.EvalSymlinks(base); rerr == nil {
+		rootBase = resolvedRoot
+	}
 	if resolved, rerr := filepath.EvalSymlinks(cand); rerr == nil {
-		if !IsUnder(base, resolved) {
+		if !IsUnder(rootBase, resolved) {
 			return "", ErrPathOutsideRoot
 		}
 	}
