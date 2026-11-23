@@ -1,0 +1,14 @@
+# CodeQL model pack for this repository (issue #111).
+#
+# GitHub code scanning (default setup) auto-detects model packs under
+# .github/codeql/extensions/. The pack below declares Mediarr's path
+# sanitizers as barriers for go/path-injection, so taint stops at their
+# return values and the code-scanning board reflects reality (see
+# models.yml).
+name: brandenk514/mediarr-sanitizers
+version: 1.0.0
+library: true
+extensionTargets:
+  codeql/go-all: '*'
+dataExtensions:
+  - models.yml
