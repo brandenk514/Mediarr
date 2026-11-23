@@ -63,10 +63,12 @@ func (w *Writer) WriteMovieNFO(mediaPath string, info MovieInfo) (string, error)
 
 func (w *Writer) writeSidecar(mediaPath, content string) (string, error) {
 	dir := filepath.Dir(mediaPath)
+	// codeql[go/path-injection] dir = filepath.Dir(mediaPath); the only production caller passes the wanted manual-import impPath confined by fsutil.ResolveConfined (WriteMovieNFO has no production callers), so dir stays inside the media root
 	if _, err := os.Stat(dir); err != nil {
 		return "", fmt.Errorf("metawrite: media dir missing: %v", err)
 	}
 	path := mediaPath + ".nfo"
+	// codeql[go/path-injection] path = mediaPath + ".nfo"; mediaPath reaches here only via WriteEpisodeNFO with the wanted import's fsutil.ResolveConfined-confined impPath (WriteMovieNFO has no production callers), so the sidecar stays inside the media root
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // nfo sidecars sit next to media files; must be world-readable for media-server users
 		return "", fmt.Errorf("metawrite: write nfo: %v", err)
 	}
