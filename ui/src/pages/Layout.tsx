@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { client } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { KINDS, SHARED_SECTIONS, DASHBOARD_SECTION, INDEXERS_SECTION, kindById, type KindId, type SharedSection } from '../nav'
+import { Badge, SidebarItem } from '../components/primitives'
+import { SECTIONS, sectionForPath, type KindGroup, type NavSection } from '../nav'
 
-// Layout is the authenticated Sonarr-parity shell (P1): a full-width teal top
-// bar (logo · global search · notifications · profile) over a slate left rail
-// (kind switcher + per-kind library section + shared Activity/Wanted/Settings/
-// System sections) and a charcoal content pane that renders the current route
-// via <Outlet/>. Replaces the old top-nav Layout.
+// Layout is the unified app shell (issue #116): a full-width top bar
+// (brand · global search · notifications · profile) over a sidebar (the eight
+// nav.ts sections, each a design-system SidebarItem) and a content pane that
+// renders the current route via `children`. Replaces the Sonarr-parity shell:
+// the TV/Movies/Music/Books kind switcher is gone — kind is now a facet under
+// the Library section, and the rail is no longer parameterized by it.
 export function Layout({ children }: { children: React.ReactNode }) {
   const { me, logout } = useAuth()
   const [version, setVersion] = useState('')
@@ -24,24 +26,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <div className="app">
       <TopBar version={version} username={me?.username ?? ''} onLogout={logout} />
       <div className="app-body">
-        <Rail />
+        <Sidebar />
         <div className="main">
           <div className="content">{children}</div>
         </div>
       </div>
     </div>
   )
-}
-
-// kindFromPath maps the current URL to the active library kind. Kind-specific
-// paths (/tv, /movies, ...) map to their kind; every shared page (Calendar,
-// Activity, Wanted, Settings, System, Dashboard) falls back to the parity
-// default, TV.
-function kindFromPath(pathname: string): KindId {
-  if (pathname.startsWith('/movies')) return 'movie'
-  if (pathname.startsWith('/music')) return 'music'
-  if (pathname.startsWith('/books')) return 'book'
-  return 'tv'
 }
 
 // ---- top bar ----
@@ -55,10 +46,10 @@ function TopBar({
   username: string
   onLogout: () => void
 }) {
-  const location = useLocation()
-  const navigate = useNavigate()
+  // The global search input is VISUAL/STRUCTURAL ONLY in this order: it
+  // renders and holds a draft query, but does not execute a search. Functional
+  // cross-kind search (query execution, results) is issue #117.
   const [q, setQ] = useState('')
-  const kind = kindFromPath(location.pathname)
 
   return (
     <header className="topbar">
@@ -71,14 +62,6 @@ function TopBar({
           placeholder="Search…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && q.trim()) {
-              // P1: global search narrows the active library. (Full cross-kind
-              // search lands with the per-kind pages.)
-              navigate(`${kindById(kind).libPath}?q=${encodeURIComponent(q.trim())}`)
-              setQ('')
-            }
-          }}
           aria-label="Global search"
           data-testid="global-search"
         />
@@ -109,9 +92,9 @@ function TopBar({
 }
 
 // useSystemBadge polls the structured health endpoint and returns the number
-// of non-ok checks (warning + error) — the orange System nav badge (plan P6:
-// "System (with orange count badge)"). It returns 0 when the endpoint is
-// unavailable (e.g. a P1-only dev stack answers 404) so no badge is shown.
+// of non-ok checks (warning + error) — the orange System nav badge. It
+// returns 0 when the endpoint is unavailable (e.g. a P1-only dev stack
+// answers 404) so no badge is shown.
 function useSystemBadge(): number {
   const [count, setCount] = useState(0)
   useEffect(() => {
@@ -134,164 +117,144 @@ function useSystemBadge(): number {
 }
 export { useSystemBadge }
 
-// ---- left rail ----
+// ---- sidebar ----
 
-export function Rail() {
+// Sidebar renders the unified shell's navigation: one SidebarItem per nav.ts
+// section (active state from the current route), with sub-links revealed
+// while the route is within the section, and — under Library — the per-kind
+// groups (the kind facet) and their first-class sub-links.
+export function Sidebar() {
   const { pathname } = useLocation()
-  const kind = kindFromPath(pathname)
-  const meta = kindById(kind)
+  const navigate = useNavigate()
+  const current = sectionForPath(pathname)
   const systemBadge = useSystemBadge()
 
   return (
-    <nav className="rail" aria-label="Primary">
-      {/* Mediarr extra (P7): the cross-library Dashboard, above the per-kind
-          sections. The Movies list is the default landing; the Dashboard is how a
-          Sonarr-shaped user finds the four-library overview. */}
-      <SharedRailSection section={DASHBOARD_SECTION} pathname={pathname} />
-
-      {/* Kind switcher: Mediarr is four-kind; the rail is parameterized by it. */}
-      <div className="rail-kind" role="group" aria-label="Library kind">
-        <div className="segmented">
-          {KINDS.map((k) => (
-            <NavLink
-              key={k.id}
-              to={k.libPath}
-              className={`seg ${k.id === kind ? 'active' : ''}`}
-              data-testid={`kind-${k.id}`}
-            >
-              {k.label}
-            </NavLink>
-          ))}
-        </div>
-      </div>
-
-      {/* Library section (per kind): header + Add New / Library Import +
-          the kind's extra first-class links (R3: Movies' Collections/Discover). */}
-      <RailSection
-        icon={meta.libIcon}
-        label={meta.libLabel}
-        to={meta.libPath}
-        scope={meta.libPath}
-        pathname={pathname}
-        sub={[
-          { to: meta.addPath, label: 'Add New' },
-          ...(meta.importPath ? [{ to: meta.importPath, label: 'Library Import' }] : []),
-          ...(meta.extraLinks ?? []),
-        ]}
-      />
-
-      {/* Prowlarr PR1: Indexers is a first-class hub — the list IS the page.
-          Rendered as its own rail section (home = /indexers, sub = Stats stub). */}
-      <SharedRailSection section={INDEXERS_SECTION} pathname={pathname} />
-
-      {/* Shared sections: Calendar, Activity, Wanted, Settings, System. The
-          System section carries the live health-count badge. */}
-      {SHARED_SECTIONS.map((s) => {
-        const section: SharedSection =
-          s.id === 'system' ? { ...s, badge: systemBadge } : s
-        return <SharedRailSection key={s.id} section={section} pathname={pathname} />
-      })}
+    <nav className="rail flex flex-col gap-0.5" aria-label="Primary">
+      {SECTIONS.map((section) => (
+        <SectionNode
+          key={section.id}
+          section={section}
+          active={current?.id === section.id}
+          pathname={pathname}
+          onNavigate={navigate}
+          badge={
+            section.id === 'system' && systemBadge > 0 ? (
+              <Badge tone="warning">{systemBadge}</Badge>
+            ) : undefined
+          }
+        />
+      ))}
     </nav>
   )
 }
 
-// RailSection renders one rail section: a header row (icon + label + caret)
-// that links to `to`, with its sub-items revealed while the route is within
-// `scope`.
-function RailSection({
-  icon,
-  label,
-  to,
-  scope,
+// SectionNode renders one sidebar section: the section row (SidebarItem) and,
+// while the section is the current area, its sub-links (flat subs and/or the
+// Library's per-kind groups).
+function SectionNode({
+  section,
+  active,
   pathname,
-  sub,
+  onNavigate,
+  badge,
 }: {
-  icon: string
-  label: string
-  to: string
-  scope: string
+  section: NavSection
+  active: boolean
   pathname: string
-  sub: { to: string; label: string }[]
+  onNavigate: (to: string) => void
+  badge?: React.ReactNode
 }) {
-  const inScope = pathname === scope || pathname.startsWith(scope + '/')
-  const headerActive = pathname === to
+  const showSubs = active && (section.subs?.length ?? 0) > 0
+  const showGroups = active && (section.groups?.length ?? 0) > 0
+
   return (
-    <div className="rail-section">
-      <NavLink
-        to={to}
-        className={`rail-item ${headerActive ? 'active' : ''}`}
-        aria-expanded={inScope && sub.length > 0}
-        data-testid={`rail-${label.toLowerCase().replace(/\s+/g, '-')}`}
-      >
-        <span className="rail-icon" aria-hidden>
-          {icon}
-        </span>
-        <span className="rail-label">{label}</span>
-        {sub.length > 0 && (
-          <span className={`rail-caret ${inScope ? 'open' : ''}`} aria-hidden>
-            ▸
-          </span>
-        )}
-      </NavLink>
-      {inScope && sub.length > 0 && (
-        <div className="rail-sub">
-          {sub.map((s) => (
-            <NavLink
-              key={s.to}
-              to={s.to}
-              className={`rail-item ${pathname === s.to ? 'active' : ''}`}
-              data-testid={`rail-sub-${s.to.replace(/[^a-z]/gi, '')}`}
-            >
-              <span className="rail-label">{s.label}</span>
-            </NavLink>
+    <>
+      <SidebarItem
+        label={section.label}
+        icon={section.icon}
+        active={active}
+        badge={badge}
+        onClick={() => onNavigate(section.to)}
+        testId={`rail-${section.id}`}
+      />
+      {(showSubs || showGroups) && (
+        <div className="flex flex-col gap-0.5 pl-3">
+          {(section.subs ?? []).map((l) => (
+            <NavLinkRow key={l.to} to={l.to} label={l.label} pathname={pathname} onNavigate={onNavigate} />
+          ))}
+          {(section.groups ?? []).map((g) => (
+            <KindGroupNode key={g.kind} group={g} pathname={pathname} onNavigate={onNavigate} />
           ))}
         </div>
       )}
-    </div>
+    </>
   )
 }
 
-// SharedRailSection wraps RailSection for a SharedSection (adds the System
-// count badge when present).
-function SharedRailSection({ section, pathname }: { section: SharedSection; pathname: string }) {
-  const inScope = pathname === section.base || pathname.startsWith(section.base + '/')
-  const headerActive = pathname === section.to
+// KindGroupNode renders one Library kind group (the kind facet): the group
+// row links to the kind's list page, and its first-class sub-links (Add New,
+// Collections, …) are revealed while the route is within the group's base.
+function KindGroupNode({
+  group,
+  pathname,
+  onNavigate,
+}: {
+  group: KindGroup
+  pathname: string
+  onNavigate: (to: string) => void
+}) {
+  const inScope = pathname === group.base || pathname.startsWith(group.base + '/')
   return (
-    <div className="rail-section">
-      <NavLink
-        to={section.to}
-        className={`rail-item ${headerActive ? 'active' : ''}`}
-        data-testid={`rail-${section.id}`}
-      >
-        <span className="rail-icon" aria-hidden>
-          {section.icon}
-        </span>
-        <span className="rail-label">{section.label}</span>
-        {typeof section.badge === 'number' && section.badge > 0 && (
-          <span className="rail-badge" data-testid={`rail-${section.id}-badge`}>
-            {section.badge}
-          </span>
-        )}
-        {section.sub.length > 0 && (
-          <span className={`rail-caret ${inScope ? 'open' : ''}`} aria-hidden>
-            ▸
-          </span>
-        )}
-      </NavLink>
-      {inScope && section.sub.length > 0 && (
-        <div className="rail-sub">
-          {section.sub.map((s) => (
-            <NavLink
-              key={s.to}
-              to={s.to}
-              className={`rail-item ${pathname === s.to ? 'active' : ''}`}
-              data-testid={`rail-sub-${s.to.replace(/[^a-z]/gi, '')}`}
-            >
-              <span className="rail-label">{s.label}</span>
-            </NavLink>
+    <>
+      <NavLinkRow
+        to={group.to}
+        label={group.label}
+        pathname={pathname}
+        onNavigate={onNavigate}
+        icon={group.icon}
+      />
+      {inScope && group.sub.length > 0 && (
+        <div className="flex flex-col gap-0.5 pl-3">
+          {group.sub.map((l) => (
+            <NavLinkRow key={l.to} to={l.to} label={l.label} pathname={pathname} onNavigate={onNavigate} />
           ))}
         </div>
       )}
-    </div>
+    </>
   )
+}
+
+// NavLinkRow is one navigation link row (a SidebarItem). Its testId follows
+// the rail-sub-<path-without-separators> scheme the e2e suite has used since
+// P1, so existing specs keep their selectors (e.g. /movies/add ->
+// rail-sub-moviesadd).
+function NavLinkRow({
+  to,
+  label,
+  pathname,
+  onNavigate,
+  icon,
+}: {
+  to: string
+  label: string
+  pathname: string
+  onNavigate: (to: string) => void
+  icon?: string
+}) {
+  return (
+    <SidebarItem
+      label={label}
+      icon={icon}
+      active={pathname === to}
+      onClick={() => onNavigate(to)}
+      testId={`rail-sub-${stripPath(to)}`}
+    />
+  )
+}
+
+// stripPath mirrors the P1 rail-sub testId scheme: '/movies/collections' ->
+// 'moviescollections'.
+function stripPath(to: string): string {
+  return to.replace(/[^a-z]/gi, '')
 }

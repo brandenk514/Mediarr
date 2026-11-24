@@ -1,4 +1,5 @@
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import { PATHS } from './nav'
 import { useAuth } from './auth/AuthContext'
 import { Layout } from './pages/Layout'
 import { LoginPage } from './pages/Login'
@@ -36,10 +37,10 @@ import { SearchHistoryPage } from './pages/indexers/SearchHistory'
 
 // App is the route table. /login is public; everything else requires a valid
 // in-memory token (see AuthProvider). The authenticated routes share the
-// Sonarr-parity Layout shell (top bar + left rail) via a nested route element
-// with an <Outlet/>. Route paths follow the Sonarr IA (docs/sonarr-parity-plan.md):
-// per-kind library + add + deep routes, then shared Calendar / Activity /
-// Wanted / Settings / System areas.
+// unified Layout shell (top bar + sidebar) via a nested route element with an
+// <Outlet/>. Every route path comes from PATHS in nav.ts — the single source
+// of truth the sidebar (pages/Layout.tsx) also derives from, so the rail and
+// the route tree can't drift (issue #116).
 function AuthGate() {
   const { me, ready } = useAuth()
   const location = useLocation()
@@ -64,70 +65,74 @@ export default function App() {
       <Route element={<AuthGate />}>
         {/* R7 home decision: default landing = the Movies list (the Radarr
             users' home). The cross-kind Dashboard is a Mediarr extra,
-            reachable from the rail's Dashboard item. */}
-        <Route path="/" element={<Navigate to="/movies" replace />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        {/* Per-kind libraries + Add (four-kind app: TV / Movies / Music / Books). */}
-        <Route path="/movies" element={<MoviesPage />} />
-        <Route path="/tv" element={<TvPage />} />
-        <Route path="/music" element={<MusicPage />} />
-        <Route path="/books" element={<BooksPage />} />
-        <Route path="/movies/add" element={<MovieAddPage />} />
-        <Route path="/tv/add" element={<TvAddPage />} />
-        <Route path="/music/add" element={<ArtistAddPage />} />
+            reachable from the sidebar's Dashboard item. */}
+        <Route path={PATHS.home} element={<Navigate to={PATHS.movie} replace />} />
+        <Route path={PATHS.dashboard} element={<DashboardPage />} />
+        {/* Per-kind libraries + Add (four-kind app: TV / Movies / Music / Books).
+            The kind is a facet under the Library sidebar section (#116), not a
+            top-level switch; every per-kind page stays routed. */}
+        <Route path={PATHS.movie} element={<MoviesPage />} />
+        <Route path={PATHS.tv} element={<TvPage />} />
+        <Route path={PATHS.music} element={<MusicPage />} />
+        <Route path={PATHS.book} element={<BooksPage />} />
+        <Route path={PATHS.movieAdd} element={<MovieAddPage />} />
+        <Route path={PATHS.tvAdd} element={<TvAddPage />} />
+        <Route path={PATHS.musicAdd} element={<ArtistAddPage />} />
         {/* Lidarr L5: the Unmapped Files page (static, ranks above
             /music/:id). */}
-        <Route path="/music/unmapped" element={<UnmappedFilesPage />} />
+        <Route path={PATHS.musicUnmapped} element={<UnmappedFilesPage />} />
         {/* Lidarr L1: the artist detail deep route (the static /music/add
             ranks above /music/:id). */}
-        <Route path="/music/:id" element={<ArtistDetailPage />} />
-        <Route path="/books/add" element={<BookAddPage />} />
+        <Route path={PATHS.musicDetail} element={<ArtistDetailPage />} />
+        <Route path={PATHS.bookAdd} element={<BookAddPage />} />
         {/* Readarr B3: the Unmapped Files page (static, ranks above
             /books/:id). */}
-        <Route path="/books/unmapped" element={<UnmappedBooksFilesPage />} />
+        <Route path={PATHS.bookUnmapped} element={<UnmappedBooksFilesPage />} />
         {/* Readarr B4: the Bookshelves + Series pages (static paths rank
             above the /books/:id deep route, same as /books/add). */}
-        <Route path="/books/bookshelves" element={<BookshelvesPage />} />
-        <Route path="/books/series" element={<SeriesIndexPage />} />
-        <Route path="/books/series/:id" element={<BookSeriesDetailPage />} />
+        <Route path={PATHS.bookBookshelves} element={<BookshelvesPage />} />
+        <Route path={PATHS.bookSeries} element={<SeriesIndexPage />} />
+        <Route path={PATHS.bookSeriesDetail} element={<BookSeriesDetailPage />} />
         {/* Readarr B1: the author detail deep route (the static /books/add
             ranks above /books/:id). */}
-        <Route path="/books/:id" element={<AuthorDetailPage />} />
+        <Route path={PATHS.bookDetail} element={<AuthorDetailPage />} />
         {/* Radarr R3: static collection/discover routes rank above the
             /movies/:id deep route (same as /movies/add). */}
-        <Route path="/movies/collections" element={<MovieCollectionsPage />} />
-        <Route path="/movies/discover" element={<MovieDiscoverPage />} />
+        <Route path={PATHS.movieCollections} element={<MovieCollectionsPage />} />
+        <Route path={PATHS.movieDiscover} element={<MovieDiscoverPage />} />
         {/* Radarr R4: the movie calendar is a first-class Movies sub-page;
             its static path ranks above the /movies/:id deep route. */}
-        <Route path="/movies/calendar" element={<CalendarPage kind="movie" />} />
+        <Route path={PATHS.movieCalendar} element={<CalendarPage kind="movie" />} />
 
         {/* Movie deep route (static paths like /movies/add rank above). */}
-        <Route path="/movies/:id" element={<MovieDetailPage />} />
+        <Route path={PATHS.movieDetail} element={<MovieDetailPage />} />
         {/* TV deep routes (static paths rank above /tv/:id). */}
-        <Route path="/tv/import" element={<LibraryImportPage />} />
-        <Route path="/tv/:id" element={<SeriesDetailPage />} />
+        <Route path={PATHS.tvImport} element={<LibraryImportPage />} />
+        <Route path={PATHS.tvDetail} element={<SeriesDetailPage />} />
         {/* Shared: Calendar. */}
-        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path={PATHS.calendar} element={<CalendarPage />} />
         {/* Shared: Activity. /queue is kept (existing e2e) alongside /activity/queue. */}
-        <Route path="/queue" element={<QueuePage />} />
-        <Route path="/activity/queue" element={<QueuePage />} />
-        <Route path="/activity/history" element={<HistoryPage />} />
-        <Route path="/activity/blocklist" element={<BlocklistPage />} />
-        {/* Shared: Wanted. */}
-        <Route path="/wanted/missing" element={<WantedPage tab="missing" />} />
-        <Route path="/wanted/cutoff" element={<WantedPage tab="cutoff" />} />
-        {/* Prowlarr PR3: manual search + query history (top-level Prowlarr IA;
-            /indexers/stats is static; there is no /indexers/:id deep route). */}
-        <Route path="/search" element={<ReleaseSearchPage />} />
-        <Route path="/history" element={<SearchHistoryPage />} />
-        <Route path="/indexers/stats" element={<IndexerStatsPage />} />
-        <Route path="/indexers" element={<IndexerHubPage />} />
+        <Route path={PATHS.queue} element={<QueuePage />} />
+        <Route path={PATHS.activityQueue} element={<QueuePage />} />
+        <Route path={PATHS.activityHistory} element={<HistoryPage />} />
+        <Route path={PATHS.activityBlocklist} element={<BlocklistPage />} />
+        {/* Shared: Wanted (routed; reached by direct URL — the v0.4.0 sidebar
+            (#116) is the fixed eight sections, and Wanted is not one of them). */}
+        <Route path={PATHS.wantedMissing} element={<WantedPage tab="missing" />} />
+        <Route path={PATHS.wantedCutoff} element={<WantedPage tab="cutoff" />} />
+        {/* Prowlarr: manual search + query history (Indexers sub-links in the
+            v0.4.0 sidebar; /indexers/stats is static; there is no
+            /indexers/:id deep route). */}
+        <Route path={PATHS.search} element={<ReleaseSearchPage />} />
+        <Route path={PATHS.history} element={<SearchHistoryPage />} />
+        <Route path={PATHS.indexerStats} element={<IndexerStatsPage />} />
+        <Route path={PATHS.indexers} element={<IndexerHubPage />} />
         {/* Settings IA (13 sections; default section is media-management). */}
-        <Route path="/settings" element={<Navigate to="/settings/media-management" replace />} />
-        <Route path="/settings/:section" element={<SettingsShell />} />
+        <Route path={PATHS.settings} element={<Navigate to="/settings/media-management" replace />} />
+        <Route path={PATHS.settingsSection} element={<SettingsShell />} />
         {/* System (status / tasks / backup / updates / events / logs). */}
-        <Route path="/system" element={<Navigate to="/system/status" replace />} />
-        <Route path="/system/:page" element={<SystemPage />} />
+        <Route path={PATHS.system} element={<Navigate to="/system/status" replace />} />
+        <Route path={PATHS.systemPage} element={<SystemPage />} />
       </Route>
     </Routes>
   )

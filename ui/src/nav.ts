@@ -1,192 +1,285 @@
-// Navigation model for the Sonarr-parity shell (P1).
+// Navigation model for the unified app shell (issue #116).
 //
-// Mediarr is a four-kind app (TV / Movies / Music / Books) that shares ONE
-// Sonarr-shaped shell. The left rail's library section is parameterized by the
-// active kind (Series / Movies / Artists / Authors); the other sections
-// (Calendar, Activity, Wanted, Settings, System) are shared. This is the single
-// source of truth for the rail + the per-kind route paths, so the rail and the
-// route tree can't drift.
+// SINGLE SOURCE OF TRUTH for the shell: the eight sidebar sections
+// (Dashboard, Discover, Library, Calendar, Activity, Indexers, Settings,
+// System), their routes, and their icons/labels. The rail (pages/Layout.tsx)
+// and the route tree (App.tsx, via PATHS) both derive from this file, so the
+// rail and the route tree can't drift.
+//
+// "Kind" (TV / Movies / Music / Books) is a FACET, not a top-level switch:
+// the four kind groups are nested under the Library section (the legacy
+// kind switcher and kind-parameterized rail are gone). The per-kind pages
+// stay fully routed — /movies, /books, etc. are reachable from the Library
+// rows and by direct URL.
+
+// ---- route paths -----------------------------------------------------------
+// Every route path used by the shell and the route tree lives here, so the
+// nav model and App.tsx reference the same strings (no drift).
+export const PATHS = {
+  home: '/',
+  dashboard: '/dashboard',
+  // Per-kind library pages (the kind facet under Library).
+  tv: '/tv',
+  movie: '/movies',
+  music: '/music',
+  book: '/books',
+  tvAdd: '/tv/add',
+  movieAdd: '/movies/add',
+  musicAdd: '/music/add',
+  bookAdd: '/books/add',
+  tvImport: '/tv/import',
+  // Per-kind deep pages.
+  tvDetail: '/tv/:id',
+  movieDetail: '/movies/:id',
+  movieCollections: '/movies/collections',
+  movieDiscover: '/movies/discover',
+  movieCalendar: '/movies/calendar',
+  musicUnmapped: '/music/unmapped',
+  musicDetail: '/music/:id',
+  bookUnmapped: '/books/unmapped',
+  bookBookshelves: '/books/bookshelves',
+  bookSeries: '/books/series',
+  bookSeriesDetail: '/books/series/:id',
+  bookDetail: '/books/:id',
+  // Shared sections.
+  calendar: '/calendar',
+  /** Legacy queue route, kept for existing e2e alongside /activity/queue. */
+  queue: '/queue',
+  activityQueue: '/activity/queue',
+  activityHistory: '/activity/history',
+  activityBlocklist: '/activity/blocklist',
+  wantedMissing: '/wanted/missing',
+  wantedCutoff: '/wanted/cutoff',
+  search: '/search',
+  history: '/history',
+  indexers: '/indexers',
+  indexerStats: '/indexers/stats',
+  settings: '/settings',
+  settingsSection: '/settings/:section',
+  system: '/system',
+  systemPage: '/system/:page',
+} as const
+
+// ---- model -----------------------------------------------------------------
+
+export type SectionId =
+  | 'dashboard'
+  | 'discover'
+  | 'library'
+  | 'calendar'
+  | 'activity'
+  | 'indexers'
+  | 'settings'
+  | 'system'
 
 export type KindId = 'tv' | 'movie' | 'music' | 'book'
 
-export interface KindMeta {
-  id: KindId
-  /** Label in the top-of-rail kind switcher. */
-  label: string
-  /** Label of the rail's library section for this kind. */
-  libLabel: string
-  /** Icon glyph for the library section. */
-  libIcon: string
-  /** The per-kind list page (the kind's "home"). */
-  libPath: string
-  /** The per-kind add page. */
-  addPath: string
-  /** The per-kind library-import page (TV-only in P1). */
-  importPath: string | null
-  /**
-   * Extra first-class sub-links for the kind's library section, rendered
-   * after 'Add New' / 'Library Import' (Radarr R3: Movies gets Collections
-   * and Discover; the other kinds' rails are untouched).
-   */
-  extraLinks?: RailLink[]
-}
-
-export const KINDS: KindMeta[] = [
-  {
-    id: 'tv',
-    label: 'TV',
-    libLabel: 'Series',
-    libIcon: '▶',
-    libPath: '/tv',
-    addPath: '/tv/add',
-    importPath: '/tv/import',
-  },
-  {
-    id: 'movie',
-    label: 'Movies',
-    libLabel: 'Movies',
-    libIcon: '🎬',
-    libPath: '/movies',
-    addPath: '/movies/add',
-    importPath: null,
-    // Radarr R3: Collections + Discover are first-class movie sub-links.
-    // Radarr R4: the movie calendar (Radarr v6: Movies ▸ Calendar).
-    extraLinks: [
-      { to: '/movies/collections', label: 'Collections' },
-      { to: '/movies/discover', label: 'Discover' },
-      { to: '/movies/calendar', label: 'Calendar' },
-    ],
-  },
-  {
-    id: 'music',
-    label: 'Music',
-    libLabel: 'Artists',
-    libIcon: '♫',
-    libPath: '/music',
-    addPath: '/music/add',
-    importPath: null,
-  },
-  {
-    id: 'book',
-    label: 'Books',
-    libLabel: 'Authors',
-    libIcon: '📖',
-    libPath: '/books',
-    addPath: '/books/add',
-    importPath: null,
-    // Readarr B3: the Unmapped Files page (books twin of Lidarr's L5
-    // unmapped page) is a first-class books sub-link.
-    // Readarr B4: Bookshelves (client-side shelf rollup) and Series (the
-    // book↔series collection surface, Radarr-Collections analogue).
-    extraLinks: [
-      { to: '/books/unmapped', label: 'Unmapped Files' },
-      { to: '/books/bookshelves', label: 'Bookshelves' },
-      { to: '/books/series', label: 'Series' },
-    ],
-  },
-]
-
-export function kindById(id: string): KindMeta {
-  return KINDS.find((k) => k.id === id) ?? KINDS[0]
-}
-
-// A shared (kind-independent) rail entry.
-export interface RailLink {
+/** A single navigation link (route + label). */
+export interface NavLink {
   to: string
   label: string
 }
 
-// The shared sections that appear for every kind, in Sonarr's order. The
-// library (kind) section is rendered separately above these, with its own
-// per-kind label + Add New / Library Import sub-items.
-export interface SharedSection {
-  id: string
+/**
+ * One kind group under the Library section (the kind FACET). The group row
+ * links to the kind's list page; its sub-links (Add New, Collections, …) are
+ * revealed while the route is within `base`.
+ */
+export interface KindGroup {
+  kind: KindId
+  label: string
+  icon: string
+  /** The kind's list page (the kind's "home"). */
+  to: string
+  /** Route prefix that marks this group active/expanded (e.g. /movies). */
+  base: string
+  /** First-class sub-links under the kind. */
+  sub: NavLink[]
+}
+
+/** One sidebar section. */
+export interface NavSection {
+  id: SectionId
   label: string
   icon: string
   /** The section's default destination (the header row links here). */
   to: string
-  /** Route prefix that marks the section active/expanded (e.g. /activity). */
-  base: string
-  /** Sub-items revealed under the active section. */
-  sub: RailLink[]
-  /** Optional count badge value (System shows a health-count badge). */
-  badge?: number | null
+  /**
+   * Route prefixes that mark the section as the current area: its
+   * sub-links are revealed while the route is within any of them.
+   */
+  base: string[]
+  /** Flat sub-links (Activity, Indexers). */
+  subs?: NavLink[]
+  /** Nested groups (the Library section's per-kind groups). */
+  groups?: KindGroup[]
 }
 
-// Mediarr's own extra section (not in Sonarr): the cross-library overview.
-// R7 home decision — the Movies list is the default landing; the Dashboard
-// stays reachable from this rail item (and the /dashboard route).
-export const DASHBOARD_SECTION: SharedSection = {
-  id: 'dashboard',
-  label: 'Dashboard',
-  icon: '▦',
-  to: '/dashboard',
-  base: '/dashboard',
-  sub: [],
-}
-
-// Prowlarr PR1: Indexers is a first-class hub (the list IS the page), reachable
-// from the rail for every kind. Its home is /indexers; the only PR1 sub-item is
-// a Stats stub (the real stats page lands in PR3).
-export const INDEXERS_SECTION: SharedSection = {
-  id: 'indexers',
-  label: 'Indexers',
-  icon: '🧲',
-  to: '/indexers',
-  base: '/indexers',
-  sub: [{ to: '/indexers/stats', label: 'Stats' }],
-}
-
-// Prowlarr PR3: Search (manual multi-indexer search) and History (query
-// history) are top-level Prowlarr rail sections — the Prowlarr IA order is
-// Indexers → Search → History → Settings → System. They lead SHARED_SECTIONS
-// so the Layout rail (which renders INDEXERS_SECTION just before the shared
-// sections) shows them immediately after Indexers.
-export const SEARCH_SECTION: SharedSection = {
-  id: 'search',
-  label: 'Search',
-  icon: '🔎',
-  to: '/search',
-  base: '/search',
-  sub: [],
-}
-
-export const HISTORY_SECTION: SharedSection = {
-  id: 'history',
-  label: 'History',
-  icon: '🕘',
-  to: '/history',
-  base: '/history',
-  sub: [],
-}
-
-export const SHARED_SECTIONS: SharedSection[] = [
-  SEARCH_SECTION,
-  HISTORY_SECTION,
-  { id: 'calendar', label: 'Calendar', icon: '📅', to: '/calendar', base: '/calendar', sub: [] },
+// The eight sidebar sections of the unified shell, in rail order.
+export const SECTIONS: NavSection[] = [
   {
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: '▦',
+    to: PATHS.dashboard,
+    base: [PATHS.dashboard],
+  },
+  {
+    // Discover currently points at the existing Movies discover page; the
+    // cross-kind discover grid (and a dedicated /discover route) lands in
+    // issue #118.
+    id: 'discover',
+    label: 'Discover',
+    icon: '✨',
+    to: PATHS.movieDiscover,
+    base: [PATHS.movieDiscover],
+  },
+  {
+    // Library: the kind facet. The header's default destination is the
+    // Movies list (the R7 default landing); the four kind groups below it
+    // carry the per-kind list + deep pages.
+    id: 'library',
+    label: 'Library',
+    icon: '📚',
+    to: PATHS.movie,
+    base: [PATHS.tv, PATHS.movie, PATHS.music, PATHS.book],
+    groups: [
+      {
+        kind: 'tv',
+        label: 'TV',
+        icon: '▶',
+        to: PATHS.tv,
+        base: PATHS.tv,
+        sub: [
+          { to: PATHS.tvAdd, label: 'Add New' },
+          { to: PATHS.tvImport, label: 'Library Import' },
+        ],
+      },
+      {
+        kind: 'movie',
+        label: 'Movies',
+        icon: '🎬',
+        to: PATHS.movie,
+        base: PATHS.movie,
+        sub: [
+          { to: PATHS.movieAdd, label: 'Add New' },
+          { to: PATHS.movieCollections, label: 'Collections' },
+          { to: PATHS.movieDiscover, label: 'Discover' },
+          { to: PATHS.movieCalendar, label: 'Calendar' },
+        ],
+      },
+      {
+        kind: 'music',
+        label: 'Music',
+        icon: '♫',
+        to: PATHS.music,
+        base: PATHS.music,
+        sub: [{ to: PATHS.musicAdd, label: 'Add New' }],
+      },
+      {
+        kind: 'book',
+        label: 'Books',
+        icon: '📖',
+        to: PATHS.book,
+        base: PATHS.book,
+        sub: [
+          { to: PATHS.bookAdd, label: 'Add New' },
+          { to: PATHS.bookUnmapped, label: 'Unmapped Files' },
+          { to: PATHS.bookBookshelves, label: 'Bookshelves' },
+          { to: PATHS.bookSeries, label: 'Series' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'calendar',
+    label: 'Calendar',
+    icon: '📅',
+    to: PATHS.calendar,
+    base: [PATHS.calendar],
+  },
+  {
+    // /queue (legacy alias, kept for existing e2e) also counts as the
+    // current area.
     id: 'activity',
     label: 'Activity',
     icon: '⚡',
-    to: '/activity/queue',
-    base: '/activity',
-    sub: [
-      { to: '/activity/queue', label: 'Queue' },
-      { to: '/activity/history', label: 'History' },
-      { to: '/activity/blocklist', label: 'Blocklist' },
+    to: PATHS.activityQueue,
+    base: [PATHS.activityQueue, PATHS.activityHistory, PATHS.activityBlocklist, PATHS.queue],
+    subs: [
+      { to: PATHS.activityQueue, label: 'Queue' },
+      { to: PATHS.activityHistory, label: 'History' },
+      { to: PATHS.activityBlocklist, label: 'Blocklist' },
     ],
   },
   {
-    id: 'wanted',
-    label: 'Wanted',
-    icon: '⭐',
-    to: '/wanted/missing',
-    base: '/wanted',
-    sub: [
-      { to: '/wanted/missing', label: 'Missing' },
-      { to: '/wanted/cutoff', label: 'Cutoff Unmet' },
+    // Prowlarr IA: Indexers → Search → History (manual multi-indexer search
+    // and query history fold in as Indexers sub-links); Stats is the
+    // Indexers' own sub-page.
+    id: 'indexers',
+    label: 'Indexers',
+    icon: '🧲',
+    to: PATHS.indexers,
+    base: [PATHS.indexers, PATHS.search, PATHS.history],
+    subs: [
+      { to: PATHS.search, label: 'Search' },
+      { to: PATHS.history, label: 'History' },
+      { to: PATHS.indexerStats, label: 'Stats' },
     ],
   },
-  { id: 'settings', label: 'Settings', icon: '⚙', to: '/settings', base: '/settings', sub: [] },
-  { id: 'system', label: 'System', icon: '🖥', to: '/system', base: '/system', sub: [] },
+  {
+    id: 'settings',
+    label: 'Settings',
+    icon: '⚙',
+    to: PATHS.settings,
+    base: [PATHS.settings],
+  },
+  {
+    id: 'system',
+    label: 'System',
+    icon: '🖥',
+    to: PATHS.system,
+    base: [PATHS.system],
+  },
 ]
+
+// ---- helpers -----------------------------------------------------------------
+
+/** Look up a section by id (never undefined: SECTIONS is the full set). */
+export function sectionById(id: SectionId): NavSection {
+  const s = SECTIONS.find((x) => x.id === id)
+  if (!s) throw new Error(`unknown nav section: ${id}`)
+  return s
+}
+
+function isWithin(pathname: string, base: string): boolean {
+  return pathname === base || pathname.startsWith(base + '/')
+}
+
+/** The section that owns the current route, or null (e.g. /wanted/*, /login).
+ *
+ * Precedence: an exact match on a section's default destination wins first
+ * (so /movies/discover is Discover, even though it is also under the Movies
+ * group's base); then section bases in rail order.
+ */
+export function sectionForPath(pathname: string): NavSection | null {
+  for (const s of SECTIONS) {
+    if (pathname === s.to) return s
+  }
+  for (const s of SECTIONS) {
+    if (s.base.some((b) => isWithin(pathname, b))) return s
+  }
+  return null
+}
+
+/**
+ * The kind facet of the current route: which Library kind group the route
+ * belongs to (null when the route is not within a kind group).
+ */
+export function activeKindForPath(pathname: string): KindId | null {
+  const library = sectionById('library')
+  for (const g of library.groups ?? []) {
+    if (isWithin(pathname, g.base)) return g.kind
+  }
+  return null
+}
