@@ -48,9 +48,13 @@ describe('nav model — unified shell sections (issue #116)', () => {
     }
   })
 
-  it('routes Discover to the existing Movies discover page (the cross-kind grid is #118)', () => {
+  it('routes Discover to the unified cross-kind page, and keeps the Movies discover page highlighted (issue #118)', () => {
     const discover = SECTIONS.find((s) => s.id === 'discover')
-    expect(discover?.to).toBe(PATHS.movieDiscover)
+    // The section links to the new /discover route (the default landing)…
+    expect(discover?.to).toBe(PATHS.discover)
+    // …and its base covers BOTH routes, so /movies/discover keeps
+    // highlighting the Discover section (its pre-#118 behavior).
+    expect(discover?.base).toEqual([PATHS.discover, PATHS.movieDiscover])
   })
 
   it('registers the global search results route, distinct from the Indexers release search (issue #117)', () => {
@@ -117,6 +121,9 @@ describe('nav model — unified shell sections (issue #116)', () => {
 describe('sectionForPath — route → section (active state)', () => {
   const cases: [string, string | null][] = [
     ['/dashboard', 'dashboard'],
+    // #118: the unified Discover page highlights the Discover section…
+    ['/discover', 'discover'],
+    // …as does the (kept) Movies discover page, via the section's base.
     ['/movies/discover', 'discover'],
     ['/movies', 'library'],
     ['/movies/calendar', 'library'],

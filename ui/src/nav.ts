@@ -42,6 +42,10 @@ export const PATHS = {
   bookSeriesDetail: '/books/series/:id',
   bookDetail: '/books/:id',
   // Shared sections.
+  // #118: the unified cross-kind Discover page — the app's default
+  // landing (supersedes the R7 Movies-list landing) and the rail's
+  // Discover destination.
+  discover: '/discover',
   calendar: '/calendar',
   /** Legacy queue route, kept for existing e2e alongside /activity/queue. */
   queue: '/queue',
@@ -130,14 +134,16 @@ export const SECTIONS: NavSection[] = [
     base: [PATHS.dashboard],
   },
   {
-    // Discover currently points at the existing Movies discover page; the
-    // cross-kind discover grid (and a dedicated /discover route) lands in
-    // issue #118.
+    // #118: the rail's Discover section links to the unified cross-kind
+    // page (/discover, the default landing). The base ALSO covers the
+    // Movies discover page (/movies/discover), which stays reachable
+    // from the Movies group's sub-links — the section highlights on
+    // both routes (its pre-#118 behavior is preserved).
     id: 'discover',
     label: 'Discover',
     icon: '✨',
-    to: PATHS.movieDiscover,
-    base: [PATHS.movieDiscover],
+    to: PATHS.discover,
+    base: [PATHS.discover, PATHS.movieDiscover],
   },
   {
     // Library: the kind facet. The header's default destination is the
@@ -263,9 +269,11 @@ function isWithin(pathname: string, base: string): boolean {
 
 /** The section that owns the current route, or null (e.g. /wanted/*, /login).
  *
- * Precedence: an exact match on a section's default destination wins first
- * (so /movies/discover is Discover, even though it is also under the Movies
- * group's base); then section bases in rail order.
+ * Precedence: an exact match on a section's default destination wins first;
+ * then section bases in rail order. The Discover section's base carries
+ * BOTH /discover and the Movies discover page (/movies/discover), so both
+ * routes highlight Discover even though the latter is also under the
+ * Movies group's base.
  */
 export function sectionForPath(pathname: string): NavSection | null {
   for (const s of SECTIONS) {
