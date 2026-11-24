@@ -53,6 +53,13 @@ describe('nav model — unified shell sections (issue #116)', () => {
     expect(discover?.to).toBe(PATHS.movieDiscover)
   })
 
+  it('registers the global search results route, distinct from the Indexers release search (issue #117)', () => {
+    // PATHS.search is the Indexers manual release-search page; the top-bar
+    // global search results live on their own first-class route.
+    expect(PATHS.globalSearch).toBe('/search/all')
+    expect(PATHS.globalSearch).not.toBe(PATHS.search)
+  })
+
   it('keeps the per-kind pages reachable: Library carries the four kind groups', () => {
     const library = SECTIONS.find((s) => s.id === 'library')
     expect(library?.groups?.map((g) => g.kind)).toEqual(['tv', 'movie', 'music', 'book'])

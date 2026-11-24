@@ -33,6 +33,11 @@ vi.mock('./api/client', () => {
       getMovieStats: vi.fn().mockResolvedValue(null),
       getDashboard: vi.fn(),
       getSystemHealth: vi.fn(),
+      // Issue #117: the global search results route (fan-out endpoints).
+      searchTv: vi.fn(),
+      searchMovies: vi.fn(),
+      searchArtists: vi.fn(),
+      lookupBooks: vi.fn(),
     },
   }
 })
@@ -91,5 +96,28 @@ describe('App', () => {
 
     renderApp(['/dashboard'])
     await expect(screen.findByTestId('dashboard-error')).resolves.toBeVisible()
+  })
+
+  // Issue #117: the global search results page is a FIRST-CLASS route
+  // (PATHS.globalSearch = /search/all, distinct from the Indexers release
+  // search at /search) with the query in the URL. If the route were missing,
+  // nothing would render at that path and the title below would never appear.
+  it('renders the global search results at /search/all with ?q=', async () => {
+    ;(getToken as ReturnType<typeof vi.fn>).mockReturnValue('tok')
+    ;(client.me as ReturnType<typeof vi.fn>).mockResolvedValue({ username: 'admin' })
+    ;(client.getSystemHealth as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('nope'))
+    ;(client.searchTv as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    ;(client.searchMovies as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    ;(client.searchArtists as ReturnType<typeof vi.fn>).mockResolvedValue({
+      query: 'dune',
+      artists: [],
+      release_groups: [],
+    })
+    ;(client.lookupBooks as ReturnType<typeof vi.fn>).mockResolvedValue([])
+
+    renderApp(['/search/all?q=dune'])
+    await expect(screen.findByTestId('global-search-title')).resolves.toBeVisible()
+    await expect(screen.findByTestId('global-search-empty')).resolves.toBeVisible()
+    expect(screen.getByTestId('global-search-query')).toHaveTextContent('Results for “dune”')
   })
 })

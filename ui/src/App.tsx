@@ -34,6 +34,7 @@ import { IndexerHubPage } from './pages/indexers/IndexerHub'
 import { IndexerStatsPage } from './pages/indexers/IndexerStats'
 import { ReleaseSearchPage } from './pages/indexers/ReleaseSearch'
 import { SearchHistoryPage } from './pages/indexers/SearchHistory'
+import { GlobalSearchPage } from './pages/GlobalSearch'
 
 // App is the route table. /login is public; everything else requires a valid
 // in-memory token (see AuthProvider). The authenticated routes share the
@@ -124,6 +125,11 @@ export default function App() {
             v0.4.0 sidebar; /indexers/stats is static; there is no
             /indexers/:id deep route). */}
         <Route path={PATHS.search} element={<ReleaseSearchPage />} />
+        {/* Global cross-kind search (issue #117): the top-bar global search
+            lands here with ?q= in the URL. The static /search/all ranks
+            above nothing conflicting — PATHS.search (/search) is an exact
+            path, and the two are distinct routes. */}
+        <Route path={PATHS.globalSearch} element={<GlobalSearchPage />} />
         <Route path={PATHS.history} element={<SearchHistoryPage />} />
         <Route path={PATHS.indexerStats} element={<IndexerStatsPage />} />
         <Route path={PATHS.indexers} element={<IndexerHubPage />} />

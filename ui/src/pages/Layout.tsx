@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { client } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Badge, SidebarItem } from '../components/primitives'
-import { SECTIONS, sectionForPath, type KindGroup, type NavSection } from '../nav'
+import { PATHS, SECTIONS, sectionForPath, type KindGroup, type NavSection } from '../nav'
 
 // Layout is the unified app shell (issue #116): a full-width top bar
 // (brand · global search · notifications · profile) over a sidebar (the eight
@@ -37,7 +37,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 // ---- top bar ----
 
-function TopBar({
+// TopBar is the shell's header (brand · global search · notifications ·
+// profile). Exported (like Sidebar) so the global-search bar's behavior
+// (issue #117) is testable in isolation.
+export function TopBar({
   version,
   username,
   onLogout,
@@ -46,26 +49,47 @@ function TopBar({
   username: string
   onLogout: () => void
 }) {
-  // The global search input is VISUAL/STRUCTURAL ONLY in this order: it
-  // renders and holds a draft query, but does not execute a search. Functional
-  // cross-kind search (query execution, results) is issue #117.
+  const navigate = useNavigate()
+  // The global search (issue #117): the input holds a draft query and fires
+  // NOTHING on keystrokes — a search only runs when the form is submitted
+  // (Enter in the input, or the dedicated submit button), which navigates to
+  // the first-class global results route carrying the query in the URL
+  // (?q=…), so results are deep-linkable. The fan-out over the four per-kind
+  // endpoints happens on the results page (pages/GlobalSearch.tsx), not here.
   const [q, setQ] = useState('')
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault()
+    const query = q.trim()
+    if (!query) return
+    navigate(`${PATHS.globalSearch}?q=${encodeURIComponent(query)}`)
+  }
 
   return (
     <header className="topbar">
       <Link to="/" className="brand" data-testid="brand">
         mediarr
       </Link>
-      <div className="topbar-search">
+      <form className="topbar-search" onSubmit={submit} role="search" data-testid="global-search-form">
         <input
           type="search"
-          placeholder="Search…"
+          placeholder="Search TV, movies, music, books…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           aria-label="Global search"
           data-testid="global-search"
         />
-      </div>
+        <button
+          type="submit"
+          className="topbar-icon"
+          title="Search all libraries"
+          aria-label="Search"
+          disabled={!q.trim()}
+          data-testid="global-search-submit"
+        >
+          ⌕
+        </button>
+      </form>
       <div className="topbar-right">
         {version && <span className="dim small">{version}</span>}
         <button
