@@ -2051,6 +2051,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Unified Discover page (movies + TV cells)
+         * @description The unified Discover page (issue #118, A1): feed cells across
+         *     movies and TV. `trending` is the TMDB trending feed (week window),
+         *     `upcoming` is the next 14 days of monitored air/release dates
+         *     (calendar), `newReleases` is now-playing movies plus TV
+         *     first-aired in the last ~30 days. Music and book cells arrive in
+         *     a later order — absent kinds simply don't appear yet. Each
+         *     (row × kind) cell is capped at 6 items server-side. Per-cell
+         *     failure NEVER fails the request: an unavailable feed is 200 with
+         *     the cell named in `unavailable` (keyless dev → "tmdb is not
+         *     configured (missing API key)"). Only a total failure is a 5xx.
+         */
+        get: operations["discover"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/discover/movies": {
         parameters: {
             query?: never;
@@ -2933,6 +2962,48 @@ export interface components {
             missing_count: number;
             /** @description The library members as full Movie objects. */
             movies: components["schemas"]["Movie"][];
+        };
+        /**
+         * @description The unified Discover page (issue #118, A1). Arrays are always
+         *     `[]`, never null. Each (row × kind) cell is capped at 6 items
+         *     server-side; music/book cells (absent in A1) simply don't appear.
+         */
+        DiscoverPage: {
+            /** @description TMDB trending (week window) — movie + tv. */
+            trending: components["schemas"]["DiscoverItem"][];
+            /** @description Monitored air/release dates in [today, today+14d] — movie + tv. */
+            upcoming: components["schemas"]["DiscoverItem"][];
+            /** @description Now-playing movies + TV first-aired in the last ~30 days. */
+            newReleases: components["schemas"]["DiscoverItem"][];
+            /** @description Cells that failed or are not configured (200, never 5xx). */
+            unavailable: components["schemas"]["DiscoverCellError"][];
+        };
+        /**
+         * @description One normalized row in a Discover cell. `year` is 0 when unknown;
+         *     `subtitle` is a one-line meta (episode SxE for calendar TV rows),
+         *     '' when n/a; `posterUrl` is '' when unknown (the UI renders an
+         *     initials stand-in); `date` is RFC3339, '' when n/a.
+         */
+        DiscoverItem: {
+            /** @enum {string} */
+            kind: "movie" | "tv" | "music" | "book";
+            /** @description The item's id in its source system (TMDB id for feed rows, the local library id for calendar rows). */
+            sourceId: string;
+            title: string;
+            /** @description Release/first-air year (0 when unknown). */
+            year: number;
+            /** @description One meta line (artist/author/studio, episode SxE); '' when n/a. */
+            subtitle: string;
+            /** @description Poster image URL; '' when unknown. */
+            posterUrl: string;
+            /** @description Release/air date (RFC3339); '' when n/a. */
+            date: string;
+        };
+        /** @description One unavailable feed cell (per-cell failure never fails the request). */
+        DiscoverCellError: {
+            /** @description The cell as "<kind>:<row>" (e.g. "tv:trending"). */
+            cell: string;
+            reason: string;
         };
         /**
          * @description One page of the Discover feed (Radarr R3): the TMDB trending-movies
@@ -9537,6 +9608,28 @@ export interface operations {
             500: components["responses"]["Internal"];
             502: components["responses"]["BadGateway"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    discover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Discover cells. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoverPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["Internal"];
         };
     };
     discoverMovies: {

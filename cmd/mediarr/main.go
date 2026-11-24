@@ -47,6 +47,7 @@ import (
 	blocklistsvc "github.com/brandenk514/mediarr/internal/services/blocklist"
 	bookssvc "github.com/brandenk514/mediarr/internal/services/books"
 	calendarsvc "github.com/brandenk514/mediarr/internal/services/calendar"
+	discoversvc "github.com/brandenk514/mediarr/internal/services/discover"
 	historysvc "github.com/brandenk514/mediarr/internal/services/historyfeed"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
@@ -550,6 +551,12 @@ func run(logSvc *system.LogService) error {
 	calendarRepo := postgres.NewCalendarRepo(pg.DB())
 	calendarSvc := calendarsvc.New(calendarRepo)
 	srv.SetCalendar(&api.CalendarDeps{Svc: calendarSvc})
+
+	// Issue #118 (A1): the unified Discover page — TMDB trending /
+	// now-playing / recent-TV feeds composed with the calendar's upcoming
+	// rows. Keyless dev: the TMDB cells land in `unavailable` (200, R3
+	// keyless wording) while the upcoming cells still populate.
+	srv.SetDiscoverPage(&api.DiscoverPageDeps{Svc: discoversvc.New(tmdbClient, calendarSvc)})
 
 	// --- Music pipeline --------------------------------------------
 	// M3: wire the music pipeline end-to-end, mirroring the TV pipeline. The

@@ -72,6 +72,8 @@ tags:
     description: Upcoming monitored air dates (Calendar page + iCal feed).
   - name: search
     description: Provider search for the add flows + quality profiles.
+  - name: discover
+    description: The unified cross-library Discover page (trending / upcoming / new-releases cells).
   - name: indexer-search
     description: Manual release search, grab, query history, and the activity stats summary (Prowlarr PR3 — the indexer hub's depth).
   - name: events
@@ -3518,6 +3520,33 @@ paths:
           $ref: "#/components/responses/ServiceUnavailable"
         "500":
           $ref: "#/components/responses/Internal"
+  /api/v1/discover:
+    get:
+      tags: [discover]
+      summary: Unified Discover page (movies + TV cells)
+      operationId: discover
+      description: |
+        The unified Discover page (issue #118, A1): feed cells across
+        movies and TV. `trending` is the TMDB trending feed (week window),
+        `upcoming` is the next 14 days of monitored air/release dates
+        (calendar), `newReleases` is now-playing movies plus TV
+        first-aired in the last ~30 days. Music and book cells arrive in
+        a later order — absent kinds simply don't appear yet. Each
+        (row × kind) cell is capped at 6 items server-side. Per-cell
+        failure NEVER fails the request: an unavailable feed is 200 with
+        the cell named in `unavailable` (keyless dev → "tmdb is not
+        configured (missing API key)"). Only a total failure is a 5xx.
+      responses:
+        "200":
+          description: The Discover cells.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Internal"
   /api/v1/discover/movies:
     get:
       tags: [movies]
@@ -4938,6 +4967,73 @@ components:
           items:
             $ref: "#/components/schemas/Movie"
           description: The library members as full Movie objects.
+    DiscoverPage:
+      type: object
+      required: [trending, upcoming, newReleases, unavailable]
+      description: |
+        The unified Discover page (issue #118, A1). Arrays are always
+        `[]`, never null. Each (row × kind) cell is capped at 6 items
+        server-side; music/book cells (absent in A1) simply don't appear.
+      properties:
+        trending:
+          type: array
+          description: TMDB trending (week window) — movie + tv.
+          items:
+            $ref: "#/components/schemas/DiscoverItem"
+        upcoming:
+          type: array
+          description: Monitored air/release dates in [today, today+14d] — movie + tv.
+          items:
+            $ref: "#/components/schemas/DiscoverItem"
+        newReleases:
+          type: array
+          description: Now-playing movies + TV first-aired in the last ~30 days.
+          items:
+            $ref: "#/components/schemas/DiscoverItem"
+        unavailable:
+          type: array
+          description: Cells that failed or are not configured (200, never 5xx).
+          items:
+            $ref: "#/components/schemas/DiscoverCellError"
+    DiscoverItem:
+      type: object
+      required: [kind, sourceId, title, year, subtitle, posterUrl, date]
+      description: |
+        One normalized row in a Discover cell. `year` is 0 when unknown;
+        `subtitle` is a one-line meta (episode SxE for calendar TV rows),
+        '' when n/a; `posterUrl` is '' when unknown (the UI renders an
+        initials stand-in); `date` is RFC3339, '' when n/a.
+      properties:
+        kind:
+          type: string
+          enum: [movie, tv, music, book]
+        sourceId:
+          type: string
+          description: The item's id in its source system (TMDB id for feed rows, the local library id for calendar rows).
+        title:
+          type: string
+        year:
+          type: integer
+          description: Release/first-air year (0 when unknown).
+        subtitle:
+          type: string
+          description: One meta line (artist/author/studio, episode SxE); '' when n/a.
+        posterUrl:
+          type: string
+          description: Poster image URL; '' when unknown.
+        date:
+          type: string
+          description: Release/air date (RFC3339); '' when n/a.
+    DiscoverCellError:
+      type: object
+      required: [cell, reason]
+      description: One unavailable feed cell (per-cell failure never fails the request).
+      properties:
+        cell:
+          type: string
+          description: The cell as "<kind>:<row>" (e.g. "tv:trending").
+        reason:
+          type: string
     DiscoverMovies:
       type: object
       required: [results, page, total]
