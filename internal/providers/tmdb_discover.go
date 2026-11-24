@@ -15,7 +15,7 @@ import (
 // service composes them with calendar rows into the page's cells and caps
 // each cell.
 type DiscoverItem struct {
-	Kind      string // "movie" | "tv" (music/book join in later orders)
+	Kind      string // "movie" | "tv" | "music" | "book"
 	SourceID  string // TMDB id (TMDB-sourced rows)
 	Title     string
 	Year      int // release/first-air year; 0 when unknown

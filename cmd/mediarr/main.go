@@ -552,12 +552,6 @@ func run(logSvc *system.LogService) error {
 	calendarSvc := calendarsvc.New(calendarRepo)
 	srv.SetCalendar(&api.CalendarDeps{Svc: calendarSvc})
 
-	// Issue #118 (A1): the unified Discover page — TMDB trending /
-	// now-playing / recent-TV feeds composed with the calendar's upcoming
-	// rows. Keyless dev: the TMDB cells land in `unavailable` (200, R3
-	// keyless wording) while the upcoming cells still populate.
-	srv.SetDiscoverPage(&api.DiscoverPageDeps{Svc: discoversvc.New(tmdbClient, calendarSvc)})
-
 	// --- Music pipeline --------------------------------------------
 	// M3: wire the music pipeline end-to-end, mirroring the TV pipeline. The
 	// music service shares the same fake indexer + mock download client so a
@@ -648,6 +642,22 @@ func run(logSvc *system.LogService) error {
 		GoogleBooks: bookssvc.NewGoogleBooksSearcher(gbProvider),
 	})
 	srv.SetBooks(&api.BooksDeps{Svc: booksSvc})
+	// Issue #118 (A1+A2): the unified Discover page — the TMDB trending /
+	// now-playing / recent-TV feeds (A1) plus the MusicBrainz release-group
+	// / release feeds, the Open Library trending + first-publish-year
+	// feeds, the optional keyed Google Books feed, the calendar's upcoming
+	// rows, and the books library's upcoming titles (A2). Keyless dev:
+	// the TMDB cells land in `unavailable` (200, R3 keyless wording); a
+	// missing Google Books key degrades the book new-releases cell to its
+	// OpenLibrary fallback (still 200, the key named in `unavailable`).
+	srv.SetDiscoverPage(&api.DiscoverPageDeps{Svc: discoversvc.New(discoversvc.Deps{
+		TMDB:        tmdbClient,
+		Calendar:    calendarSvc,
+		MusicBrainz: providers.NewMusicBrainz(),
+		OpenLibrary: olProvider,
+		GoogleBooks: gbProvider,
+		Books:       booksSvc,
+	})})
 	logger.Info("books pipeline ready",
 		"media_root", booksMediaRoot,
 		"indexers", "fake",

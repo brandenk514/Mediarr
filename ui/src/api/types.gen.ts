@@ -2059,17 +2059,24 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Unified Discover page (movies + TV cells)
-         * @description The unified Discover page (issue #118, A1): feed cells across
-         *     movies and TV. `trending` is the TMDB trending feed (week window),
+         * Unified Discover page (movies, TV, music, books)
+         * @description The unified Discover page (issue #118, A1+A2): feed cells across
+         *     movies, TV, music, and books. `trending` is the TMDB trending
+         *     feed (week window), MusicBrainz release groups first-released in
+         *     the last ~30 days (documented proxy — MusicBrainz has no
+         *     popularity signal), and Open Library's weekly trending works;
          *     `upcoming` is the next 14 days of monitored air/release dates
-         *     (calendar), `newReleases` is now-playing movies plus TV
-         *     first-aired in the last ~30 days. Music and book cells arrive in
-         *     a later order — absent kinds simply don't appear yet. Each
-         *     (row × kind) cell is capped at 6 items server-side. Per-cell
-         *     failure NEVER fails the request: an unavailable feed is 200 with
-         *     the cell named in `unavailable` (keyless dev → "tmdb is not
-         *     configured (missing API key)"). Only a total failure is a 5xx.
+         *     (calendar) plus monitored book titles with a current-or-later
+         *     edition not yet imported; `newReleases` is now-playing movies,
+         *     TV first-aired in the last ~30 days, MusicBrainz releases dated
+         *     in the last ~14 days, and (keyed) Google Books volumes by newest
+         *     — with the Open Library first_publish_year feed as the
+         *     documented keyless fallback for the book cell. Each (row × kind)
+         *     cell is capped at 6 items server-side. Per-cell failure NEVER
+         *     fails the request: an unavailable feed is 200 with the cell
+         *     named in `unavailable` (keyless dev → "tmdb is not configured
+         *     (missing API key)", "google books is not configured (missing
+         *     API key)", ...). Only a total failure is a 5xx.
          */
         get: operations["discover"];
         put?: never;
@@ -2964,16 +2971,17 @@ export interface components {
             movies: components["schemas"]["Movie"][];
         };
         /**
-         * @description The unified Discover page (issue #118, A1). Arrays are always
+         * @description The unified Discover page (issue #118, A1+A2): four kinds per
+         *     row (movie, tv, music, book), in that order. Arrays are always
          *     `[]`, never null. Each (row × kind) cell is capped at 6 items
-         *     server-side; music/book cells (absent in A1) simply don't appear.
+         *     server-side.
          */
         DiscoverPage: {
-            /** @description TMDB trending (week window) — movie + tv. */
+            /** @description TMDB trending (week window) + MusicBrainz recent first-releases (proxy) + Open Library weekly trending — movie, tv, music, book. */
             trending: components["schemas"]["DiscoverItem"][];
-            /** @description Monitored air/release dates in [today, today+14d] — movie + tv. */
+            /** @description Monitored air/release dates in [today, today+14d] (calendar) + monitored books with a current-or-later edition — movie, tv, music, book. */
             upcoming: components["schemas"]["DiscoverItem"][];
-            /** @description Now-playing movies + TV first-aired in the last ~30 days. */
+            /** @description Now-playing movies + TV first-aired in the last ~30 days + MusicBrainz releases (last ~14 days) + Google Books newest (keyed; Open Library first_publish_year fallback when keyless) — movie, tv, music, book. */
             newReleases: components["schemas"]["DiscoverItem"][];
             /** @description Cells that failed or are not configured (200, never 5xx). */
             unavailable: components["schemas"]["DiscoverCellError"][];
@@ -2987,7 +2995,7 @@ export interface components {
         DiscoverItem: {
             /** @enum {string} */
             kind: "movie" | "tv" | "music" | "book";
-            /** @description The item's id in its source system (TMDB id for feed rows, the local library id for calendar rows). */
+            /** @description The item's id in its source system (TMDB/MusicBrainz/Open Library/Google Books ids for feed rows, the local library id for calendar and books-library rows). */
             sourceId: string;
             title: string;
             /** @description Release/first-air year (0 when unknown). */

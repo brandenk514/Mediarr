@@ -77,7 +77,16 @@ type gbVolumeInfo struct {
 	Language            string         `json:"language"`      // ISO-639-1-style code (e.g. "en")
 	PageCount           int            `json:"pageCount"`
 	PrintType           string         `json:"printType"` // BOOK, AUDIOBOOK, MAGAZINE, ...
+	ImageLinks          gbImageLinks   `json:"imageLinks"`
 	IndustryIdentifiers []gbIdentifier `json:"industryIdentifiers"`
+}
+
+// gbImageLinks is the volumeInfo.cover-image URLs of the volumes API
+// (the unified Discover page's poster source; absent when the volume
+// has no cover).
+type gbImageLinks struct {
+	Thumbnail string `json:"thumbnail"`
+	Small     string `json:"small"`
 }
 
 // gbVolume is one items[] row of the volumes API. (saleInfo sits at the
