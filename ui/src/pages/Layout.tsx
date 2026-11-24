@@ -148,7 +148,7 @@ export { useSystemBadge }
 // while the route is within the section, and — under Library — the per-kind
 // groups (the kind facet) and their first-class sub-links.
 export function Sidebar() {
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const navigate = useNavigate()
   const current = sectionForPath(pathname)
   const systemBadge = useSystemBadge()
@@ -161,6 +161,7 @@ export function Sidebar() {
           section={section}
           active={current?.id === section.id}
           pathname={pathname}
+          search={search}
           onNavigate={navigate}
           badge={
             section.id === 'system' && systemBadge > 0 ? (
@@ -180,12 +181,14 @@ function SectionNode({
   section,
   active,
   pathname,
+  search,
   onNavigate,
   badge,
 }: {
   section: NavSection
   active: boolean
   pathname: string
+  search: string
   onNavigate: (to: string) => void
   badge?: React.ReactNode
 }) {
@@ -208,7 +211,7 @@ function SectionNode({
             <NavLinkRow key={l.to} to={l.to} label={l.label} pathname={pathname} onNavigate={onNavigate} />
           ))}
           {(section.groups ?? []).map((g) => (
-            <KindGroupNode key={g.kind} group={g} pathname={pathname} onNavigate={onNavigate} />
+            <KindGroupNode key={g.kind} group={g} pathname={pathname} search={search} onNavigate={onNavigate} />
           ))}
         </div>
       )}
@@ -217,18 +220,27 @@ function SectionNode({
 }
 
 // KindGroupNode renders one Library kind group (the kind facet): the group
-// row links to the kind's list page, and its first-class sub-links (Add New,
-// Collections, …) are revealed while the route is within the group's base.
+// row links to the unified grid filtered to this kind (#119,
+// /library?kind=…), and its first-class sub-links (Add New, Collections, …)
+// are revealed while the route is within the group's base. Its testId is
+// stable by kind (rail-sub-<kind>) so the e2e selectors don't track the
+// destination (the kind rows are grid shortcuts, not per-kind pages).
 function KindGroupNode({
   group,
   pathname,
+  search,
   onNavigate,
 }: {
   group: KindGroup
   pathname: string
+  search: string
   onNavigate: (to: string) => void
 }) {
   const inScope = pathname === group.base || pathname.startsWith(group.base + '/')
+  // The row highlights while on that kind's per-kind pages, or on the Library
+  // grid filtered to this kind (/library?kind=<kind>).
+  const rowActive =
+    inScope || (pathname === PATHS.library && search === `?kind=${group.kind}`)
   return (
     <>
       <NavLinkRow
@@ -237,6 +249,8 @@ function KindGroupNode({
         pathname={pathname}
         onNavigate={onNavigate}
         icon={group.icon}
+        testId={`rail-sub-${group.kind}`}
+        active={rowActive}
       />
       {inScope && group.sub.length > 0 && (
         <div className="flex flex-col gap-0.5 pl-3">
@@ -249,30 +263,35 @@ function KindGroupNode({
   )
 }
 
-// NavLinkRow is one navigation link row (a SidebarItem). Its testId follows
-// the rail-sub-<path-without-separators> scheme the e2e suite has used since
-// P1, so existing specs keep their selectors (e.g. /movies/add ->
-// rail-sub-moviesadd).
+// NavLinkRow is one navigation link row (a SidebarItem). Its testId defaults
+// to the rail-sub-<path-without-separators> scheme the e2e suite has used
+// since P1, so existing specs keep their selectors (e.g. /movies/add ->
+// rail-sub-moviesadd). `testId`/`active` overrides let a row keep a stable
+// selector and its own active rule (the Library kind rows, #119).
 function NavLinkRow({
   to,
   label,
   pathname,
   onNavigate,
   icon,
+  testId,
+  active: activeOverride,
 }: {
   to: string
   label: string
   pathname: string
   onNavigate: (to: string) => void
   icon?: string
+  testId?: string
+  active?: boolean
 }) {
   return (
     <SidebarItem
       label={label}
       icon={icon}
-      active={pathname === to}
+      active={activeOverride ?? pathname === to}
       onClick={() => onNavigate(to)}
-      testId={`rail-sub-${stripPath(to)}`}
+      testId={testId ?? `rail-sub-${stripPath(to)}`}
     />
   )
 }

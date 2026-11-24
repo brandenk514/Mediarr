@@ -39,15 +39,17 @@ test('authenticated shell shows the top bar and sidebar', async ({ page }) => {
   }
 })
 
-test('Library kind rows navigate to each kind library', async ({ page }) => {
+test('Library kind rows navigate to the grid filtered to each kind (#119)', async ({ page }) => {
   await page.goto('/tv')
   await signIn(page)
   await expect(page).toHaveURL(/\/tv$/)
 
+  // #119: the sidebar kind rows are shortcuts into the unified Library grid
+  // (deep-linked to the kind filter, ?kind=…), not the per-kind list pages.
   const targets: [string, RegExp][] = [
-    ['rail-sub-movies', /\/movies$/],
-    ['rail-sub-music', /\/music$/],
-    ['rail-sub-books', /\/books$/],
+    ['rail-sub-movies', /\/library\?kind=movie$/],
+    ['rail-sub-music', /\/library\?kind=music$/],
+    ['rail-sub-books', /\/library\?kind=book$/],
   ]
   for (const [id, re] of targets) {
     await page.getByTestId(id).click()
