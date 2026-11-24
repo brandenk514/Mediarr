@@ -1,0 +1,83 @@
+/* =========================================================================
+   Design tokens — mediarr design system (issue #115, epic #114).
+
+   This file is the single source of truth for the UI's visual language.
+   It is imported by ui/src/index.css, which loads Tailwind v4; every
+   `--color-*` / `--text-*` / `--font-*` variable below becomes a Tailwind
+   utility (bg-surface, text-text-muted, text-sm, font-sans, ...).
+
+   The legacy `:root` aliases in index.css (--bg, --panel, --dim, --ok, ...)
+   resolve to these tokens, so existing pages keep working while the unified
+   shell (#116) and later views (#117–#123) move to the token utilities.
+
+   Palette: dark-first (the app ships no light theme; see issue #115).
+   Values are the Sonarr-parity palette from the P1 build, re-exposed under
+   semantic names.
+   ========================================================================= */
+
+@theme {
+  /* ---- color: surfaces (dark-first) ---- */
+  --color-bg: #0f1216; /* page background (charcoal) */
+  --color-content: #12161d; /* content pane (charcoal, slightly lighter) */
+  --color-surface: #1b2129; /* panels, cards */
+  --color-surface-raised: #222a34; /* raised panels, hover rows, popovers */
+  --color-rail: #141920; /* left rail (slate) */
+  --color-rail-hover: #1b222c; /* rail item hover */
+  --color-rail-active: #212b36; /* rail item active row */
+  --color-topbar: #115e59; /* top bar (Sonarr teal, deep) */
+  --color-topbar-hover: #0f524d; /* top bar hover */
+
+  /* ---- color: text (semantic) ---- */
+  --color-text: #e6e8ee; /* primary text */
+  --color-text-muted: #8b91a0; /* secondary / muted text */
+
+  /* ---- color: lines (semantic) ---- */
+  --color-border: #2a313c; /* default border color */
+
+  /* ---- color: accent (brand) ---- */
+  --color-accent: #14b8a6; /* teal accent: actions, active states, focus */
+  --color-accent-hover: #0d9488; /* accent hover */
+
+  /* ---- color: status (semantic) ---- */
+  --color-success: #3fb950; /* ok, complete, live, downloaded */
+  --color-warning: #e08214; /* queued, downloading, warning */
+  --color-error: #f85149; /* failed, missing, error */
+
+  /* ---- color: light card footers (poster grids) ---- */
+  --color-foot: #e9edf2;
+  --color-foot-text: #2b313b;
+
+  /* ---- typography: families ---- */
+  --font-sans: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ---- typography: scale (font-size / line-height) ---- */
+  --text-2xs: 0.6875rem; /* 11px: badges, micro labels */
+  --text-2xs--line-height: 0.875rem;
+  --text-xs: 0.75rem; /* 12px: table headers, hints */
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem; /* 14px: dense UI, controls (default) */
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem; /* 16px: body copy */
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem; /* 18px: section titles */
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem; /* 20px: panel titles */
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem; /* 24px: page titles */
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem; /* 30px: display */
+  --text-3xl--line-height: 2.25rem;
+
+  /* ---- typography: weights (canonical usage) ---- */
+  --font-weight-regular: 400; /* body copy */
+  --font-weight-medium: 500; /* nav rows, table cells, labels */
+  --font-weight-semibold: 600; /* headings, emphasis, badges */
+  --font-weight-bold: 700; /* brand, KPI values */
+
+  /* ---- spacing: 4px base grid ----
+     Tailwind's numeric spacing utilities derive from this base
+     (p-1 = 0.25rem, m-2 = 0.5rem, gap-3 = 0.75rem, ...). The canonical
+     scale used by the primitives is 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48px. */
+  --spacing: 0.25rem;
+}

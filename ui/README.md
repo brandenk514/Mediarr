@@ -7,6 +7,9 @@ a separate build; the Go service is the source of truth for all data.
 
 - Vite + React 19 + TypeScript (strict)
 - `react-router-dom` for routing
+- Tailwind v4 (`@tailwindcss/vite`) for the design-system foundation
+  (issue #115) — tokens in `src/styles/tokens.css`, primitives in
+  `src/components/primitives/` (see `docs/design-system.md`)
 - `vitest` + `@testing-library/react` for tests
 - Playwright (`ui/e2e/`) for browser E2E against a running stack
 
@@ -32,7 +35,10 @@ src/
   api/       typed v1 API client (client.ts), wire types (types.ts),
              in-memory token store (store.ts)
   auth/      AuthProvider + useAuth (token in memory, never browser storage)
+  components/ shared UI: P1 building blocks (ui.tsx, poster.tsx, list.tsx,
+             musicgrid.tsx) and the design-system primitives/ (issue #115)
   pages/     Layout (nav shell), LoginPage, per-kind views (M6 #40–#44)
+  styles/    design tokens (tokens.css — Tailwind v4 @theme, issue #115)
   test/      vitest setup
 ```
 
