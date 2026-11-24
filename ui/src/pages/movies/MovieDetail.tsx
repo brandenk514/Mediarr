@@ -196,6 +196,7 @@ export function MovieDetailPage() {
       title={movie?.Title ?? ''}
       heading={movie ? (movie.Year > 0 ? `${movie.Title} (${movie.Year})` : movie.Title) : undefined}
       heroTestId="movie-detail-header"
+      posterTestId="movie-detail-poster"
       nav={
         movie
           ? {

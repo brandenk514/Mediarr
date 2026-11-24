@@ -400,7 +400,7 @@ describe('DetailShell across the four detail routes', () => {
     expect(screen.getAllByTestId('detail-hero')).toHaveLength(1)
     expect(screen.getByTestId('detail-hero-title')).toHaveTextContent('Dune (2021)')
     expect(screen.getByTestId('detail-hero-kind')).toHaveTextContent('Movie')
-    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('D')
+    expect(screen.getByTestId('movie-detail-poster')).toHaveTextContent('D')
     // Existing metadata stays inside the shared hero.
     expect(hero).toContainElement(screen.getByTestId('movie-detail-fields'))
     expect(hero).toContainElement(screen.getByTestId('movie-mon-7'))
@@ -522,7 +522,7 @@ describe('DetailShell across the four detail routes', () => {
     // same; only the testid differs per kind).
     expect(screen.getByTestId('author-detail-name')).toHaveTextContent('Ursula K. Le Guin')
     expect(screen.getByTestId('detail-hero-kind')).toHaveTextContent('Author')
-    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('UK')
+    expect(screen.getByTestId('author-detail-poster')).toHaveTextContent('UK')
     expect(hero).toContainElement(screen.getByTestId('author-detail-monitored'))
     expect(hero).toContainElement(screen.getByTestId('badge-book-count'))
     expect(hero).toContainElement(screen.getByTestId('author-detail-fields'))

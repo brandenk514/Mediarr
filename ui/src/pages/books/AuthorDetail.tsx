@@ -208,6 +208,7 @@ export function AuthorDetailPage() {
       heading={author?.Name}
       headingTestId="author-detail-name"
       heroTestId="author-detail-header"
+      posterTestId="author-detail-poster"
       titleExtras={
         author ? (
           <MonitoredToggle

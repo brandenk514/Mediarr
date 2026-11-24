@@ -70,6 +70,10 @@ export interface DetailShellProps {
   headingTestId?: string
   /** Poster image URL; '' / null / undefined = initials placeholder. */
   posterUrl?: string | null
+  /** Poster testid; defaults to the shared 'detail-hero-poster'. Pages with
+   * an existing poster testid keep it (movie-detail-poster,
+   * author-detail-poster). */
+  posterTestId?: string
   /** Existing per-page hero testid (movie-detail-header, series-detail-header, artist-detail-banner, author-detail-header). */
   heroTestId: string
   /** Prev/next library paging arrows. */
@@ -128,6 +132,7 @@ export function DetailShell({
   heading,
   headingTestId,
   posterUrl,
+  posterTestId,
   heroTestId,
   nav,
   titleExtras,
@@ -180,7 +185,7 @@ export function DetailShell({
       <div className="detail-hero" data-testid={heroTestId}>
         <div className="detail-hero-backdrop" aria-hidden="true" />
         <div className="detail-hero-body" data-testid="detail-hero">
-          <DetailPoster title={title} url={posterUrl} />
+          <DetailPoster title={title} url={posterUrl} testId={posterTestId ?? 'detail-hero-poster'} />
           <div className="detail-hero-main">
             <div className="detail-title">
               <h2 data-testid={headingTestId ?? 'detail-hero-title'}>{heading ?? title}</h2>
