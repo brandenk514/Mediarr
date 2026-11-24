@@ -1123,10 +1123,14 @@ button.danger:hover {
 .topbar-search {
   flex: 1;
   max-width: 520px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .topbar-search input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   border-bottom: 2px solid rgba(255, 255, 255, 0.3);
@@ -1167,6 +1171,16 @@ button.danger:hover {
 .topbar-icon:hover {
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
+}
+
+.topbar-icon:disabled {
+  color: rgba(255, 255, 255, 0.3);
+  cursor: default;
+}
+
+.topbar-icon:disabled:hover {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .topbar-user {

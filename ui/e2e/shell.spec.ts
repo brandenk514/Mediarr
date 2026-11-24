@@ -11,7 +11,8 @@ test('authenticated shell shows the top bar and sidebar', async ({ page }) => {
   await signIn(page)
   await expect(page).toHaveURL(/\/tv$/)
 
-  // Top bar chrome (global search is visual/structural only until #117).
+  // Top bar chrome. Global search is functional (issue #117): typing +
+  // Enter navigates to the /search/all results route.
   await expect(page.getByTestId('brand')).toBeVisible()
   await expect(page.getByTestId('global-search')).toBeVisible()
   await expect(page.getByTestId('notifications')).toBeVisible()

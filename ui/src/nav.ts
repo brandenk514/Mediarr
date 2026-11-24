@@ -51,6 +51,11 @@ export const PATHS = {
   wantedMissing: '/wanted/missing',
   wantedCutoff: '/wanted/cutoff',
   search: '/search',
+  // Global cross-kind search results (issue #117). Distinct from `search`
+  // (the Indexers manual release-search page): the top-bar global search
+  // navigates here with the query in the URL (?q=…), so results are
+  // deep-linkable.
+  globalSearch: '/search/all',
   history: '/history',
   indexers: '/indexers',
   indexerStats: '/indexers/stats',
