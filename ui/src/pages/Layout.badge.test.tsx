@@ -2,7 +2,7 @@ import { render, renderHook, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../api/client'
-import { Rail, useSystemBadge } from './Layout'
+import { Sidebar, useSystemBadge } from './Layout'
 
 // The orange System nav badge is the count of non-ok health checks
 // (warning + error). A P1-only dev stack answers 404 -> no badge.
@@ -46,7 +46,7 @@ describe('useSystemBadge (orange System nav badge)', () => {
   })
 })
 
-describe('Rail — System badge rendering', () => {
+describe('Sidebar — System badge rendering', () => {
   it('shows the orange count badge on the System item when checks are non-ok', async () => {
     ;(client.getSystemHealth as ReturnType<typeof vi.fn>).mockResolvedValue({
       checks: [],
@@ -56,7 +56,7 @@ describe('Rail — System badge rendering', () => {
     })
     render(
       <MemoryRouter initialEntries={['/tv']}>
-        <Rail />
+        <Sidebar />
       </MemoryRouter>,
     )
     const badge = await screen.findByTestId('rail-system-badge')
@@ -72,7 +72,7 @@ describe('Rail — System badge rendering', () => {
     })
     render(
       <MemoryRouter initialEntries={['/tv']}>
-        <Rail />
+        <Sidebar />
       </MemoryRouter>,
     )
     await screen.findByText('System')

@@ -1,45 +1,52 @@
 import { expect, test } from '@playwright/test'
 import { signIn } from './login'
 
-// Sonarr-parity shell coverage (P1). Verifies the new chrome (top bar + left
-// rail) and that every route in the parity route tree renders at its
-// Sonarr-shaped path. Each test signs in fresh because the auth token is
+// Unified app shell coverage (issue #116). Verifies the shell chrome (top
+// bar with global search + sidebar) and that every route in the route tree
+// renders at its path. Each test signs in fresh because the auth token is
 // in-memory (page-scoped) — a page.goto would drop it.
 
-test('authenticated shell shows the top bar and left rail', async ({ page }) => {
+test('authenticated shell shows the top bar and sidebar', async ({ page }) => {
   await page.goto('/tv')
   await signIn(page)
   await expect(page).toHaveURL(/\/tv$/)
 
-  // Top bar chrome.
+  // Top bar chrome (global search is visual/structural only until #117).
   await expect(page.getByTestId('brand')).toBeVisible()
   await expect(page.getByTestId('global-search')).toBeVisible()
   await expect(page.getByTestId('notifications')).toBeVisible()
   await expect(page.getByTestId('logout')).toBeVisible()
 
-  // Kind switcher (four-kind app).
-  for (const id of ['tv', 'movie', 'music', 'book']) {
-    await expect(page.getByTestId(`kind-${id}`)).toBeVisible()
+  // Sidebar: the eight unified-shell sections (no kind switcher).
+  for (const id of [
+    'dashboard',
+    'discover',
+    'library',
+    'calendar',
+    'activity',
+    'indexers',
+    'settings',
+    'system',
+  ]) {
+    await expect(page.getByTestId(`rail-${id}`)).toBeVisible()
   }
 
-  // Left rail: the TV library section + all five shared sections.
-  await expect(page.getByTestId('rail-series')).toBeVisible()
-  await expect(page.getByTestId('rail-calendar')).toBeVisible()
-  await expect(page.getByTestId('rail-activity')).toBeVisible()
-  await expect(page.getByTestId('rail-wanted')).toBeVisible()
-  await expect(page.getByTestId('rail-settings')).toBeVisible()
-  await expect(page.getByTestId('rail-system')).toBeVisible()
+  // The kind facet: the Library section's four kind rows (visible while on a
+  // library route, where /tv is).
+  for (const id of ['tv', 'movies', 'music', 'books']) {
+    await expect(page.getByTestId(`rail-sub-${id}`)).toBeVisible()
+  }
 })
 
-test('kind switcher navigates to each kind library', async ({ page }) => {
+test('Library kind rows navigate to each kind library', async ({ page }) => {
   await page.goto('/tv')
   await signIn(page)
   await expect(page).toHaveURL(/\/tv$/)
 
   const targets: [string, RegExp][] = [
-    ['kind-movie', /\/movies$/],
-    ['kind-music', /\/music$/],
-    ['kind-book', /\/books$/],
+    ['rail-sub-movies', /\/movies$/],
+    ['rail-sub-music', /\/music$/],
+    ['rail-sub-books', /\/books$/],
   ]
   for (const [id, re] of targets) {
     await page.getByTestId(id).click()
