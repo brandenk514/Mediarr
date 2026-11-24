@@ -246,10 +246,10 @@ export function ArtistDetailPage() {
     <DetailShell
       kind="music"
       pageTestId="artist-detail"
-      loading={artist === null || albums === null}
+      loading={!artist || !albums}
       loadingText="Loading artist…"
       loadingTestId="artist-detail-loading"
-      error={error}
+      error={!artist ? error : null}
       errorTitle="Artist unavailable"
       errorTestId="artist-detail-error"
       errorTestIdMessage="artist-detail-error-message"

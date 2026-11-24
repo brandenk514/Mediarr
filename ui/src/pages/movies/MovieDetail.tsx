@@ -125,10 +125,10 @@ export function MovieDetailPage() {
     <DetailShell
       kind="movie"
       pageTestId="movie-detail"
-      loading={movie === null}
+      loading={!movie}
       loadingText="Loading movie…"
       loadingTestId="movie-detail-loading"
-      error={movie === null ? error : null}
+      error={!movie ? error : null}
       errorTitle="Movie unavailable"
       errorTestId="movie-detail-error"
       errorTestIdMessage="movie-detail-error-message"

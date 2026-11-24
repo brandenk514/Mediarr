@@ -87,10 +87,10 @@ export function SeriesDetailPage() {
     <DetailShell
       kind="tv"
       pageTestId="series-detail"
-      loading={series === null || episodes === null}
+      loading={!series || !episodes}
       loadingText="Loading series…"
       loadingTestId="series-detail-loading"
-      error={error}
+      error={!series ? error : null}
       errorTitle="Series unavailable"
       errorTestId="series-detail-error"
       errorTestIdMessage="series-detail-error-message"

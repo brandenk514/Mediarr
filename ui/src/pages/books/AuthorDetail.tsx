@@ -141,10 +141,10 @@ export function AuthorDetailPage() {
     <DetailShell
       kind="book"
       pageTestId="author-detail"
-      loading={author === null}
+      loading={!author}
       loadingText="Loading author…"
       loadingTestId="author-detail-loading"
-      error={author === null ? error : null}
+      error={!author ? error : null}
       errorTitle="Author unavailable"
       errorTestId="author-detail-error"
       errorTestIdMessage="author-detail-error-message"
