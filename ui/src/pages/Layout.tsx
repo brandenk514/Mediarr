@@ -223,8 +223,9 @@ function SectionNode({
 // row links to the unified grid filtered to this kind (#119,
 // /library?kind=…), and its first-class sub-links (Add New, Collections, …)
 // are revealed while the route is within the group's base. Its testId is
-// stable by kind (rail-sub-<kind>) so the e2e selectors don't track the
-// destination (the kind rows are grid shortcuts, not per-kind pages).
+// stable by kind label (rail-sub-<label>, e.g. rail-sub-movies) so the e2e
+// selectors don't track the destination (the kind rows are grid shortcuts,
+// not per-kind pages).
 function KindGroupNode({
   group,
   pathname,
@@ -249,7 +250,7 @@ function KindGroupNode({
         pathname={pathname}
         onNavigate={onNavigate}
         icon={group.icon}
-        testId={`rail-sub-${group.kind}`}
+        testId={`rail-sub-${group.label.toLowerCase()}`}
         active={rowActive}
       />
       {inScope && group.sub.length > 0 && (
