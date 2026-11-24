@@ -8,6 +8,7 @@ import { MoviesPage } from './pages/lists/Movies'
 import { TvPage } from './pages/lists/Tv'
 import { MusicPage } from './pages/lists/Music'
 import { BooksPage } from './pages/lists/Books'
+import { LibraryPage } from './pages/Library'
 import { MovieAddPage } from './pages/add/MovieAdd'
 import { MovieCollectionsPage } from './pages/movies/Collections'
 import { MovieDiscoverPage } from './pages/movies/Discover'
@@ -70,6 +71,9 @@ export default function App() {
             Movies list stays reachable from the Library rail section. */}
         <Route path={PATHS.home} element={<Navigate to={PATHS.discover} replace />} />
         <Route path={PATHS.dashboard} element={<DashboardPage />} />
+        {/* #119: the unified cross-kind Library grid — the Library section's
+            home. The four per-kind list pages stay routed beneath it. */}
+        <Route path={PATHS.library} element={<LibraryPage />} />
         {/* Per-kind libraries + Add (four-kind app: TV / Movies / Music / Books).
             The kind is a facet under the Library sidebar section (#116), not a
             top-level switch; every per-kind page stays routed. */}

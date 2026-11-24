@@ -39,7 +39,9 @@ describe('nav model — unified shell sections (issue #116)', () => {
         expect(known.has(l.to), `section ${s.id} sub ${l.to} not in PATHS`).toBe(true)
       }
       for (const g of s.groups ?? []) {
-        expect(known.has(g.to), `group ${g.kind} to=${g.to} not in PATHS`).toBe(true)
+        // #119: the kind row `to` is a /library?kind=… shortcut, so check its
+        // pathname (the query selects a kind, the pathname is the route).
+        expect(known.has(g.to.split('?')[0]), `group ${g.kind} to=${g.to} not in PATHS`).toBe(true)
         expect(known.has(g.base), `group ${g.kind} base=${g.base} not in PATHS`).toBe(true)
         for (const l of g.sub) {
           expect(known.has(l.to), `group ${g.kind} sub ${l.to} not in PATHS`).toBe(true)
@@ -64,10 +66,21 @@ describe('nav model — unified shell sections (issue #116)', () => {
     expect(PATHS.globalSearch).not.toBe(PATHS.search)
   })
 
-  it('keeps the per-kind pages reachable: Library carries the four kind groups', () => {
+  it('keeps the per-kind pages reachable: kind rows shortcut to /library?kind=…, per-kind home stays the group base', () => {
     const library = SECTIONS.find((s) => s.id === 'library')
     expect(library?.groups?.map((g) => g.kind)).toEqual(['tv', 'movie', 'music', 'book'])
+    // #119: the kind rows are Library shortcuts (deep-linkable into the
+    // filtered grid) instead of the per-kind list pages…
     expect(library?.groups?.map((g) => g.to)).toEqual([
+      `${PATHS.library}?kind=tv`,
+      `${PATHS.library}?kind=movie`,
+      `${PATHS.library}?kind=music`,
+      `${PATHS.library}?kind=book`,
+    ])
+    // …but the per-kind list + deep pages stay reachable: each group's base
+    // is that kind's home, so direct URLs and the sub-links still land there
+    // and expand the group.
+    expect(library?.groups?.map((g) => g.base)).toEqual([
       PATHS.tv,
       PATHS.movie,
       PATHS.music,
@@ -125,6 +138,9 @@ describe('sectionForPath — route → section (active state)', () => {
     ['/discover', 'discover'],
     // …as does the (kept) Movies discover page, via the section's base.
     ['/movies/discover', 'discover'],
+    // #119: the unified Library grid and its kind shortcuts highlight Library.
+    ['/library', 'library'],
+    ['/library?kind=movie', 'library'],
     ['/movies', 'library'],
     ['/movies/calendar', 'library'],
     ['/movies/collections', 'library'],
