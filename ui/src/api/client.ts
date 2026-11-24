@@ -125,6 +125,7 @@ import type {
   MovieCollection,
   MovieSearchHit,
   DiscoverMovies,
+  DiscoverPage,
   ImportRunRequest,
   ImportRunResult,
   // P6: System area
@@ -422,6 +423,15 @@ export const client = {
   // recent caps the recent-history / recent-queue feeds (server clamps 1..100).
   getDashboard: (recent?: number) =>
     request<Dashboard>('GET', `/dashboard${recent ? `?recent=${recent}` : ''}`),
+
+  // ---- #118: the unified Discover page (cross-kind poster rows) ----
+  // The three feed rows (trending / upcoming / new releases) plus the
+  // unavailable cells. Per-cell failures NEVER fail the request: an
+  // unconfigured or failing feed degrades its (row × kind) cell to a
+  // CellError entry (the R3 keyless wording for not-configured feeds)
+  // and the response stays 200 — the UI renders the row's items plus a
+  // per-cell grey-out note.
+  discover: () => request<DiscoverPage>('GET', '/discover'),
 
   // ---- queue view (#43) ----
   // The full, filterable + paginated queue (the dedicated view's data source).

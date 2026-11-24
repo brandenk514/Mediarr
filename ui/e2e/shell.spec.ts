@@ -102,13 +102,14 @@ test('series detail route renders at /tv/:id', async ({ page }) => {
   await expect(settled).toBeVisible()
 })
 
-// R7 home decision: the default landing is the Movies list (the Radarr users'
-// home); the cross-kind Dashboard is a Mediarr extra reachable from the rail.
-test('landing at / resolves to the Movies list', async ({ page }) => {
+// #118: the default landing is the unified cross-kind Discover page
+// (supersedes the R7 Movies-list landing). The Movies list stays reachable
+// from the Library rail section.
+test('landing at / resolves to the unified Discover page', async ({ page }) => {
   await page.goto('/')
   await signIn(page)
-  await expect(page).toHaveURL(/\/movies$/)
-  await expect(page.getByTestId('movies-title')).toBeVisible()
+  await expect(page).toHaveURL(/\/discover$/)
+  await expect(page.getByTestId('discover-page-title')).toBeVisible()
 })
 
 test('rail Dashboard item opens the Dashboard', async ({ page }) => {

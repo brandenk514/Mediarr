@@ -33,6 +33,8 @@ vi.mock('./api/client', () => {
       getMovieStats: vi.fn().mockResolvedValue(null),
       getDashboard: vi.fn(),
       getSystemHealth: vi.fn(),
+      // #118: the unified Discover page (the new default landing).
+      discover: vi.fn(),
       // Issue #117: the global search results route (fan-out endpoints).
       searchTv: vi.fn(),
       searchMovies: vi.fn(),
@@ -45,8 +47,6 @@ vi.mock('./api/client', () => {
 vi.mock('./api/store', () => ({
   getToken: vi.fn(),
 }))
-
-const EMPTY_PAGE = { items: [], total: 0, page: 1, page_size: 25 } as const
 
 function renderApp(entries?: string[]) {
   return render(
@@ -74,16 +74,23 @@ describe('App', () => {
     expect(screen.getByTestId('password')).toBeInTheDocument()
   })
 
-  // R7 home decision: the default landing is the Movies list (the Radarr
-  // users' home), not the cross-kind Dashboard.
-  it('lands a signed-in user on the Movies list from /', async () => {
+  // #118: the default landing is the unified cross-kind Discover page
+  // (supersedes the R7 Movies-list landing decision). The Movies list stays
+  // reachable from the Library rail section.
+  it('lands a signed-in user on /discover from /', async () => {
     ;(getToken as ReturnType<typeof vi.fn>).mockReturnValue('tok')
     ;(client.me as ReturnType<typeof vi.fn>).mockResolvedValue({ username: 'admin' })
-    ;(client.listMovies as ReturnType<typeof vi.fn>).mockResolvedValue(EMPTY_PAGE)
+    // The (all-empty) page still renders: title + the three row EmptyStates.
+    ;(client.discover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      trending: [],
+      upcoming: [],
+      newReleases: [],
+      unavailable: [],
+    })
     ;(client.getSystemHealth as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('nope'))
 
     renderApp(['/'])
-    await expect(screen.findByTestId('movies-title')).resolves.toBeVisible()
+    await expect(screen.findByTestId('discover-page-title')).resolves.toBeVisible()
   })
 
   // The Dashboard stays reachable from the /dashboard route (the rail's

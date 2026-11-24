@@ -11,6 +11,7 @@ import { BooksPage } from './pages/lists/Books'
 import { MovieAddPage } from './pages/add/MovieAdd'
 import { MovieCollectionsPage } from './pages/movies/Collections'
 import { MovieDiscoverPage } from './pages/movies/Discover'
+import { DiscoverPage } from './pages/Discover'
 import { TvAddPage } from './pages/add/TvAdd'
 import { ArtistAddPage } from './pages/add/ArtistAdd'
 import { BookAddPage } from './pages/add/BookAdd'
@@ -64,10 +65,10 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<AuthGate />}>
-        {/* R7 home decision: default landing = the Movies list (the Radarr
-            users' home). The cross-kind Dashboard is a Mediarr extra,
-            reachable from the sidebar's Dashboard item. */}
-        <Route path={PATHS.home} element={<Navigate to={PATHS.movie} replace />} />
+        {/* #118: the default landing is the unified cross-kind Discover
+            page (supersedes the R7 Movies-list landing decision). The
+            Movies list stays reachable from the Library rail section. */}
+        <Route path={PATHS.home} element={<Navigate to={PATHS.discover} replace />} />
         <Route path={PATHS.dashboard} element={<DashboardPage />} />
         {/* Per-kind libraries + Add (four-kind app: TV / Movies / Music / Books).
             The kind is a facet under the Library sidebar section (#116), not a
@@ -130,6 +131,9 @@ export default function App() {
             above nothing conflicting — PATHS.search (/search) is an exact
             path, and the two are distinct routes. */}
         <Route path={PATHS.globalSearch} element={<GlobalSearchPage />} />
+        {/* #118: the unified cross-kind Discover page (the default
+            landing; the rail's Discover section links here). */}
+        <Route path={PATHS.discover} element={<DiscoverPage />} />
         <Route path={PATHS.history} element={<SearchHistoryPage />} />
         <Route path={PATHS.indexerStats} element={<IndexerStatsPage />} />
         <Route path={PATHS.indexers} element={<IndexerHubPage />} />

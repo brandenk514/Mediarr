@@ -2301,6 +2301,36 @@ button.danger:hover {
   margin-top: 1rem;
 }
 
+/* ---- #118: the unified Discover page (cross-kind poster rows) ---- */
+
+/* One feed row: the row title, the per-kind poster grids, and the
+   per-cell grey-out notes. Rows stack with breathing room; the grid
+   (.poster-grid) and the notes carry their own spacing. */
+.discover-row {
+  margin-top: 1.5rem;
+}
+
+.discover-row:first-of-type {
+  margin-top: 0.5rem;
+}
+
+.discover-row-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.discover-row .poster-grid {
+  margin-bottom: 0.5rem;
+}
+
+/* Per-cell grey-out note (the R3 keyless pattern): muted, small, never
+   page-level. Multiple cells in one row stack as a list. */
+.discover-row .dim.small {
+  margin: 0.25rem 0 0;
+}
+
 /* ---- Lidarr L1: artist grid (square covers, status ribbon strip, corner
        fold) + library footer legend ---- */
 
