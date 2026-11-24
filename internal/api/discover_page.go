@@ -24,9 +24,9 @@ func (s *Server) SetDiscoverPage(deps *DiscoverPageDeps) {
 }
 
 // DiscoverPage handles GET /api/v1/discover (the unified Discover page,
-// issue #118 A1): trending / upcoming / newReleases cells for movies and
-// TV. Per-cell failures degrade to 200 + `unavailable` entries; only a
-// total failure is a 5xx.
+// issue #118 A1+A2): trending / upcoming / newReleases cells for
+// movies, TV, music, and books. Per-cell failures degrade to 200 +
+// `unavailable` entries; only a total failure is a 5xx.
 func (s *Server) DiscoverPage(w http.ResponseWriter, r *http.Request) {
 	res, err := s.discoverPageDeps.Svc.Discover(r.Context())
 	if err != nil {
