@@ -1,3 +1,4 @@
+import { act } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -304,7 +305,7 @@ describe('DetailShell (shared chrome)', () => {
     const poster = screen.getByTestId('detail-hero-poster')
     expect(poster).toBeInTheDocument()
     expect(poster).toHaveAttribute('aria-hidden', 'true')
-    expect(poster).toHaveTextContent('DU')
+    expect(poster).toHaveTextContent('D')
     // Title + kind badge live in the hero.
     expect(screen.getByTestId('detail-hero-title')).toHaveTextContent('Dune (2021)')
     expect(screen.getByTestId('detail-hero-kind')).toHaveTextContent('Movie')
@@ -379,9 +380,11 @@ describe('DetailShell (shared chrome)', () => {
     const { container } = renderShell({ posterUrl: 'http://example.com/poster.jpg' })
     const img = container.querySelector('img')
     expect(img).not.toBeNull()
-    img!.dispatchEvent(new Event('error'))
     // The image is replaced by the initials placeholder; no broken <img> remains.
-    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('DU')
+    act(() => {
+      img!.dispatchEvent(new Event('error'))
+    })
+    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('D')
     expect(container.querySelector('img')).toBeNull()
   })
 })
@@ -397,7 +400,7 @@ describe('DetailShell across the four detail routes', () => {
     expect(screen.getAllByTestId('detail-hero')).toHaveLength(1)
     expect(screen.getByTestId('detail-hero-title')).toHaveTextContent('Dune (2021)')
     expect(screen.getByTestId('detail-hero-kind')).toHaveTextContent('Movie')
-    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('DU')
+    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('D')
     // Existing metadata stays inside the shared hero.
     expect(hero).toContainElement(screen.getByTestId('movie-detail-fields'))
     expect(hero).toContainElement(screen.getByTestId('movie-mon-7'))
@@ -479,9 +482,11 @@ describe('DetailShell across the four detail routes', () => {
 
     const hero = screen.getByTestId('detail-hero')
     expect(screen.getAllByTestId('detail-hero')).toHaveLength(1)
-    expect(screen.getByTestId('detail-hero-title')).toHaveTextContent('Radiohead')
+    // The heading keeps the existing e2e testid (the shared surface is the
+    // same; only the testid differs per kind).
+    expect(screen.getByTestId('artist-detail-name')).toHaveTextContent('Radiohead')
     expect(screen.getByTestId('detail-hero-kind')).toHaveTextContent('Artist')
-    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('RA')
+    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('R')
     expect(hero).toContainElement(screen.getByTestId('artist-detail-meta'))
     expect(hero).toContainElement(screen.getByTestId('artist-detail-rating'))
     expect(hero).toContainElement(screen.getByTestId('pill-path'))
@@ -513,9 +518,11 @@ describe('DetailShell across the four detail routes', () => {
 
     const hero = screen.getByTestId('detail-hero')
     expect(screen.getAllByTestId('detail-hero')).toHaveLength(1)
-    expect(screen.getByTestId('detail-hero-title')).toHaveTextContent('Ursula K. Le Guin')
+    // The heading keeps the existing e2e testid (the shared surface is the
+    // same; only the testid differs per kind).
+    expect(screen.getByTestId('author-detail-name')).toHaveTextContent('Ursula K. Le Guin')
     expect(screen.getByTestId('detail-hero-kind')).toHaveTextContent('Author')
-    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('UL')
+    expect(screen.getByTestId('detail-hero-poster')).toHaveTextContent('UK')
     expect(hero).toContainElement(screen.getByTestId('author-detail-monitored'))
     expect(hero).toContainElement(screen.getByTestId('badge-book-count'))
     expect(hero).toContainElement(screen.getByTestId('author-detail-fields'))
