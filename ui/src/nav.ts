@@ -8,9 +8,10 @@
 //
 // "Kind" (TV / Movies / Music / Books) is a FACET, not a top-level switch:
 // the four kind groups are nested under the Library section (the legacy
-// kind switcher and kind-parameterized rail are gone). The per-kind pages
-// stay fully routed — /movies, /books, etc. are reachable from the Library
-// rows and by direct URL.
+// kind switcher and kind-parameterized rail are gone). #119: the kind rows
+// link to the unified Library grid filtered to that kind (/library?kind=…);
+// the per-kind list pages stay fully routed, reachable by direct URL and via
+// the deep sub-links.
 
 // ---- route paths -----------------------------------------------------------
 // Every route path used by the shell and the route tree lives here, so the
@@ -23,6 +24,9 @@ export const PATHS = {
   movie: '/movies',
   music: '/music',
   book: '/books',
+  // #119: the unified cross-kind Library grid (the Library section home; the
+  // per-kind list pages stay reachable by direct URL beneath it).
+  library: '/library',
   tvAdd: '/tv/add',
   movieAdd: '/movies/add',
   musicAdd: '/music/add',
@@ -98,7 +102,7 @@ export interface KindGroup {
   kind: KindId
   label: string
   icon: string
-  /** The kind's list page (the kind's "home"). */
+  /** The unified Library grid filtered to this kind (#119). */
   to: string
   /** Route prefix that marks this group active/expanded (e.g. /movies). */
   base: string
@@ -121,6 +125,11 @@ export interface NavSection {
   /** Flat sub-links (Activity, Indexers). */
   subs?: NavLink[]
   /** Nested groups (the Library section's per-kind groups). */
+  // #119: the unified cross-kind Library grid is the Library section's
+  // default destination. The kind groups below it become /library?kind=…
+  // shortcuts (the unified grid filtered to that kind); their per-kind
+  // list + deep pages stay reachable by direct URL and via the sub-links,
+  // which are revealed while the route is within `base`.
   groups?: KindGroup[]
 }
 
@@ -146,20 +155,23 @@ export const SECTIONS: NavSection[] = [
     base: [PATHS.discover, PATHS.movieDiscover],
   },
   {
-    // Library: the kind facet. The header's default destination is the
-    // Movies list (the R7 default landing); the four kind groups below it
-    // carry the per-kind list + deep pages.
+    // #119: the unified cross-kind Library grid is the Library section's
+    // default destination (supersedes the R7 Movies-list landing). The four
+    // kind groups below it become /library?kind=… shortcuts into the grid;
+    // their per-kind list + deep pages stay reachable by direct URL and via
+    // the sub-links (the per-kind base is unchanged, so deep pages still
+    // expand their group).
     id: 'library',
     label: 'Library',
     icon: '📚',
-    to: PATHS.movie,
-    base: [PATHS.tv, PATHS.movie, PATHS.music, PATHS.book],
+    to: PATHS.library,
+    base: [PATHS.library, PATHS.tv, PATHS.movie, PATHS.music, PATHS.book],
     groups: [
       {
         kind: 'tv',
         label: 'TV',
         icon: '▶',
-        to: PATHS.tv,
+        to: `${PATHS.library}?kind=tv`,
         base: PATHS.tv,
         sub: [
           { to: PATHS.tvAdd, label: 'Add New' },
@@ -170,7 +182,7 @@ export const SECTIONS: NavSection[] = [
         kind: 'movie',
         label: 'Movies',
         icon: '🎬',
-        to: PATHS.movie,
+        to: `${PATHS.library}?kind=movie`,
         base: PATHS.movie,
         sub: [
           { to: PATHS.movieAdd, label: 'Add New' },
@@ -183,7 +195,7 @@ export const SECTIONS: NavSection[] = [
         kind: 'music',
         label: 'Music',
         icon: '♫',
-        to: PATHS.music,
+        to: `${PATHS.library}?kind=music`,
         base: PATHS.music,
         sub: [{ to: PATHS.musicAdd, label: 'Add New' }],
       },
@@ -191,7 +203,7 @@ export const SECTIONS: NavSection[] = [
         kind: 'book',
         label: 'Books',
         icon: '📖',
-        to: PATHS.book,
+        to: `${PATHS.library}?kind=book`,
         base: PATHS.book,
         sub: [
           { to: PATHS.bookAdd, label: 'Add New' },
@@ -276,11 +288,15 @@ function isWithin(pathname: string, base: string): boolean {
  * Movies group's base.
  */
 export function sectionForPath(pathname: string): NavSection | null {
+  // Tolerate a stray query: a destination may carry one (the #119 Library
+  // kind shortcuts are /library?kind=…), but the active state depends only on
+  // the pathname.
+  const path = pathname.split('?')[0]
   for (const s of SECTIONS) {
-    if (pathname === s.to) return s
+    if (path === s.to) return s
   }
   for (const s of SECTIONS) {
-    if (s.base.some((b) => isWithin(pathname, b))) return s
+    if (s.base.some((b) => isWithin(path, b))) return s
   }
   return null
 }

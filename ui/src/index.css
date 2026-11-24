@@ -2331,6 +2331,28 @@ button.danger:hover {
   margin: 0.25rem 0 0;
 }
 
+/* ---- #119: unified cross-kind Library grid ----
+   Each kind section: a heading (label + total) above the poster grid. The
+   grid (.poster-grid) and the dim notes carry their own spacing. */
+.library-section {
+  margin-top: 1.5rem;
+}
+
+.library-section:first-of-type {
+  margin-top: 0.5rem;
+}
+
+.library-section-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.library-section .dim {
+  margin: 0;
+}
+
 /* ---- Lidarr L1: artist grid (square covers, status ribbon strip, corner
        fold) + library footer legend ---- */
 
