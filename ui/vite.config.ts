@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { configDefaults } from 'vitest/config'
 import { defineConfig } from 'vite'
@@ -8,8 +9,12 @@ import { defineConfig } from 'vite'
 // The SPA is built as a separate artifact (PLAN §12, `ui/` "separate build").
 // In dev, Vite serves the app and proxies /api to the mediarr service, so the
 // UI client can use relative URLs with no CORS setup.
+//
+// Tailwind v4 (issue #115): @tailwindcss/vite processes src/index.css
+// (tokens in src/styles/tokens.css). Layering — app CSS sits BELOW Tailwind
+// utilities — is declared in index.css, see the header there.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     // The dev server runs with --host so it is reachable from other machines
     // (e.g. http://ai-local-llm.local.uaccloud.com:5173). Vite 8 otherwise
