@@ -50,6 +50,16 @@ function renderPage() {
   )
 }
 
+// #121: the unified default view (kind 'all') fans out one listCalendar call
+// per kind (tv/move/music). The mock answers the tv call with the fixtures
+// and the other two with empty feeds, so the merged view is exactly the tv
+// fixtures the P4 assertions were written against.
+function mockTvOnlyFixtures() {
+  vi.mocked(client.listCalendar).mockImplementation((f) =>
+    Promise.resolve(f?.kind === 'tv' ? (fixtures() as never) : ([] as never)),
+  )
+}
+
 beforeEach(() => {
   vi.mocked(client.listCalendar).mockReset()
   vi.mocked(client.calendarICS).mockReset()
@@ -59,7 +69,7 @@ beforeEach(() => {
 describe('CalendarPage (P4)', () => {
   it('renders all five views (Month / Week / Forecast / Day / Agenda)', async () => {
     const user = userEvent.setup()
-    vi.mocked(client.listCalendar).mockResolvedValue(fixtures() as never)
+    mockTvOnlyFixtures()
     renderPage()
     // Default view is Week.
     expect(await screen.findByTestId('calendar-week')).toBeInTheDocument()
@@ -77,7 +87,7 @@ describe('CalendarPage (P4)', () => {
   })
 
   it('shows the week strip (Sun–Sat) plus a Today button', async () => {
-    vi.mocked(client.listCalendar).mockResolvedValue(fixtures() as never)
+    mockTvOnlyFixtures()
     renderPage()
     await screen.findByTestId('calendar-week')
     expect(screen.getByTestId('calendar-weekstrip')).toBeInTheDocument()
@@ -89,7 +99,7 @@ describe('CalendarPage (P4)', () => {
 
   it('shows per-day episode rows: show -> title -> SxE -> time range', async () => {
     const user = userEvent.setup()
-    vi.mocked(client.listCalendar).mockResolvedValue(fixtures() as never)
+    mockTvOnlyFixtures()
     renderPage()
     // Agenda lists every entry (grouped by day), independent of the selected week.
     await user.click(screen.getByTestId('calendar-view-agenda'))
@@ -103,7 +113,7 @@ describe('CalendarPage (P4)', () => {
 
   it('reveals the iCal feed link (token-authed feed URL)', async () => {
     const user = userEvent.setup()
-    vi.mocked(client.listCalendar).mockResolvedValue(fixtures() as never)
+    mockTvOnlyFixtures()
     renderPage()
     await screen.findByTestId('calendar-week')
     await user.click(screen.getByTestId('calendar-ical'))
@@ -129,7 +139,7 @@ describe('CalendarPage (P4)', () => {
   })
 
   it('TV page has no status chips (regression: the chip row is movie-only)', async () => {
-    vi.mocked(client.listCalendar).mockResolvedValue(fixtures() as never)
+    mockTvOnlyFixtures()
     renderPage()
     await screen.findByTestId('calendar-week')
     expect(screen.queryByTestId('calendar-status-chips')).not.toBeInTheDocument()

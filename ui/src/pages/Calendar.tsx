@@ -8,10 +8,24 @@ import { EmptyState, TbButton, Toolbar } from '../components/ui'
 const VIEWS = ['Month', 'Week', 'Forecast', 'Day', 'Agenda'] as const
 type CalendarView = (typeof VIEWS)[number]
 
-// R4: the page is shared by the TV calendar (/calendar) and the Radarr movie
-// calendar (/movies/calendar, kind=movie); the kind selects the data source,
-// the row decorations and the empty-state copy. All five views are shared.
-export type CalendarKind = 'tv' | 'movie'
+// #121: the calendar is unified across kinds. CalendarEntry.kind is
+// 'tv' | 'movie' | 'music' — books are excluded on purpose: the books
+// domain has no release-date data (editions carry Year only), so a books
+// calendar would need a data-model + API change (see issue #121 scoping).
+export type CalendarKind = 'tv' | 'movie' | 'music'
+
+// A kind filter is one kind, or 'all' for the merged feed. The unified
+// default (/calendar) starts at 'all'; the /movies/calendar alias is the
+// same page with the filter pre-set to 'movie' (#119 alias precedent).
+export type CalendarFilter = 'all' | CalendarKind
+
+// #121: the kind filter chips on the unified calendar.
+const KIND_FILTERS: { value: CalendarFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'tv', label: 'TV' },
+  { value: 'movie', label: 'Movies' },
+  { value: 'music', label: 'Music' },
+]
 
 // Radarr v6 movie status chips for the movie calendar (the same chip values
 // as the Movies list; the calendar only lists monitored movies, so the
@@ -81,32 +95,70 @@ export function formatDayHeader(d: Date): string {
   return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+// #121: merge the per-kind feed chunks into one list sorted by air start.
+// The comparison is a plain string compare on the RFC3339 (UTC) instants, so
+// it is deterministic and locale-free; ties break on kind then series_title
+// so equal instants still render in a stable order.
+export function mergeCalendarEntries(chunks: CalendarEntry[][]): CalendarEntry[] {
+  return chunks
+    .flat()
+    .sort((a, b) =>
+      a.air_start === b.air_start
+        ? a.kind === b.kind
+          ? a.series_title < b.series_title
+            ? -1
+            : 1
+          : a.kind < b.kind
+            ? -1
+            : 1
+        : a.air_start < b.air_start
+          ? -1
+          : 1,
+    )
+}
+
 // ---- row + view renderers -------------------------------------------------
 
 // The secondary text spans differ by kind: TV rows carry the episode title +
-// SxE; movie rows carry the status + year (the row shape is shared, so the
-// five views stay kind-agnostic).
-export function entryTitle(e: CalendarEntry, kind: CalendarKind): string {
-  return kind === 'movie' ? (e.status ?? '') : e.episode_title
+// SxE; movie rows carry the status + year; music rows carry the artist +
+// album type (the album title itself is the row's main text — the backend
+// sets SeriesTitle to the album title for kind=music entries). The row shape
+// is shared, so the five views stay kind-agnostic.
+export function entryTitle(e: CalendarEntry): string {
+  switch (e.kind) {
+    case 'movie':
+      return e.status ?? ''
+    case 'music':
+      return e.artist_title ?? ''
+    default:
+      return e.episode_title
+  }
 }
 
-export function entryCode(e: CalendarEntry, kind: CalendarKind): string {
-  return kind === 'movie' ? (e.year ? String(e.year) : '') : e.sxe
+export function entryCode(e: CalendarEntry): string {
+  switch (e.kind) {
+    case 'movie':
+      return e.year ? String(e.year) : ''
+    case 'music':
+      return e.album_type ?? ''
+    default:
+      return e.sxe
+  }
 }
 
-function EntryRow({ e, kind }: { e: CalendarEntry; kind: CalendarKind }) {
+function EntryRow({ e }: { e: CalendarEntry }) {
   // show → episode title → SxE (absolute) → time range
   return (
     <div className="cal-episode-row" data-testid={`calendar-episode-row-${e.air_start}`}>
       <span className="cal-ep-show">{e.series_title}</span>
-      <span className="cal-ep-title">{entryTitle(e, kind)}</span>
-      <span className="cal-ep-sxe">{entryCode(e, kind)}</span>
+      <span className="cal-ep-title">{entryTitle(e)}</span>
+      <span className="cal-ep-sxe">{entryCode(e)}</span>
       <span className="cal-ep-time">{formatTimeRange(e.air_start, e.air_end)}</span>
     </div>
   )
 }
 
-function AgendaView({ entries, kind }: { entries: CalendarEntry[]; kind: CalendarKind }) {
+function AgendaView({ entries }: { entries: CalendarEntry[] }) {
   // Flat chronological list grouped by local day.
   const groups: [string, CalendarEntry[]][] = []
   for (const e of entries) {
@@ -121,7 +173,7 @@ function AgendaView({ entries, kind }: { entries: CalendarEntry[]; kind: Calenda
         <div key={key} className="cal-agenda-day">
           <div className="cal-day-head">{formatDayHeader(new Date(`${key}T12:00:00`))}</div>
           {items.map((e) => (
-            <EntryRow key={e.air_start} e={e} kind={kind} />
+            <EntryRow key={e.air_start} e={e} />
           ))}
         </div>
       ))}
@@ -129,14 +181,14 @@ function AgendaView({ entries, kind }: { entries: CalendarEntry[]; kind: Calenda
   )
 }
 
-function ForecastView({ entries, kind }: { entries: CalendarEntry[]; kind: CalendarKind }) {
+function ForecastView({ entries }: { entries: CalendarEntry[] }) {
   // The next upcoming episodes as an ordered list (each row carries its date).
   return (
     <div className="cal-forecast" data-testid="calendar-forecast">
       <ul className="cal-forecast-list">
         {entries.map((e) => (
           <li key={e.air_start} className="cal-forecast-item">
-            <EntryRow e={e} kind={kind} />
+            <EntryRow e={e} />
             <span className="cal-forecast-date dim">{formatDayHeader(new Date(e.air_start))}</span>
           </li>
         ))}
@@ -145,7 +197,7 @@ function ForecastView({ entries, kind }: { entries: CalendarEntry[]; kind: Calen
   )
 }
 
-function WeekView({ entries, selected, kind }: { entries: CalendarEntry[]; selected: Date; kind: CalendarKind }) {
+function WeekView({ entries, selected }: { entries: CalendarEntry[]; selected: Date }) {
   // Seven columns, one per weekday of the selected day's week.
   const weekStart = startOfWeek(selected)
   return (
@@ -160,7 +212,7 @@ function WeekView({ entries, selected, kind }: { entries: CalendarEntry[]; selec
               {wd} {day.getDate()}
             </div>
             {items.map((e) => (
-              <EntryRow key={e.air_start} e={e} kind={kind} />
+              <EntryRow key={e.air_start} e={e} />
             ))}
           </div>
         )
@@ -169,23 +221,29 @@ function WeekView({ entries, selected, kind }: { entries: CalendarEntry[]; selec
   )
 }
 
-function DayView({ entries, selected, kind }: { entries: CalendarEntry[]; selected: Date; kind: CalendarKind }) {
+function DayView({ entries, selected, filter }: { entries: CalendarEntry[]; selected: Date; filter: CalendarFilter }) {
   const items = entriesForDay(entries, selected)
   return (
     <div className="cal-day" data-testid="calendar-day">
       <div className="cal-day-head">{formatDayHeader(selected)}</div>
       {items.length === 0 ? (
-        <p className="dim">{kind === 'movie' ? 'No releases this day.' : 'No episodes this day.'}</p>
+        <p className="dim">
+          {filter === 'tv'
+            ? 'No episodes this day.'
+            : filter === 'all'
+              ? 'No items this day.'
+              : 'No releases this day.'}
+        </p>
       ) : (
-        items.map((e) => <EntryRow key={e.air_start} e={e} kind={kind} />)
+        items.map((e) => <EntryRow key={e.air_start} e={e} />)
       )}
     </div>
   )
 }
 
-function MonthView({ entries, selected, kind }: { entries: CalendarEntry[]; selected: Date; kind: CalendarKind }) {
-  // A 6x7 month grid for the selected day's month; each cell lists SxEs (TV)
-  // or years (movie).
+function MonthView({ entries, selected }: { entries: CalendarEntry[]; selected: Date }) {
+  // A 6x7 month grid for the selected day's month; each cell lists SxEs (TV),
+  // years (movie), or album types (music) per entry.
   const first = new Date(selected.getFullYear(), selected.getMonth(), 1)
   const gridStart = startOfWeek(first)
   const cells: { day: Date; inMonth: boolean }[] = []
@@ -210,7 +268,7 @@ function MonthView({ entries, selected, kind }: { entries: CalendarEntry[]; sele
             <span className="cal-month-num">{day.getDate()}</span>
             {items.map((e) => (
               <span key={e.air_start} className="cal-month-sxe">
-                {entryCode(e, kind)}
+                {entryCode(e)}
               </span>
             ))}
           </div>
@@ -222,7 +280,7 @@ function MonthView({ entries, selected, kind }: { entries: CalendarEntry[]; sele
 
 // ---- page -----------------------------------------------------------------
 
-export function CalendarPage({ kind = 'tv' }: { kind?: CalendarKind }) {
+export function CalendarPage({ kind = 'all' }: { kind?: CalendarFilter }) {
   const [view, setView] = useState<CalendarView>('Week')
   const [entries, setEntries] = useState<CalendarEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -230,6 +288,9 @@ export function CalendarPage({ kind = 'tv' }: { kind?: CalendarKind }) {
   const [selected, setSelected] = useState<Date>(new Date())
   const [showIcal, setShowIcal] = useState(false)
   const [chip, setChip] = useState<string | null>(null)
+  // #121: the active kind filter — UI-local state, pre-set by the route for
+  // the /movies/calendar alias (kind="movie").
+  const [activeKind, setActiveKind] = useState<CalendarFilter>(kind)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -238,11 +299,20 @@ export function CalendarPage({ kind = 'tv' }: { kind?: CalendarKind }) {
       const now = new Date()
       const end = new Date(now)
       end.setDate(end.getDate() + WINDOW_DAYS)
-      const rows = await client.listCalendar({
-        start: toRFC3339(now),
-        end: toRFC3339(end),
-        kind,
-      })
+      const base = { start: toRFC3339(now), end: toRFC3339(end) }
+      // #121: 'all' fans out over the three calendar kinds in parallel and
+      // merges; a specific kind is a single request (the /movies/calendar
+      // alias keeps its single kind=movie request).
+      const rows =
+        kind === 'all'
+          ? mergeCalendarEntries(
+              await Promise.all([
+                client.listCalendar({ ...base, kind: 'tv' }),
+                client.listCalendar({ ...base, kind: 'movie' }),
+                client.listCalendar({ ...base, kind: 'music' }),
+              ]),
+            )
+          : mergeCalendarEntries([await client.listCalendar({ ...base, kind })])
       setEntries(rows)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load calendar')
@@ -255,22 +325,34 @@ export function CalendarPage({ kind = 'tv' }: { kind?: CalendarKind }) {
     void load()
   }, [load])
 
-  // The TV feed URL stays exactly what it was pre-R4; the movie feed adds
-  // kind=movie.
-  const icalUrl = kind === 'movie' ? client.calendarICS({ kind: 'movie' }) : client.calendarICS()
+  // #121: the iCal feeds remain per-kind (no kind=all feed exists). The
+  // unqualified feed is the TV feed (the server default), so 'all' and 'tv'
+  // map to it and the TV URL stays byte-identical to pre-#121; the movie and
+  // music filters swap in their kind's feed.
+  const icalUrl =
+    activeKind === 'movie'
+      ? client.calendarICS({ kind: 'movie' })
+      : activeKind === 'music'
+        ? client.calendarICS({ kind: 'music' })
+        : client.calendarICS()
 
-  // Movie kind: the status chips filter the entries client-side (Radarr v6
-  // movie calendar). TV has no chip row.
-  const visible = kind === 'movie' && chip ? entries?.filter((e) => e.status === chip) ?? [] : entries
+  // #121: the kind chips filter the merged feed client-side; the Radarr
+  // movie status chips then narrow the movie rows (movie filter active).
+  const kindVisible = entries?.filter((e) => activeKind === 'all' || e.kind === activeKind) ?? null
+  const visible = activeKind === 'movie' && chip ? kindVisible?.filter((e) => e.status === chip) ?? [] : kindVisible
 
   const emptyTitle =
-    kind === 'movie'
-      ? `No upcoming releases in ${view} view`
-      : `No upcoming episodes in ${view} view`
+    activeKind === 'tv'
+      ? `No upcoming episodes in ${view} view`
+      : activeKind === 'all'
+        ? `No upcoming items in ${view} view`
+        : `No upcoming releases in ${view} view`
   const emptyMessage =
-    kind === 'movie'
-      ? 'Upcoming monitored release dates from provider metadata appear here.'
-      : 'Upcoming monitored air dates from provider metadata appear here.'
+    activeKind === 'tv'
+      ? 'Upcoming monitored air dates from provider metadata appear here.'
+      : activeKind === 'all'
+        ? 'Upcoming monitored air dates and release dates from provider metadata appear here.'
+        : 'Upcoming monitored release dates from provider metadata appear here.'
 
   // Week strip always reflects the selected day's week (Sun–Sat + Today).
   const stripStart = startOfWeek(selected)
@@ -324,7 +406,30 @@ export function CalendarPage({ kind = 'tv' }: { kind?: CalendarKind }) {
         </div>
       )}
 
-      {kind === 'movie' && (
+      {/* #121: the kind filter chips (All/TV/Movies/Music) on the unified
+          calendar. The /movies/calendar alias renders this same row with the
+          Movies chip pre-set. No books chip: the books domain has no
+          release-date data. */}
+      <div className="status-chips" data-testid="calendar-kind-chips">
+        {KIND_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            type="button"
+            className={`chip ${activeKind === f.value ? 'active' : ''}`}
+            data-testid={`calendar-kind-${f.value}`}
+            onClick={() => {
+              setActiveKind(f.value)
+              setChip(null)
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* The Radarr movie status chips filter the movie rows — visible while
+          the Movies filter is active (the /movies/calendar alias by default). */}
+      {activeKind === 'movie' && (
         <div className="status-chips" data-testid="calendar-status-chips">
           {MOVIE_STATUS_CHIPS.map((c) => (
             <button
@@ -382,15 +487,15 @@ export function CalendarPage({ kind = 'tv' }: { kind?: CalendarKind }) {
           testId="calendar-empty"
         />
       ) : view === 'Month' ? (
-        <MonthView entries={visible} selected={selected} kind={kind} />
+        <MonthView entries={visible} selected={selected} />
       ) : view === 'Week' ? (
-        <WeekView entries={visible} selected={selected} kind={kind} />
+        <WeekView entries={visible} selected={selected} />
       ) : view === 'Forecast' ? (
-        <ForecastView entries={visible} kind={kind} />
+        <ForecastView entries={visible} />
       ) : view === 'Day' ? (
-        <DayView entries={visible} selected={selected} kind={kind} />
+        <DayView entries={visible} selected={selected} filter={activeKind} />
       ) : (
-        <AgendaView entries={visible} kind={kind} />
+        <AgendaView entries={visible} />
       )}
     </div>
   )

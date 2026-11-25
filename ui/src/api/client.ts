@@ -487,8 +487,10 @@ export const client = {
   // ---- P4: Calendar (upcoming monitored air dates + iCal feed) ----
   // R4: `kind` selects the calendar source; 'tv' (default, and the
   // server-side default) is upcoming monitored air dates, 'movie' is
-  // upcoming monitored release dates.
-  listCalendar: (f?: { start?: string; end?: string; kind?: 'tv' | 'movie' }) => {
+  // upcoming monitored release dates. #121: 'music' (L4) is the album
+  // release-date calendar. The endpoint supports all three kinds; there is
+  // no cross-kind feed (the unified UI fans out one call per kind).
+  listCalendar: (f?: { start?: string; end?: string; kind?: 'tv' | 'movie' | 'music' }) => {
     const params = new URLSearchParams()
     if (f?.start) params.set('start', f.start)
     if (f?.end) params.set('end', f.end)
@@ -498,8 +500,10 @@ export const client = {
   },
   // iCal feed URL for a plain link / new tab: /calendar.ics carries the app
   // token as ?token= because a browser navigation can't set the Authorization
-  // header, plus the optional window and kind (R4: ?kind=movie).
-  calendarICS: (f?: { start?: string; end?: string; kind?: 'tv' | 'movie' }) => {
+  // header, plus the optional window and kind. #121: the feeds remain
+  // per-kind — the unqualified feed is the TV feed (server default), so
+  // ?kind=movie / ?kind=music are the only kind variants that exist.
+  calendarICS: (f?: { start?: string; end?: string; kind?: 'tv' | 'movie' | 'music' }) => {
     const params = new URLSearchParams()
     if (f?.start) params.set('start', f.start)
     if (f?.end) params.set('end', f.end)
