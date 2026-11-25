@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
 import type {
   Album,
@@ -20,16 +20,19 @@ import {
   humanBytes,
   relTime,
 } from '../../components/music'
-import { Modal, Toolbar, TbButton } from '../../components/ui'
+import { Modal, TbButton } from '../../components/ui'
+import { DetailShell } from '../detail/DetailShell'
 
-// ArtistDetailPage is the Lidarr L1 artist detail — a single scrolling page:
-// toolbar (Refresh & Scan / Search Monitored / Interactive Search | Preview
-// Rename / Preview Retag / Manage Tracks / History / Manual Import | Artist
-// Monitoring / Edit / Delete | Expand All), the banner header (name, rating,
-// genre, green pill row, prev/next paging), the overview (honest empty state
-// until artist metadata lands), and the Albums accordion grouped by album
-// type: type group -> album rows -> disc sections -> track tables (four
-// levels of lazy expansion; tracks load per album on expand).
+// ArtistDetailPage is the Lidarr L1 artist detail rendered through the
+// unified detail shell (issue #120 part A): a single scrolling page —
+// common action row (Refresh & Scan / Search Monitored / Interactive
+// Search | Preview Rename / Preview Retag / Manage Tracks / History /
+// Manual Import | Artist Monitoring / Edit / Delete | Expand All), shared
+// hero (poster placeholder, name + rating/genre line, kind badge, green
+// pill row, prev/next paging), the overview (honest empty state until
+// artist metadata lands), and the Albums accordion grouped by album type:
+// type group -> album rows -> disc sections -> track tables (four levels
+// of lazy expansion; tracks load per album on expand).
 //
 // L1 wiring: Refresh & Scan and Search Monitored hit the existing artist
 // pipeline endpoint; History opens a modal over GET /music/artists/{id}/history;
@@ -39,7 +42,8 @@ import { Modal, Toolbar, TbButton } from '../../components/ui'
 // through PUT /music/artists/{id}. Delete is a stub — no artist delete
 // endpoint exists yet. Interactive Search / Preview Rename / Preview Retag /
 // Manage Tracks / Manual Import are buttons (stubs) — those music-only
-// endpoints land in later phases.
+// endpoints land in later phases. L1 has no artist photos and the photo
+// endpoint is not exposed, so the poster is a two-initials placeholder.
 const DASH = '—'
 
 type ModalKind = 'history' | 'monitoring' | 'edit'
@@ -227,519 +231,504 @@ export function ArtistDetailPage() {
     return out
   }, [albums])
 
-  if (error && !artist) {
-    return (
-      <div className="card" data-testid="artist-detail-error">
-        <h2>Artist unavailable</h2>
-        <p className="error" data-testid="artist-detail-error-message">
-          {error}
-        </p>
-        {authLost && (
-          <p>
-            <Link to="/login">Sign in again</Link>
-          </p>
-        )}
-        <button onClick={() => void load()}>Retry</button>
-      </div>
-    )
-  }
-
-  if (!artist || !albums) {
-    return <p className="dim" data-testid="artist-detail-loading">Loading artist…</p>
-  }
-
   // Prev/next in library (server) order.
   let prevId: number | null = null
   let nextId: number | null = null
-  if (lib) {
+  if (artist && lib) {
     const idx = lib.findIndex((a) => a.ID === artist.ID)
     if (idx > 0) prevId = lib[idx - 1]!.ID
     if (idx >= 0 && idx < lib.length - 1) nextId = lib[idx + 1]!.ID
   }
 
-  const links = artist.Links ?? []
+  const links = artist?.Links ?? []
 
   return (
-    <div className="list-page" data-testid="artist-detail">
-      <div className="page-head">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-          <Link to="/music" className="ghost" data-testid="artist-detail-back">
-            ← Artists
-          </Link>
-        </div>
-      </div>
-
-      <Toolbar
-        left={
+    <DetailShell
+      kind="music"
+      pageTestId="artist-detail"
+      loading={!artist || !albums}
+      loadingText="Loading artist…"
+      loadingTestId="artist-detail-loading"
+      error={!artist ? error : null}
+      errorTitle="Artist unavailable"
+      errorTestId="artist-detail-error"
+      errorTestIdMessage="artist-detail-error-message"
+      authLost={authLost}
+      onRetry={() => void load()}
+      back={{ to: '/music', label: '← Artists', testId: 'artist-detail-back' }}
+      actionsLeft={
+        <>
+          <TbButton icon="⟳" label="Refresh & Scan" testId="artist-detail-refresh" onClick={() => void runPipeline('refresh')} />
+          <TbButton
+            icon="🔍"
+            label="Search Monitored"
+            testId="artist-detail-search"
+            disabled={searching}
+            onClick={() => void runPipeline('search')}
+          />
+          <TbButton
+            icon="🔎"
+            label="Interactive Search"
+            testId="artist-detail-interactive"
+            disabled
+            title="Interactive search lands in a later phase"
+          />
+          <TbButton
+            icon="✎"
+            label="Preview Rename"
+            testId="artist-detail-rename"
+            divider
+            disabled
+            title="Rename preview lands in a later phase"
+          />
+          <TbButton
+            icon="🏷"
+            label="Preview Retag"
+            testId="artist-detail-retag"
+            disabled
+            title="Retag preview lands in a later phase"
+          />
+          <TbButton
+            icon="♫"
+            label="Manage Tracks"
+            testId="artist-detail-manage-tracks"
+            disabled
+            title="Track management lands in a later phase"
+          />
+          <TbButton icon="🕘" label="History" testId="artist-detail-history" onClick={() => setModal('history')} />
+          <TbButton
+            icon="⇥"
+            label="Manual Import"
+            testId="artist-detail-manual-import"
+            disabled
+            title="Manual import lands in a later phase"
+          />
+          <TbButton
+            icon="◎"
+            label="Artist Monitoring"
+            testId="artist-detail-monitoring"
+            divider
+            onClick={() => setModal('monitoring')}
+          />
+          <TbButton
+            icon="✏"
+            label="Edit"
+            testId="artist-detail-edit"
+            onClick={() => {
+              if (!artist) return
+              // '' is the wire form of "all"/"all_albums" for artists added
+              // before the UI offers a choice — coerce so the selects show
+              // a selected option.
+              setEdit({
+                monitored: artist.Monitored,
+                monitorPolicy: artist.MonitorPolicy || 'all',
+                monitorNewAlbums: artist.MonitorNewAlbums || 'all_albums',
+                profile: artist.QualityProfile ?? '',
+                path: artist.Path ?? '',
+                tags: artist.Tags ?? [],
+                tagDraft: '',
+              })
+              setModal('edit')
+            }}
+          />
+          <TbButton
+            icon="🗑"
+            label="Delete"
+            testId="artist-detail-delete"
+            disabled
+            title="Artist deletion lands in a later phase"
+          />
+        </>
+      }
+      actionsRight={
+        <TbButton icon="⊞" label="Expand All" testId="artist-detail-expand-all" divider onClick={expandAll} />
+      }
+      status={status}
+      statusTestId="artist-detail-status"
+      title={artist?.Name ?? ''}
+      heading={artist?.Name}
+      headingTestId="artist-detail-name"
+      heroTestId="artist-detail-banner"
+      nav={
+        artist
+          ? {
+              prev:
+                prevId !== null
+                  ? {
+                      testId: 'artist-detail-prev',
+                      icon: '↑',
+                      label: 'Previous artist',
+                      onClick: () => navigate(`/music/${prevId}`),
+                    }
+                  : undefined,
+              next:
+                nextId !== null
+                  ? {
+                      testId: 'artist-detail-next',
+                      icon: '↓',
+                      label: 'Next artist',
+                      onClick: () => navigate(`/music/${nextId}`),
+                    }
+                  : undefined,
+            }
+          : undefined
+      }
+      meta={
+        artist ? (
           <>
-            <TbButton icon="⟳" label="Refresh & Scan" testId="artist-detail-refresh" onClick={() => void runPipeline('refresh')} />
-            <TbButton
-              icon="🔍"
-              label="Search Monitored"
-              testId="artist-detail-search"
-              disabled={searching}
-              onClick={() => void runPipeline('search')}
-            />
-            <TbButton
-              icon="🔎"
-              label="Interactive Search"
-              testId="artist-detail-interactive"
-              disabled
-              title="Interactive search lands in a later phase"
-            />
-            <TbButton
-              icon="✎"
-              label="Preview Rename"
-              testId="artist-detail-rename"
-              divider
-              disabled
-              title="Rename preview lands in a later phase"
-            />
-            <TbButton
-              icon="🏷"
-              label="Preview Retag"
-              testId="artist-detail-retag"
-              disabled
-              title="Retag preview lands in a later phase"
-            />
-            <TbButton
-              icon="♫"
-              label="Manage Tracks"
-              testId="artist-detail-manage-tracks"
-              disabled
-              title="Track management lands in a later phase"
-            />
-            <TbButton icon="🕘" label="History" testId="artist-detail-history" onClick={() => setModal('history')} />
-            <TbButton
-              icon="⇥"
-              label="Manual Import"
-              testId="artist-detail-manual-import"
-              disabled
-              title="Manual import lands in a later phase"
-            />
-            <TbButton
-              icon="◎"
-              label="Artist Monitoring"
-              testId="artist-detail-monitoring"
-              divider
-              onClick={() => setModal('monitoring')}
-            />
-            <TbButton
-              icon="✏"
-              label="Edit"
-              testId="artist-detail-edit"
-              onClick={() => {
-                // '' is the wire form of "all"/"all_albums" for artists added
-                // before the UI offers a choice — coerce so the selects show
-                // a selected option.
-                setEdit({
-                  monitored: artist.Monitored,
-                  monitorPolicy: artist.MonitorPolicy || 'all',
-                  monitorNewAlbums: artist.MonitorNewAlbums || 'all_albums',
-                  profile: artist.QualityProfile ?? '',
-                  path: artist.Path ?? '',
-                  tags: artist.Tags ?? [],
-                  tagDraft: '',
-                })
-                setModal('edit')
-              }}
-            />
-            <TbButton
-              icon="🗑"
-              label="Delete"
-              testId="artist-detail-delete"
-              disabled
-              title="Artist deletion lands in a later phase"
-            />
-          </>
-        }
-        right={
-          <TbButton icon="⊞" label="Expand All" testId="artist-detail-expand-all" divider onClick={expandAll} />
-        }
-      />
-
-      {status && (
-        <p className="dim small" data-testid="artist-detail-status" role="status">
-          {status}
-        </p>
-      )}
-
-      {/* Banner header */}
-      <div className="artist-banner" data-testid="artist-detail-banner">
-        <h2 data-testid="artist-detail-name">{artist.Name}</h2>
-        {(artist.Rating && artist.Rating > 0 || artist.Genre) && (
-          <div className="ab-meta" data-testid="artist-detail-meta">
-            {artist.Rating && artist.Rating > 0 && (
-              <span data-testid="artist-detail-rating">♥ {Math.round(artist.Rating)}%</span>
+            {(artist.Rating && artist.Rating > 0 || artist.Genre) && (
+              <div className="ab-meta" data-testid="artist-detail-meta">
+                {artist.Rating && artist.Rating > 0 && (
+                  <span data-testid="artist-detail-rating">♥ {Math.round(artist.Rating)}%</span>
+                )}
+                {artist.Genre && <span data-testid="artist-detail-genre">{artist.Genre}</span>}
+              </div>
             )}
-            {artist.Genre && <span data-testid="artist-detail-genre">{artist.Genre}</span>}
-          </div>
-        )}
-        <div className="ab-pills">
-          {artist.Path && (
-            <span className="pill-green" data-testid="pill-path">
-              {artist.Path}
-            </span>
-          )}
-          {(artist.TotalSize ?? 0) > 0 && (
-            <span className="pill-green" data-testid="pill-size">
-              {humanBytes(artist.TotalSize!)}
-            </span>
-          )}
-          {artist.QualityProfile && (
-            <span className="pill-green" data-testid="pill-profile">
-              {artist.QualityProfile}
-            </span>
-          )}
-          <span className="pill-green" data-testid="pill-monitored">
-            {artist.Monitored ? 'Monitored' : 'Unmonitored'}
-          </span>
-          {artist.Status && (
-            <span className="pill-green" data-testid="pill-status">
-              {artist.Status[0]!.toUpperCase() + artist.Status.slice(1)}
-            </span>
-          )}
-          {links.map((l) => (
-            <a
-              key={l.Name}
-              className="pill-green"
-              href={l.URL}
-              target="_blank"
-              rel="noreferrer"
-              data-testid={`pill-link-${l.Name}`}
-            >
-              {l.Name}
-            </a>
-          ))}
-        </div>
-        <div className="banner-nav">
-          {prevId !== null && (
-            <button
-              type="button"
-              className="nav-arrow"
-              title="Previous artist"
-              aria-label="Previous artist"
-              data-testid="artist-detail-prev"
-              onClick={() => navigate(`/music/${prevId}`)}
-            >
-              ↑
-            </button>
-          )}
-          {nextId !== null && (
-            <button
-              type="button"
-              className="nav-arrow"
-              title="Next artist"
-              aria-label="Next artist"
-              data-testid="artist-detail-next"
-              onClick={() => navigate(`/music/${nextId}`)}
-            >
-              ↓
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Overview — the API carries no artist bio in L1; honest empty state. */}
-      <p className="dim" data-testid="artist-detail-overview">
-        No overview yet — artist metadata lands in a later phase.
-      </p>
-
-      {/* Albums accordion, grouped by album type. */}
-      <div data-testid="artist-detail-albums">
-        {groups.length === 0 ? (
-          <p className="dim" data-testid="artist-detail-no-albums">
-            No albums yet.
-          </p>
-        ) : (
-          groups.map((g) => {
-            const open = openGroups.has(g.key)
-            const fileCount = g.albums.reduce((n, a) => n + (a.FileCount ?? 0), 0)
-            const trackCount = g.albums.reduce((n, a) => n + (a.TrackCount ?? 0), 0)
-            const size = g.albums.reduce((n, a) => n + (a.Size ?? 0), 0)
-            return (
-              <div className="type-group" key={g.key} data-testid={`type-group-${g.key}`}>
-                <button
-                  type="button"
-                  className="type-group-head"
-                  aria-expanded={open}
-                  onClick={() => toggleGroup(g.key)}
-                  data-testid={`type-toggle-${g.key}`}
-                >
-                  <span>{open ? '▾' : '▸'}</span>
-                  <span>{g.label}</span>
-                  <span className="tg-count" data-testid={`type-count-${g.key}`}>
-                    {fileCount}/{trackCount}
-                  </span>
-                  {size > 0 && <span className="tg-size" data-testid={`type-size-${g.key}`}>{humanBytes(size)}</span>}
-                </button>
-                {open &&
-                  g.albums.map((al) => (
-                    <AlbumSection
-                      key={al.ID}
-                      album={al}
-                      open={openAlbums.has(al.ID)}
-                      tracks={tracksByAlbum[al.ID]}
-                      loadingTracks={loadingTracks.has(al.ID)}
-                      onToggle={() =>
-                        setOpenAlbums((prev) => {
-                          const next = new Set(prev)
-                          if (next.has(al.ID)) next.delete(al.ID)
-                          else next.add(al.ID)
-                          return next
-                        })
-                      }
-                    />
-                  ))}
-              </div>
-            )
-          })
-        )}
-        {/* Helper line — Lidarr's bottom hint; Metadata Profile / Search are
-            non-functional in L1 (L2/L3 wire them). */}
-        {groups.length > 0 && (
-          <p className="helper-line" data-testid="artist-detail-helper">
-            Missing Albums, Singles, or Other Types? Modify or create a new{' '}
-            <a data-testid="helper-metadata-profile" onClick={(e) => e.preventDefault()}>
-              Metadata Profile
-            </a>{' '}
-            or manually{' '}
-            <a data-testid="helper-search" onClick={(e) => e.preventDefault()}>
-              Search
-            </a>{' '}
-            for new items!
-          </p>
-        )}
-      </div>
-
-      {/* History modal */}
-      {modal === 'history' && (
-        <Modal title="History" onClose={() => setModal(null)} testId="history-modal">
-          {historyError ? (
-            <p className="error">{historyError}</p>
-          ) : history === null ? (
-            <p className="dim">Loading history…</p>
-          ) : history.length === 0 ? (
-            <p className="dim">No history yet.</p>
-          ) : (
-            history.map((h, i) => (
-              <div className="history-row" key={`${h.Event}-${h.At}-${i}`} data-testid={`history-${i}`}>
-                <span className="hr-event">{h.Event}</span>
-                <span className="hr-detail">{h.Detail}</span>
-                <span className="hr-at">{relTime(h.At)}</span>
-              </div>
-            ))
-          )}
-        </Modal>
-      )}
-
-      {/* Artist monitoring modal: artist-level toggle + per-album toggles. */}
-      {modal === 'monitoring' && (
-        <Modal title="Artist Monitoring" onClose={() => setModal(null)} testId="monitoring-modal">
-          <div style={{ marginBottom: '0.6rem' }}>
-            <MonitoredToggle
-              monitored={artist.Monitored}
-              onToggle={async (next) => {
-                await client.setArtistMonitored(artist.ID, next)
-                setArtist({ ...artist, Monitored: next })
-              }}
-              label={`${artist.Name} monitoring`}
-              testId="monitoring-artist"
-            />
-          </div>
-          {albums.length === 0 ? (
-            <p className="dim">No albums to toggle.</p>
-          ) : (
-            albums.map((al) => (
-              <div key={al.ID} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.3rem 0' }}>
-                <span style={{ flex: 1, minWidth: 0 }} data-testid={`monitoring-album-${al.ID}`}>
-                  {al.Name}
+            <div className="ab-pills">
+              {artist.Path && (
+                <span className="pill-green" data-testid="pill-path">
+                  {artist.Path}
                 </span>
+              )}
+              {(artist.TotalSize ?? 0) > 0 && (
+                <span className="pill-green" data-testid="pill-size">
+                  {humanBytes(artist.TotalSize!)}
+                </span>
+              )}
+              {artist.QualityProfile && (
+                <span className="pill-green" data-testid="pill-profile">
+                  {artist.QualityProfile}
+                </span>
+              )}
+              <span className="pill-green" data-testid="pill-monitored">
+                {artist.Monitored ? 'Monitored' : 'Unmonitored'}
+              </span>
+              {artist.Status && (
+                <span className="pill-green" data-testid="pill-status">
+                  {artist.Status[0]!.toUpperCase() + artist.Status.slice(1)}
+                </span>
+              )}
+              {links.map((l) => (
+                <a
+                  key={l.Name}
+                  className="pill-green"
+                  href={l.URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  data-testid={`pill-link-${l.Name}`}
+                >
+                  {l.Name}
+                </a>
+              ))}
+            </div>
+          </>
+        ) : null
+      }
+    >
+      {artist && albums && (
+        <>
+          {/* Overview — the API carries no artist bio in L1; honest empty state. */}
+          <p className="dim" data-testid="artist-detail-overview">
+            No overview yet — artist metadata lands in a later phase.
+          </p>
+
+          {/* Albums accordion, grouped by album type. */}
+          <div data-testid="artist-detail-albums">
+            {groups.length === 0 ? (
+              <p className="dim" data-testid="artist-detail-no-albums">
+                No albums yet.
+              </p>
+            ) : (
+              groups.map((g) => {
+                const open = openGroups.has(g.key)
+                const fileCount = g.albums.reduce((n, a) => n + (a.FileCount ?? 0), 0)
+                const trackCount = g.albums.reduce((n, a) => n + (a.TrackCount ?? 0), 0)
+                const size = g.albums.reduce((n, a) => n + (a.Size ?? 0), 0)
+                return (
+                  <div className="type-group" key={g.key} data-testid={`type-group-${g.key}`}>
+                    <button
+                      type="button"
+                      className="type-group-head"
+                      aria-expanded={open}
+                      onClick={() => toggleGroup(g.key)}
+                      data-testid={`type-toggle-${g.key}`}
+                    >
+                      <span>{open ? '▾' : '▸'}</span>
+                      <span>{g.label}</span>
+                      <span className="tg-count" data-testid={`type-count-${g.key}`}>
+                        {fileCount}/{trackCount}
+                      </span>
+                      {size > 0 && <span className="tg-size" data-testid={`type-size-${g.key}`}>{humanBytes(size)}</span>}
+                    </button>
+                    {open &&
+                      g.albums.map((al) => (
+                        <AlbumSection
+                          key={al.ID}
+                          album={al}
+                          open={openAlbums.has(al.ID)}
+                          tracks={tracksByAlbum[al.ID]}
+                          loadingTracks={loadingTracks.has(al.ID)}
+                          onToggle={() =>
+                            setOpenAlbums((prev) => {
+                              const next = new Set(prev)
+                              if (next.has(al.ID)) next.delete(al.ID)
+                              else next.add(al.ID)
+                              return next
+                            })
+                          }
+                        />
+                      ))}
+                  </div>
+                )
+              })
+            )}
+            {/* Helper line — Lidarr's bottom hint; Metadata Profile / Search are
+                non-functional in L1 (L2/L3 wire them). */}
+            {groups.length > 0 && (
+              <p className="helper-line" data-testid="artist-detail-helper">
+                Missing Albums, Singles, or Other Types? Modify or create a new{' '}
+                <a data-testid="helper-metadata-profile" onClick={(e) => e.preventDefault()}>
+                  Metadata Profile
+                </a>{' '}
+                or manually{' '}
+                <a data-testid="helper-search" onClick={(e) => e.preventDefault()}>
+                  Search
+                </a>{' '}
+                for new items!
+              </p>
+            )}
+          </div>
+
+          {/* History modal */}
+          {modal === 'history' && (
+            <Modal title="History" onClose={() => setModal(null)} testId="history-modal">
+              {historyError ? (
+                <p className="error">{historyError}</p>
+              ) : history === null ? (
+                <p className="dim">Loading history…</p>
+              ) : history.length === 0 ? (
+                <p className="dim">No history yet.</p>
+              ) : (
+                history.map((h, i) => (
+                  <div className="history-row" key={`${h.Event}-${h.At}-${i}`} data-testid={`history-${i}`}>
+                    <span className="hr-event">{h.Event}</span>
+                    <span className="hr-detail">{h.Detail}</span>
+                    <span className="hr-at">{relTime(h.At)}</span>
+                  </div>
+                ))
+              )}
+            </Modal>
+          )}
+
+          {/* Artist monitoring modal: artist-level toggle + per-album toggles. */}
+          {modal === 'monitoring' && (
+            <Modal title="Artist Monitoring" onClose={() => setModal(null)} testId="monitoring-modal">
+              <div style={{ marginBottom: '0.6rem' }}>
                 <MonitoredToggle
-                  monitored={al.Monitored}
+                  monitored={artist.Monitored}
                   onToggle={async (next) => {
-                    await client.setAlbumMonitored(al.ID, next)
-                    setAlbums((prev) =>
-                      (prev ?? []).map((x) => (x.ID === al.ID ? { ...x, Monitored: next } : x)),
-                    )
+                    await client.setArtistMonitored(artist.ID, next)
+                    setArtist({ ...artist, Monitored: next })
                   }}
-                  label={`${al.Name} monitoring`}
-                  testId={`monitoring-album-mon-${al.ID}`}
+                  label={`${artist.Name} monitoring`}
+                  testId="monitoring-artist"
                 />
               </div>
-            ))
-          )}
-        </Modal>
-      )}
-
-      {/* Edit modal (L2). Persists through PUT /music/artists/{id}
-          (UpdateArtistRequest): Monitored · Monitor New Albums · Monitor
-          Policy · Quality Profile · Metadata Profile (L3 stub — disabled) ·
-          Path · Tags, in the Lidarr Edit Artist order. A monitored change
-          fans out to the artist's known albums server-side. */}
-      {modal === 'edit' && edit && (
-        <Modal
-          title="Edit Artist"
-          onClose={() => setModal(null)}
-          testId="edit-modal"
-          footer={
-            <>
-              <button type="button" className="ghost" onClick={() => setModal(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                data-testid="edit-save"
-                onClick={() => {
-                  void (async () => {
-                    await client.updateArtist(artist.ID, {
-                      monitored: edit.monitored,
-                      monitor_policy: edit.monitorPolicy,
-                      monitor_new_albums: edit.monitorNewAlbums,
-                      quality_profile: edit.profile,
-                      path: edit.path,
-                      tags: edit.tags,
-                    })
-                    setModal(null)
-                    setArtist({ ...artist, Monitored: edit.monitored })
-                    setStatus('Artist updated.')
-                    void load()
-                  })()
-                }}
-              >
-                Save
-              </button>
-            </>
-          }
-        >
-          <label className="check" htmlFor="edit-monitored" style={{ marginBottom: '0.6rem' }}>
-            <input
-              id="edit-monitored"
-              type="checkbox"
-              checked={edit.monitored}
-              onChange={(e) => setEdit({ ...edit, monitored: e.target.checked })}
-              data-testid="edit-monitored"
-            />
-            Monitored
-          </label>
-          <p className="dim small" style={{ marginTop: '0' }}>
-            Download monitored albums from this artist
-          </p>
-
-          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
-            <span className="dim small">Monitor New Albums</span>
-            <select
-              value={edit.monitorNewAlbums}
-              onChange={(e) => setEdit({ ...edit, monitorNewAlbums: e.target.value as 'all_albums' })}
-              data-testid="edit-monitor-new-albums"
-            >
-              <option value="all_albums">All Albums</option>
-            </select>
-          </label>
-          <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
-            Which new albums should be monitored
-          </p>
-
-          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
-            <span className="dim small">Monitor Policy</span>
-            <select
-              value={edit.monitorPolicy}
-              onChange={(e) =>
-                setEdit({ ...edit, monitorPolicy: e.target.value as NonNullable<UpdateArtistRequest['monitor_policy']> })
-              }
-              data-testid="edit-monitor-policy"
-            >
-              {MONITOR_POLICY_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
-            Which albums should be monitored after the artist is added (one-time adjustment)
-          </p>
-
-          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
-            <span className="dim small">Quality Profile</span>
-            <select
-              value={edit.profile}
-              onChange={(e) => setEdit({ ...edit, profile: e.target.value })}
-              data-testid="edit-profile"
-            >
-              {(editProfiles?.profiles ?? []).map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                  {editProfiles?.default === p ? ' (default)' : ''}
-                </option>
-              ))}
-              {editProfiles !== null && (editProfiles.profiles ?? []).length === 0 && (
-                <option value="">— No profiles —</option>
+              {albums.length === 0 ? (
+                <p className="dim">No albums to toggle.</p>
+              ) : (
+                albums.map((al) => (
+                  <div key={al.ID} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.3rem 0' }}>
+                    <span style={{ flex: 1, minWidth: 0 }} data-testid={`monitoring-album-${al.ID}`}>
+                      {al.Name}
+                    </span>
+                    <MonitoredToggle
+                      monitored={al.Monitored}
+                      onToggle={async (next) => {
+                        await client.setAlbumMonitored(al.ID, next)
+                        setAlbums((prev) =>
+                          (prev ?? []).map((x) => (x.ID === al.ID ? { ...x, Monitored: next } : x)),
+                        )
+                      }}
+                      label={`${al.Name} monitoring`}
+                      testId={`monitoring-album-mon-${al.ID}`}
+                    />
+                  </div>
+                ))
               )}
-            </select>
-          </label>
+            </Modal>
+          )}
 
-          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
-            <span className="dim small">Metadata Profile</span>
-            <select value="Standard" disabled data-testid="edit-metadata-profile">
-              <option value="Standard">Standard</option>
-            </select>
-          </label>
-          <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
-            Metadata profiles land in a later phase (L3).
-          </p>
-
-          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
-            <span className="dim small">Path</span>
-            <input
-              type="text"
-              value={edit.path}
-              onChange={(e) => setEdit({ ...edit, path: e.target.value })}
-              data-testid="edit-path"
-            />
-          </label>
-
-          <label style={{ display: 'block', marginBottom: '0.6rem' }}>
-            <span className="dim small">Tags</span>
-            <input
-              type="text"
-              value={edit.tagDraft}
-              onChange={(e) => setEdit({ ...edit, tagDraft: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ',') {
-                  e.preventDefault()
-                  const t = edit.tagDraft.trim().replace(/,+$/, '')
-                  if (t && !edit.tags.includes(t)) setEdit({ ...edit, tags: [...edit.tags, t], tagDraft: '' })
-                }
-              }}
-              onBlur={() => {
-                const t = edit.tagDraft.trim().replace(/,+$/, '')
-                if (t && !edit.tags.includes(t)) setEdit({ ...edit, tags: [...edit.tags, t], tagDraft: '' })
-              }}
-              placeholder="Add a tag, press Enter"
-              data-testid="edit-tags-input"
-            />
-          </label>
-          {edit.tags.length > 0 && (
-            <span className="tag-chips" data-testid="edit-tags-chips">
-              {edit.tags.map((t) => (
-                <span className="tag-chip" key={t}>
-                  {t}
+          {/* Edit modal (L2). Persists through PUT /music/artists/{id}
+              (UpdateArtistRequest): Monitored · Monitor New Albums · Monitor
+              Policy · Quality Profile · Metadata Profile (L3 stub — disabled) ·
+              Path · Tags, in the Lidarr Edit Artist order. A monitored change
+              fans out to the artist's known albums server-side. */}
+          {modal === 'edit' && edit && (
+            <Modal
+              title="Edit Artist"
+              onClose={() => setModal(null)}
+              testId="edit-modal"
+              footer={
+                <>
+                  <button type="button" className="ghost" onClick={() => setModal(null)}>
+                    Cancel
+                  </button>
                   <button
                     type="button"
-                    aria-label={`Remove tag ${t}`}
-                    onClick={() => setEdit({ ...edit, tags: edit.tags.filter((x) => x !== t) })}
-                    data-testid={`edit-tag-remove-${t}`}
+                    data-testid="edit-save"
+                    onClick={() => {
+                      void (async () => {
+                        await client.updateArtist(artist.ID, {
+                          monitored: edit.monitored,
+                          monitor_policy: edit.monitorPolicy,
+                          monitor_new_albums: edit.monitorNewAlbums,
+                          quality_profile: edit.profile,
+                          path: edit.path,
+                          tags: edit.tags,
+                        })
+                        setModal(null)
+                        setArtist({ ...artist, Monitored: edit.monitored })
+                        setStatus('Artist updated.')
+                        void load()
+                      })()
+                    }}
                   >
-                    ✕
+                    Save
                   </button>
+                </>
+              }
+            >
+              <label className="check" htmlFor="edit-monitored" style={{ marginBottom: '0.6rem' }}>
+                <input
+                  id="edit-monitored"
+                  type="checkbox"
+                  checked={edit.monitored}
+                  onChange={(e) => setEdit({ ...edit, monitored: e.target.checked })}
+                  data-testid="edit-monitored"
+                />
+                Monitored
+              </label>
+              <p className="dim small" style={{ marginTop: '0' }}>
+                Download monitored albums from this artist
+              </p>
+
+              <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+                <span className="dim small">Monitor New Albums</span>
+                <select
+                  value={edit.monitorNewAlbums}
+                  onChange={(e) => setEdit({ ...edit, monitorNewAlbums: e.target.value as 'all_albums' })}
+                  data-testid="edit-monitor-new-albums"
+                >
+                  <option value="all_albums">All Albums</option>
+                </select>
+              </label>
+              <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
+                Which new albums should be monitored
+              </p>
+
+              <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+                <span className="dim small">Monitor Policy</span>
+                <select
+                  value={edit.monitorPolicy}
+                  onChange={(e) =>
+                    setEdit({ ...edit, monitorPolicy: e.target.value as NonNullable<UpdateArtistRequest['monitor_policy']> })
+                  }
+                  data-testid="edit-monitor-policy"
+                >
+                  {MONITOR_POLICY_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
+                Which albums should be monitored after the artist is added (one-time adjustment)
+              </p>
+
+              <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+                <span className="dim small">Quality Profile</span>
+                <select
+                  value={edit.profile}
+                  onChange={(e) => setEdit({ ...edit, profile: e.target.value })}
+                  data-testid="edit-profile"
+                >
+                  {(editProfiles?.profiles ?? []).map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                      {editProfiles?.default === p ? ' (default)' : ''}
+                    </option>
+                  ))}
+                  {editProfiles !== null && (editProfiles.profiles ?? []).length === 0 && (
+                    <option value="">— No profiles —</option>
+                  )}
+                </select>
+              </label>
+
+              <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+                <span className="dim small">Metadata Profile</span>
+                <select value="Standard" disabled data-testid="edit-metadata-profile">
+                  <option value="Standard">Standard</option>
+                </select>
+              </label>
+              <p className="dim small" style={{ marginTop: '0', marginBottom: '0.6rem' }}>
+                Metadata profiles land in a later phase (L3).
+              </p>
+
+              <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+                <span className="dim small">Path</span>
+                <input
+                  type="text"
+                  value={edit.path}
+                  onChange={(e) => setEdit({ ...edit, path: e.target.value })}
+                  data-testid="edit-path"
+                />
+              </label>
+
+              <label style={{ display: 'block', marginBottom: '0.6rem' }}>
+                <span className="dim small">Tags</span>
+                <input
+                  type="text"
+                  value={edit.tagDraft}
+                  onChange={(e) => setEdit({ ...edit, tagDraft: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ',') {
+                      e.preventDefault()
+                      const t = edit.tagDraft.trim().replace(/,+$/, '')
+                      if (t && !edit.tags.includes(t)) setEdit({ ...edit, tags: [...edit.tags, t], tagDraft: '' })
+                    }
+                  }}
+                  onBlur={() => {
+                    const t = edit.tagDraft.trim().replace(/,+$/, '')
+                    if (t && !edit.tags.includes(t)) setEdit({ ...edit, tags: [...edit.tags, t], tagDraft: '' })
+                  }}
+                  placeholder="Add a tag, press Enter"
+                  data-testid="edit-tags-input"
+                />
+              </label>
+              {edit.tags.length > 0 && (
+                <span className="tag-chips" data-testid="edit-tags-chips">
+                  {edit.tags.map((t) => (
+                    <span className="tag-chip" key={t}>
+                      {t}
+                      <button
+                        type="button"
+                        aria-label={`Remove tag ${t}`}
+                        onClick={() => setEdit({ ...edit, tags: edit.tags.filter((x) => x !== t) })}
+                        data-testid={`edit-tag-remove-${t}`}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
                 </span>
-              ))}
-            </span>
+              )}
+            </Modal>
           )}
-        </Modal>
+        </>
       )}
-    </div>
+    </DetailShell>
   )
 }
 

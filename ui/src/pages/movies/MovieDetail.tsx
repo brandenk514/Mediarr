@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
 import type { Movie, PageMovie } from '../../api/types'
 import { MonitoredToggle } from '../../components/list'
-import { posterText } from '../../components/poster'
-import { Badge, BadgeRow, Toolbar, TbButton } from '../../components/ui'
+import { Badge, BadgeRow, TbButton } from '../../components/ui'
+import { DetailShell } from '../detail/DetailShell'
 
-// MovieDetailPage is the Radarr R1 movie detail — a single scrolling page:
-// toolbar (Refresh & Scan / Search Movie / Interactive Search | Preview
-// Rename / Manage Files / History | Edit / Delete), header card (poster +
-// title + prev/next nav, badge row, score badges, two-row field grid,
-// overview), the conditional Editions section (per-edition monitor toggle),
-// the Files table, and Cast / Crew / Titles. Null fields render em-dashes;
-// a keyless TMDB degrades to em-dashes, never an error. Buttons without a
-// backend are disabled with a "later phase" title (the P7 pattern).
+// MovieDetailPage is the Radarr R1 movie detail rendered through the unified
+// detail shell (issue #120 part A): a single scrolling page — common action
+// row (Refresh & Scan / Search Movie / Interactive Search | Preview Rename /
+// Manage Files / History | Edit / Delete), shared hero (poster placeholder,
+// title + year, kind badge, prev/next nav, badge row, score badges, two-row
+// field grid, overview, monitoring toggle), the conditional Editions section
+// (per-edition monitor toggle), the Files table, and Cast / Crew / Titles.
+// Null fields render em-dashes; a keyless TMDB degrades to em-dashes, never
+// an error. Buttons without a backend are disabled with a "later phase"
+// title (the P7 pattern).
 function humanBytes(n: number): string {
   if (!n) return '0 B'
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
@@ -103,154 +105,125 @@ export function MovieDetailPage() {
     }
   }
 
-  if (error && !movie) {
-    return (
-      <div className="card" data-testid="movie-detail-error">
-        <h2>Movie unavailable</h2>
-        <p className="error" data-testid="movie-detail-error-message">
-          {error}
-        </p>
-        {authLost && (
-          <p>
-            <Link to="/login">Sign in again</Link>
-          </p>
-        )}
-        <button onClick={() => void load()}>Retry</button>
-      </div>
-    )
-  }
-
-  if (!movie) {
-    return <p className="dim" data-testid="movie-detail-loading">Loading movie…</p>
-  }
-
   // Prev/next in library (server) order.
   let prevId: number | null = null
   let nextId: number | null = null
-  if (lib) {
+  if (movie && lib) {
     const idx = lib.findIndex((m) => m.ID === movie.ID)
     if (idx > 0) prevId = lib[idx - 1]!.ID
     if (idx >= 0 && idx < lib.length - 1) nextId = lib[idx + 1]!.ID
   }
 
-  const scores = movie.Scores
-  const editions = movie.Editions ?? []
-  const files = movie.Files ?? []
-  const cast = movie.Cast ?? []
-  const crew = movie.Crew ?? []
-  const altTitles = movie.AlternativeTitles ?? []
+  const scores = movie?.Scores
+  const editions = movie?.Editions ?? []
+  const files = movie?.Files ?? []
+  const cast = movie?.Cast ?? []
+  const crew = movie?.Crew ?? []
+  const altTitles = movie?.AlternativeTitles ?? []
 
   return (
-    <div className="list-page" data-testid="movie-detail">
-      <div className="page-head">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-          <Link to="/movies" className="ghost" data-testid="movie-detail-back">
-            ← Movies
-          </Link>
-        </div>
-      </div>
-
-      <Toolbar
-        left={
+    <DetailShell
+      kind="movie"
+      pageTestId="movie-detail"
+      loading={!movie}
+      loadingText="Loading movie…"
+      loadingTestId="movie-detail-loading"
+      error={!movie ? error : null}
+      errorTitle="Movie unavailable"
+      errorTestId="movie-detail-error"
+      errorTestIdMessage="movie-detail-error-message"
+      authLost={authLost}
+      onRetry={() => void load()}
+      back={{ to: '/movies', label: '← Movies', testId: 'movie-detail-back' }}
+      actionsLeft={
+        <>
+          <TbButton icon="⟳" label="Refresh & Scan" testId="movie-detail-refresh" onClick={() => void load()} />
+          <TbButton
+            icon="🔍"
+            label="Search Movie"
+            testId="movie-detail-search"
+            disabled={searching}
+            onClick={() => void searchReleases()}
+          />
+          <TbButton
+            icon="🔎"
+            label="Interactive Search"
+            testId="movie-detail-interactive"
+            disabled
+            title="Interactive search lands in a later phase"
+          />
+          <TbButton
+            icon="✎"
+            label="Preview Rename"
+            testId="movie-detail-rename"
+            divider
+            disabled
+            title="Rename preview lands in a later phase"
+          />
+          <TbButton
+            icon="🗀"
+            label="Manage Files"
+            testId="movie-detail-manage-files"
+            disabled
+            title="File management lands in a later phase"
+          />
+          <TbButton
+            icon="🕘"
+            label="History"
+            testId="movie-detail-history"
+            disabled
+            title="Movie history lands in a later phase"
+          />
+          <TbButton
+            icon="✏"
+            label="Edit"
+            testId="movie-detail-edit"
+            divider
+            disabled
+            title="Movie editing lands in a later phase"
+          />
+          <TbButton
+            icon="🗑"
+            label="Delete"
+            testId="movie-detail-delete"
+            disabled
+            title="Delete lands in a later phase"
+          />
+        </>
+      }
+      status={status}
+      statusTestId="movie-detail-status"
+      title={movie?.Title ?? ''}
+      heading={movie ? (movie.Year > 0 ? `${movie.Title} (${movie.Year})` : movie.Title) : undefined}
+      heroTestId="movie-detail-header"
+      posterTestId="movie-detail-poster"
+      nav={
+        movie
+          ? {
+              prev:
+                prevId !== null
+                  ? {
+                      testId: 'movie-detail-prev',
+                      icon: '←',
+                      label: 'Previous movie',
+                      onClick: () => navigate(`/movies/${prevId}`),
+                    }
+                  : undefined,
+              next:
+                nextId !== null
+                  ? {
+                      testId: 'movie-detail-next',
+                      icon: '→',
+                      label: 'Next movie',
+                      onClick: () => navigate(`/movies/${nextId}`),
+                    }
+                  : undefined,
+            }
+          : undefined
+      }
+      meta={
+        movie ? (
           <>
-            <TbButton icon="⟳" label="Refresh & Scan" testId="movie-detail-refresh" onClick={() => void load()} />
-            <TbButton
-              icon="🔍"
-              label="Search Movie"
-              testId="movie-detail-search"
-              disabled={searching}
-              onClick={() => void searchReleases()}
-            />
-            <TbButton
-              icon="🔎"
-              label="Interactive Search"
-              testId="movie-detail-interactive"
-              disabled
-              title="Interactive search lands in a later phase"
-            />
-            <TbButton
-              icon="✎"
-              label="Preview Rename"
-              testId="movie-detail-rename"
-              divider
-              disabled
-              title="Rename preview lands in a later phase"
-            />
-            <TbButton
-              icon="🗀"
-              label="Manage Files"
-              testId="movie-detail-manage-files"
-              disabled
-              title="File management lands in a later phase"
-            />
-            <TbButton
-              icon="🕘"
-              label="History"
-              testId="movie-detail-history"
-              disabled
-              title="Movie history lands in a later phase"
-            />
-            <TbButton
-              icon="✏"
-              label="Edit"
-              testId="movie-detail-edit"
-              divider
-              disabled
-              title="Movie editing lands in a later phase"
-            />
-            <TbButton
-              icon="🗑"
-              label="Delete"
-              testId="movie-detail-delete"
-              disabled
-              title="Delete lands in a later phase"
-            />
-          </>
-        }
-      />
-
-      {status && (
-        <p className="dim small" data-testid="movie-detail-status" role="status">
-          {status}
-        </p>
-      )}
-
-      {/* Header card */}
-      <div className="card" data-testid="movie-detail-header">
-        <div className="detail-header">
-          <div className="detail-poster" aria-hidden data-testid="movie-detail-poster">
-            {posterText(movie.Title)}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="detail-title">
-              <h2>
-                {movie.Title}
-                {movie.Year > 0 ? ` (${movie.Year})` : ''}
-              </h2>
-              {prevId !== null && (
-                <button
-                  type="button"
-                  className="nav-arrow"
-                  title="Previous movie"
-                  data-testid="movie-detail-prev"
-                  onClick={() => navigate(`/movies/${prevId}`)}
-                >
-                  ←
-                </button>
-              )}
-              {nextId !== null && (
-                <button
-                  type="button"
-                  className="nav-arrow"
-                  title="Next movie"
-                  data-testid="movie-detail-next"
-                  onClick={() => navigate(`/movies/${nextId}`)}
-                >
-                  →
-                </button>
-              )}
-            </div>
-
             <BadgeRow>
               <Badge tone={movie.Monitored ? 'ok' : 'default'} testId="badge-monitored">
                 {movie.Monitored ? 'Monitored' : 'Unmonitored'}
@@ -353,120 +326,124 @@ export function MovieDetailPage() {
                 testId={`movie-mon-${movieId}`}
               />
             </div>
-          </div>
-        </div>
-      </div>
-
+          </>
+        ) : null
+      }
+    >
       {/* Editions — conditional: only with more than one edition (Radarr v6). */}
-      {editions.length > 1 && (
-        <div className="card" data-testid="movie-detail-editions">
-          <h3>Editions</h3>
-          {editions.map((e) => (
-            <div className="edition-row" key={e.ID}>
-              <span className="ed-label">{e.Label}</span>
-              <MonitoredToggle
-                monitored={e.Monitored}
-                onToggle={async (next) => {
-                  await client.setMovieEditionMonitored(movie.ID, e.ID, next)
-                  setMovie({
-                    ...movie,
-                    Editions: (movie.Editions ?? []).map((x) =>
-                      x.ID === e.ID ? { ...x, Monitored: next } : x,
-                    ),
-                  })
-                }}
-                label={`${e.Label} edition monitoring`}
-                testId={`edition-mon-${e.ID}`}
-              />
-              <span className="ed-meta">
-                {e.Quality || DASH} · {e.Size ? humanBytes(e.Size) : DASH}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Files table */}
-      <div className="card" data-testid="movie-detail-files">
-        <h3>Files</h3>
-        {files.length === 0 ? (
-          <p className="dim" data-testid="movie-detail-files-empty">
-            No files yet.
-          </p>
-        ) : (
-          <table className="import-table" data-testid="movie-detail-files-table">
-            <thead>
-              <tr>
-                <th>Relative Path</th>
-                <th>Video Codec</th>
-                <th>Audio Info</th>
-                <th>Size</th>
-                <th>Languages</th>
-                <th>Quality</th>
-                <th>Release Group</th>
-                <th>Formats</th>
-              </tr>
-            </thead>
-            <tbody>
-              {files.map((f, i) => (
-                <tr key={`${f.RelativePath}-${i}`} data-testid={`file-row-${i}`}>
-                  <td>{f.RelativePath}</td>
-                  <td>{f.VideoCodec || DASH}</td>
-                  <td>{f.AudioInfo || DASH}</td>
-                  <td>{humanBytes(f.Size)}</td>
-                  <td>{f.Languages && f.Languages.length > 0 ? f.Languages.join(', ') : DASH}</td>
-                  <td>{f.Quality || DASH}</td>
-                  <td>{f.ReleaseGroup || DASH}</td>
-                  <td>{f.Formats && f.Formats.length > 0 ? f.Formats.join(', ') : DASH}</td>
-                </tr>
+      {movie && (
+        <>
+          {editions.length > 1 && (
+            <div className="card" data-testid="movie-detail-editions">
+              <h3>Editions</h3>
+              {editions.map((e) => (
+                <div className="edition-row" key={e.ID}>
+                  <span className="ed-label">{e.Label}</span>
+                  <MonitoredToggle
+                    monitored={e.Monitored}
+                    onToggle={async (next) => {
+                      await client.setMovieEditionMonitored(movie.ID, e.ID, next)
+                      setMovie({
+                        ...movie,
+                        Editions: (movie.Editions ?? []).map((x) =>
+                          x.ID === e.ID ? { ...x, Monitored: next } : x,
+                        ),
+                      })
+                    }}
+                    label={`${e.Label} edition monitoring`}
+                    testId={`edition-mon-${e.ID}`}
+                  />
+                  <span className="ed-meta">
+                    {e.Quality || DASH} · {e.Size ? humanBytes(e.Size) : DASH}
+                  </span>
+                </div>
               ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+            </div>
+          )}
 
-      {/* Cast / Crew / Titles */}
-      {cast.length > 0 && (
-        <div className="card" data-testid="movie-detail-cast">
-          <h3>Cast</h3>
-          <div className="credit-list">
-            {cast.map((c, i) => (
-              <div key={`${c.Name}-${i}`}>
-                <span className="credit-name">{c.Name}</span>{' '}
-                <span className="credit-role">→ {c.Role || DASH}</span>
-              </div>
-            ))}
+          {/* Files table */}
+          <div className="card" data-testid="movie-detail-files">
+            <h3>Files</h3>
+            {files.length === 0 ? (
+              <p className="dim" data-testid="movie-detail-files-empty">
+                No files yet.
+              </p>
+            ) : (
+              <table className="import-table" data-testid="movie-detail-files-table">
+                <thead>
+                  <tr>
+                    <th>Relative Path</th>
+                    <th>Video Codec</th>
+                    <th>Audio Info</th>
+                    <th>Size</th>
+                    <th>Languages</th>
+                    <th>Quality</th>
+                    <th>Release Group</th>
+                    <th>Formats</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {files.map((f, i) => (
+                    <tr key={`${f.RelativePath}-${i}`} data-testid={`file-row-${i}`}>
+                      <td>{f.RelativePath}</td>
+                      <td>{f.VideoCodec || DASH}</td>
+                      <td>{f.AudioInfo || DASH}</td>
+                      <td>{humanBytes(f.Size)}</td>
+                      <td>{f.Languages && f.Languages.length > 0 ? f.Languages.join(', ') : DASH}</td>
+                      <td>{f.Quality || DASH}</td>
+                      <td>{f.ReleaseGroup || DASH}</td>
+                      <td>{f.Formats && f.Formats.length > 0 ? f.Formats.join(', ') : DASH}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
-        </div>
-      )}
 
-      {crew.length > 0 && (
-        <div className="card" data-testid="movie-detail-crew">
-          <h3>Crew</h3>
-          <div className="credit-list">
-            {crew.map((c, i) => (
-              <div key={`${c.Name}-${i}`}>
-                <span className="credit-name">{c.Name}</span>{' '}
-                <span className="credit-role">→ {c.Job || DASH}</span>
+          {/* Cast / Crew / Titles */}
+          {cast.length > 0 && (
+            <div className="card" data-testid="movie-detail-cast">
+              <h3>Cast</h3>
+              <div className="credit-list">
+                {cast.map((c, i) => (
+                  <div key={`${c.Name}-${i}`}>
+                    <span className="credit-name">{c.Name}</span>{' '}
+                    <span className="credit-role">→ {c.Role || DASH}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            </div>
+          )}
 
-      {altTitles.length > 0 && (
-        <div className="card" data-testid="movie-detail-titles">
-          <h3>Titles</h3>
-          <div className="credit-list">
-            {altTitles.map((t, i) => (
-              <div key={`${t.Title}-${i}`}>
-                <span className="credit-name">{t.Title}</span>{' '}
-                <span className="credit-role">→ {t.Type || DASH}</span>
+          {crew.length > 0 && (
+            <div className="card" data-testid="movie-detail-crew">
+              <h3>Crew</h3>
+              <div className="credit-list">
+                {crew.map((c, i) => (
+                  <div key={`${c.Name}-${i}`}>
+                    <span className="credit-name">{c.Name}</span>{' '}
+                    <span className="credit-role">→ {c.Job || DASH}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          )}
+
+          {altTitles.length > 0 && (
+            <div className="card" data-testid="movie-detail-titles">
+              <h3>Titles</h3>
+              <div className="credit-list">
+                {altTitles.map((t, i) => (
+                  <div key={`${t.Title}-${i}`}>
+                    <span className="credit-name">{t.Title}</span>{' '}
+                    <span className="credit-role">→ {t.Type || DASH}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
-    </div>
+    </DetailShell>
   )
 }

@@ -2087,18 +2087,42 @@ button.danger:hover {
   font-weight: 600;
 }
 
-/* ---- Radarr R1: movie detail ---- */
+/* ---- Unified detail shell (issue #120): shared hero for all four kinds ----
+   Backdrop strip behind the content (no art is served yet; the strip is a
+   token-based placeholder surface), the poster overlaps its lower edge, and
+   the title + kind badge + metadata live to the right of the poster. */
 
-.detail-header {
+.detail-hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  margin-bottom: 1rem;
+}
+
+.detail-hero-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5.5rem;
+  background: linear-gradient(135deg, var(--panel-2) 0%, var(--surface) 55%, var(--content) 100%);
+}
+
+.detail-hero-body {
+  position: relative;
   display: flex;
   gap: 1rem;
   align-items: flex-start;
+  padding: 1rem 1.2rem;
 }
 
-.detail-poster {
+.detail-hero-poster {
   flex: 0 0 auto;
   width: 6.5rem;
   aspect-ratio: 2 / 3;
+  margin-top: 2rem;
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2107,6 +2131,19 @@ button.danger:hover {
   justify-content: center;
   font-size: 1.8rem;
   color: var(--dim);
+  overflow: hidden;
+}
+
+.detail-hero-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.detail-hero-main {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2.2rem;
 }
 
 .detail-title {
@@ -2477,34 +2514,16 @@ button.danger:hover {
   background: var(--err);
 }
 
-/* ---- Lidarr L1: artist detail ---- */
+/* ---- Lidarr L1: artist detail (inside the unified detail shell) ---- */
 
-/* Banner header: placeholder gradient (artist photo not served in L1) with
-   the artist name, rating line and green pill row. Nav arrows sit at the
-   banner's right edge. */
-.artist-banner {
-  position: relative;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.1rem 1.2rem;
-  background: linear-gradient(135deg, #2b3a4a 0%, #1b2733 60%, #141c25 100%);
-  color: #fff;
-  overflow: hidden;
-}
-
-.artist-banner h2 {
-  margin: 0;
-  font-size: 1.5rem;
-  color: #fff;
-}
-
-.artist-banner .ab-meta {
-  color: rgba(255, 255, 255, 0.72);
+/* Rating line and green pill row under the hero title. */
+.detail-hero .ab-meta {
+  color: var(--dim);
   font-size: 0.85rem;
   margin-top: 0.15rem;
 }
 
-.artist-banner .ab-pills {
+.detail-hero .ab-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
@@ -2532,36 +2551,6 @@ button.danger:hover {
 .pill-green:hover {
   border-color: #35bf74;
   color: #d3f7e4;
-}
-
-/* Circular prev/next paging arrows at the banner's right edge. */
-.banner-nav {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  right: 0.7rem;
-}
-
-.banner-nav .nav-arrow {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  background: rgba(0, 0, 0, 0.3);
-  color: #fff;
-  font-size: 1rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.banner-nav .nav-arrow:hover {
-  border-color: #fff;
-  background: rgba(0, 0, 0, 0.5);
 }
 
 /* Albums accordion: group header (type + count badge + size) -> album rows
