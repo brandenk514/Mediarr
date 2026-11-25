@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
 import type { BlocklistEntry, MediaKind } from '../../api/types'
 import { EmptyState, TbButton, Toolbar } from '../../components/ui'
+import { Dropdown } from '../../components/primitives'
 import { timeAgo } from '../../lib/format'
 
 const KINDS: MediaKind[] = ['tv', 'movie', 'music', 'book']
@@ -54,21 +55,18 @@ export function BlocklistPage() {
         left={
           <>
             <TbButton icon="⟳" label="Refresh" testId="blocklist-refresh" onClick={() => void load()} />
-            <select
-              className="list-search"
-              value={kind}
-              onChange={(e) => setKind(e.target.value as MediaKind | '')}
-              data-testid="blocklist-kind"
-              aria-label="Filter by kind"
-              style={{ width: 'auto' }}
-            >
-              <option value="">All kinds</option>
-              {KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
+            {/* #121: the kind filter is the shared Dropdown primitive
+                (testid stays on the control). */}
+            <Dropdown
+              label="All kinds"
+              options={[
+                { value: '', label: 'All kinds' },
+                ...KINDS.map((k) => ({ value: k, label: k })),
+              ]}
+              selected={kind}
+              onChange={(v) => setKind(v as MediaKind | '')}
+              testId="blocklist-kind"
+            />
           </>
         }
       />

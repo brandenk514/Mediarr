@@ -49,7 +49,9 @@ describe('HistoryPage', () => {
     vi.mocked(client.listGlobalHistory).mockResolvedValue(feed())
     renderPage()
     await waitFor(() => expect(screen.getByTestId('history-event')).toBeInTheDocument())
-    await user.selectOptions(screen.getByTestId('history-event'), 'download')
+    // #121: the filter is the shared Dropdown primitive (trigger + menu item).
+    await user.click(screen.getByTestId('history-event-btn'))
+    await user.click(screen.getByTestId('history-event-opt-download'))
     await waitFor(() =>
       expect(client.listGlobalHistory).toHaveBeenLastCalledWith(
         expect.objectContaining({ event: 'download', limit: 100 }),

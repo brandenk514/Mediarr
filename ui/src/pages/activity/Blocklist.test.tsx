@@ -53,7 +53,9 @@ describe('BlocklistPage', () => {
     vi.mocked(client.listBlocklist).mockResolvedValue(entries())
     renderPage()
     await waitFor(() => expect(screen.getByTestId('blocklist-kind')).toBeInTheDocument())
-    await user.selectOptions(screen.getByTestId('blocklist-kind'), 'tv')
+    // #121: the filter is the shared Dropdown primitive (trigger + menu item).
+    await user.click(screen.getByTestId('blocklist-kind-btn'))
+    await user.click(screen.getByTestId('blocklist-kind-opt-tv'))
     await waitFor(() =>
       expect(client.listBlocklist).toHaveBeenLastCalledWith({ kind: 'tv' }),
     )

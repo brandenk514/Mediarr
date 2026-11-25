@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ApiError, client, connectEvents } from '../../api/client'
 import type { EventFrame, MediaKind, PageQueueItem, QueueHistoryEvent, QueueViewItem, QueueState } from '../../api/types'
 import { DEFAULT_PAGE_SIZE } from '../../components/list'
+import { Badge, type BadgeTone } from '../../components/primitives'
 import { Pagination } from '../../components/list'
 import { progressLabel, timeAgo } from '../../lib/format'
 import { LiveBadge } from '../dashboard/LiveBadge'
@@ -15,18 +16,32 @@ type StateFilter = QueueState | ''
 const KINDS: MediaKind[] = ['movie', 'tv', 'music', 'book']
 const STATES: QueueState[] = ['queued', 'downloading', 'complete', 'failed']
 
-// historyPillClass maps a lifecycle-event name to a pill color class so a row's
-// history reads at a glance (terminal-success ok, in-flight warn, failure err,
-// everything else idle). Unknown event names fall back to idle rather than
-// leaking a bogus class.
-function historyPillClass(event: string): string {
+// historyBadgeTone maps a lifecycle-event name to a Badge tone so a row's
+// history reads at a glance (terminal-success success, in-flight warning,
+// failure error, everything else neutral). Unknown event names fall back to
+// neutral rather than leaking a bogus tone.
+function historyBadgeTone(event: string): BadgeTone {
   const e = event.toLowerCase()
   if (e.includes('import') || e === 'complete' || (e.includes('download') && !e.includes('downloading'))) {
-    return 'pill-ok'
+    return 'success'
   }
-  if (e.includes('fail') || e === 'error') return 'pill-err'
-  if (e.includes('download') || e.includes('search') || e === 'queued' || e === 'added') return 'pill-warn'
-  return 'pill-idle'
+  if (e.includes('fail') || e === 'error') return 'error'
+  if (e.includes('download') || e.includes('search') || e === 'queued' || e === 'added') return 'warning'
+  return 'neutral'
+}
+
+// stateBadgeTone maps a queue job state to a Badge tone for the state column.
+function stateBadgeTone(state: QueueState): BadgeTone {
+  switch (state) {
+    case 'complete':
+      return 'success'
+    case 'failed':
+      return 'error'
+    case 'downloading':
+      return 'info'
+    case 'queued':
+      return 'warning'
+  }
 }
 
 // QueuePage is the dedicated queue view (#43): the *full* download/import
@@ -377,7 +392,7 @@ export function QueuePage() {
                   <span className="lt-dim" data-testid={`queue-client-${item.kind}-${item.parent_id}`}>
                     {item.download_client || '—'}
                   </span>
-                  <span className={`pill pill-${item.state}`}>{item.state}</span>
+                  <Badge tone={stateBadgeTone(item.state)}>{item.state}</Badge>
                   <span className="lt-dim">{timeAgo(item.updated_at)}</span>
                 </div>
                 {isOpen && (
@@ -394,7 +409,7 @@ export function QueuePage() {
                       <ul className="feed">
                         {history.map((h, i) => (
                           <li key={`${h.event}-${h.at}-${i}`} className="feed-item">
-                            <span className={`pill ${historyPillClass(h.event)}`}>{h.event}</span>
+                            <Badge tone={historyBadgeTone(h.event)}>{h.event}</Badge>
                             <span className="feed-main">
                               <span className="feed-title">{h.detail || h.event}</span>
                               <span className="dim small">{timeAgo(h.at)}</span>
