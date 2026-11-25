@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -253,5 +253,146 @@ describe('CalendarPage kind=movie (R4 movie calendar)', () => {
     renderMoviePage()
     expect(await screen.findByTestId('calendar-empty')).toBeInTheDocument()
     expect(screen.getByTestId('calendar-empty')).toHaveTextContent('No upcoming releases')
+  })
+})
+
+// ---- #121: unified cross-kind calendar ------------------------------------
+
+function unifiedFixture(): { tv: CalendarEntry[]; movie: CalendarEntry[]; music: CalendarEntry[] } {
+  return {
+    // One entry per kind, staggered so the merged sort order is observable:
+    // movie (11-04) < tv (11-05) < music (11-06) — while the fetch fan-out
+    // returns the tv chunk first.
+    tv: [
+      {
+        kind: 'tv',
+        series_id: 1,
+        series_title: 'Severance',
+        season: 1,
+        episode: 5,
+        episode_title: 'The Department',
+        sxe: 'S1E05',
+        air_date: '2026-11-05',
+        air_start: '2026-11-05T22:00:00Z',
+        air_end: '2026-11-05T22:50:00Z',
+      },
+    ],
+    movie: [
+      {
+        kind: 'movie',
+        series_id: 11,
+        series_title: 'Dune: Part Three',
+        season: 0,
+        episode: 0,
+        episode_title: '',
+        sxe: '',
+        air_date: '2026-11-04',
+        air_start: '2026-11-04T00:00:00Z',
+        air_end: '2026-11-04T23:59:00Z',
+        year: 2026,
+        status: 'unreleased',
+        quality_profile: 'HD-1080p',
+      },
+    ],
+    music: [
+      {
+        kind: 'music',
+        series_id: 21,
+        series_title: 'A Moon Shaped Pool',
+        season: 0,
+        episode: 0,
+        episode_title: '',
+        sxe: '',
+        air_date: '2026-11-06',
+        air_start: '2026-11-06T00:00:00Z',
+        air_end: '2026-11-06T23:59:00Z',
+        artist_id: 5,
+        artist_title: 'Radiohead',
+        album_id: 21,
+        album_title: 'A Moon Shaped Pool',
+        album_type: 'album',
+      },
+    ],
+  }
+}
+
+// The unified default view fans out one listCalendar call per kind
+// (tv/move/music); the mock answers each call with that kind's chunk.
+function mockUnified(tv: CalendarEntry[], movie: CalendarEntry[], music: CalendarEntry[]) {
+  vi.mocked(client.listCalendar).mockImplementation((f) => {
+    if (f?.kind === 'movie') return Promise.resolve(movie as never)
+    if (f?.kind === 'music') return Promise.resolve(music as never)
+    return Promise.resolve(tv as never)
+  })
+}
+
+describe('CalendarPage unified (issue #121)', () => {
+  it('merged default view shows tv + movie + music rows sorted by air start', async () => {
+    const user = userEvent.setup()
+    const fx = unifiedFixture()
+    mockUnified(fx.tv, fx.movie, fx.music)
+    renderPage()
+    // Agenda lists every entry (grouped by day), independent of the selected week.
+    await user.click(screen.getByTestId('calendar-view-agenda'))
+    const rows = await screen.findAllByTestId(/calendar-episode-row-/)
+    expect(rows).toHaveLength(3)
+    // Across kinds the rows are ordered by air start: movie (11-04), tv
+    // (11-05), music (11-06) — even though the fan-out returns tv first.
+    expect(rows.map((r) => r.querySelector('.cal-ep-show')?.textContent)).toEqual([
+      'Dune: Part Three',
+      'Severance',
+      'A Moon Shaped Pool',
+    ])
+  })
+
+  it('kind filter chips (All/TV/Movies/Music) filter the merged feed', async () => {
+    const user = userEvent.setup()
+    const fx = unifiedFixture()
+    mockUnified(fx.tv, fx.movie, fx.music)
+    renderPage()
+    await user.click(screen.getByTestId('calendar-view-agenda'))
+    await screen.findAllByTestId(/calendar-episode-row-/)
+    for (const id of [
+      'calendar-kind-all',
+      'calendar-kind-tv',
+      'calendar-kind-movie',
+      'calendar-kind-music',
+    ]) {
+      expect(screen.getByTestId(id)).toBeInTheDocument()
+    }
+    await user.click(screen.getByTestId('calendar-kind-music'))
+    await waitFor(() => expect(screen.getAllByTestId(/calendar-episode-row-/)).toHaveLength(1))
+    expect(screen.getByTestId('calendar-episode-row-2026-11-06T00:00:00Z')).toBeInTheDocument()
+    await user.click(screen.getByTestId('calendar-kind-all'))
+    await waitFor(() => expect(screen.getAllByTestId(/calendar-episode-row-/)).toHaveLength(3))
+  })
+
+  it('music rows show the album title as main text plus artist and album type', async () => {
+    const user = userEvent.setup()
+    const fx = unifiedFixture()
+    mockUnified([], [], fx.music)
+    renderPage()
+    await user.click(screen.getByTestId('calendar-view-agenda'))
+    const row = await screen.findByTestId('calendar-episode-row-2026-11-06T00:00:00Z')
+    // The album title is the row's main text (the backend sets SeriesTitle to
+    // the album title for kind=music), and the artist + album type decorate it.
+    expect(row).toHaveTextContent('A Moon Shaped Pool')
+    expect(row).toHaveTextContent('Radiohead')
+    expect(row).toHaveTextContent('album')
+  })
+
+  it('/movies/calendar alias: movie filter pre-set, movie-only rows, movie status chips', async () => {
+    const user = userEvent.setup()
+    const fx = unifiedFixture()
+    mockUnified([], fx.movie, [])
+    renderMoviePage()
+    await user.click(screen.getByTestId('calendar-view-agenda'))
+    await screen.findAllByTestId(/calendar-episode-row-/)
+    // The alias is the unified calendar with the Movies chip pre-set.
+    expect(screen.getByTestId('calendar-kind-movie')).toBeInTheDocument()
+    expect(screen.getAllByTestId(/calendar-episode-row-/)).toHaveLength(1)
+    expect(screen.getByTestId('calendar-episode-row-2026-11-04T00:00:00Z')).toBeInTheDocument()
+    // The Radarr movie status chips stay visible for the alias.
+    expect(screen.getByTestId('calendar-status-chips')).toBeInTheDocument()
   })
 })
