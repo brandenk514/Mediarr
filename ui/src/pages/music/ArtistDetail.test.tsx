@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
-import type { Album, Artist, MusicHistoryEntry, PageArtist, Track } from '../../api/types'
+import type { Album, Artist, MusicHistoryEntry, PageArtist, ReleaseGroupHit, Track } from '../../api/types'
 import { ArtistDetailPage } from './ArtistDetail'
 
 // Page test for the Lidarr L1 artist detail: banner header (name, rating,
@@ -26,6 +26,10 @@ vi.mock('../../api/client', () => ({
     // and its Quality Profile picker reads the music profiles.
     getProfiles: vi.fn(),
     updateArtist: vi.fn(),
+    // issue #120 part B: the in-detail Add Release flow posts through
+    // addAlbum and offers release-group candidates from searchArtists.
+    addAlbum: vi.fn(),
+    searchArtists: vi.fn(),
   },
 }))
 
@@ -107,6 +111,8 @@ beforeEach(() => {
   vi.mocked(client.setAlbumMonitored).mockReset()
   vi.mocked(client.getProfiles).mockReset()
   vi.mocked(client.updateArtist).mockReset()
+  vi.mocked(client.addAlbum).mockReset()
+  vi.mocked(client.searchArtists).mockReset()
   vi.mocked(client.getArtist).mockResolvedValue(
     artist(7, {
       Name: 'Radiohead',
@@ -126,6 +132,8 @@ beforeEach(() => {
   vi.mocked(client.setAlbumMonitored).mockResolvedValue({ id: 11, monitored: false })
   vi.mocked(client.getProfiles).mockResolvedValue({ profiles: ['FLAC', 'MP3 320'], default: 'FLAC' })
   vi.mocked(client.updateArtist).mockResolvedValue({ id: 7, monitored: true })
+  vi.mocked(client.addAlbum).mockResolvedValue({ id: 55 })
+  vi.mocked(client.searchArtists).mockResolvedValue({ query: '', artists: [], release_groups: [] })
 })
 
 afterEach(() => {
@@ -416,5 +424,91 @@ describe('ArtistDetailPage', () => {
     expect(screen.getByTestId('artist-detail-no-albums')).toBeInTheDocument()
     // The helper line only renders once albums exist.
     expect(screen.queryByTestId('artist-detail-helper')).not.toBeInTheDocument()
+  })
+})
+
+describe('ArtistDetailPage (in-detail Add Release)', () => {
+  const group: ReleaseGroupHit = {
+    id: 'g1',
+    title: 'Hail to the Thief',
+    year: 2003,
+    release_count: 2,
+    type: 'album',
+    score: 90,
+    artist: 'Radiohead',
+  }
+
+  it('exposes an Add Release action in the shared action row and opens the modal with defaults', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('artist-detail')
+    const actions = screen.getByTestId('detail-actions')
+    expect(actions).toContainElement(screen.getByTestId('artist-detail-add-release'))
+    await user.click(screen.getByTestId('artist-detail-add-release'))
+    const modal = await screen.findByTestId('add-release-modal')
+    expect(within(modal).getByTestId('add-release-monitored')).toBeChecked()
+    // ProfilePicker prefills the server default (FLAC) once profiles load.
+    await vi.waitFor(() => expect(within(modal).getByTestId('add-release-profile')).toHaveValue('FLAC'))
+  })
+
+  it('adds a release via addAlbum (manual name), reports it in the status line and refreshes albums', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('artist-detail')
+    await user.click(screen.getByTestId('artist-detail-add-release'))
+    await screen.findByTestId('add-release-modal')
+    await vi.waitFor(() => expect(screen.getByTestId('add-release-profile')).toHaveValue('FLAC'))
+    await user.type(screen.getByTestId('add-release-name'), 'Hail to the Thief')
+    await user.click(screen.getByTestId('add-release-button'))
+    expect(client.addAlbum).toHaveBeenCalledWith(7, {
+      name: 'Hail to the Thief',
+      quality_profile: 'FLAC',
+      monitored: true,
+    })
+    expect(screen.queryByTestId('add-release-modal')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('artist-detail-status')).toHaveTextContent('Added "Hail to the Thief"')
+    expect(client.listAlbums).toHaveBeenCalledTimes(2)
+  })
+
+  it('sends year and release_group_mb_id when a release group is picked from the search', async () => {
+    vi.mocked(client.searchArtists).mockResolvedValue({
+      query: 'hail',
+      artists: [],
+      release_groups: [group],
+    })
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('artist-detail')
+    await user.click(screen.getByTestId('artist-detail-add-release'))
+    await screen.findByTestId('add-release-modal')
+    await vi.waitFor(() => expect(screen.getByTestId('add-release-profile')).toHaveValue('FLAC'))
+    await user.type(screen.getByTestId('add-release-search-input'), 'hail')
+    await user.click(await screen.findByTestId('add-release-result-g1'))
+    // Picking the group prefills name + year from the MusicBrainz hit.
+    expect(screen.getByTestId('add-release-name')).toHaveValue('Hail to the Thief')
+    expect(screen.getByTestId('add-release-year')).toHaveValue(2003)
+    await user.click(screen.getByTestId('add-release-button'))
+    expect(client.addAlbum).toHaveBeenCalledWith(7, {
+      name: 'Hail to the Thief',
+      year: 2003,
+      quality_profile: 'FLAC',
+      monitored: true,
+      release_group_mb_id: 'g1',
+    })
+  })
+
+  it('keeps the modal open and shows the API error in the modal and status line on failure', async () => {
+    vi.mocked(client.addAlbum).mockRejectedValue(new Error('album already exists'))
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('artist-detail')
+    await user.click(screen.getByTestId('artist-detail-add-release'))
+    await screen.findByTestId('add-release-modal')
+    await vi.waitFor(() => expect(screen.getByTestId('add-release-profile')).toHaveValue('FLAC'))
+    await user.type(screen.getByTestId('add-release-name'), 'Hail to the Thief')
+    await user.click(screen.getByTestId('add-release-button'))
+    expect(await screen.findByTestId('add-release-error')).toHaveTextContent('album already exists')
+    expect(screen.getByTestId('add-release-modal')).toBeInTheDocument()
+    expect(await screen.findByTestId('artist-detail-status')).toHaveTextContent('album already exists')
   })
 })
