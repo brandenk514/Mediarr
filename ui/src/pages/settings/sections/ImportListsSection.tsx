@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { ImportList, ImportListsSettings, ImportRunResult } from '../../../api/types'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
@@ -149,9 +150,9 @@ export function ImportListsSection() {
         </label>
         {lists.map((l) => (
           <div className="subform" key={l.id} data-testid={`il-item-${l.id}`}>
-            <span className="pill" data-testid={`il-kind-${l.id}`}>
+            <Badge testId={`il-kind-${l.id}`}>
               {l.kind}
-            </span>
+            </Badge>
             <span data-testid={`il-name-${l.id}`}>{l.name}</span>
             <label className="check">
               <input
@@ -186,23 +187,23 @@ export function ImportListsSection() {
         )}
         {runResult && (
           <div data-testid="il-run-result">
-            <span className="pill" data-testid="il-run-summary">
+            <Badge testId="il-run-summary">
               {runResult.dry_run ? 'dry run' : 'import'}: {runResult.total} item
               {runResult.total === 1 ? '' : 's'}
-            </span>
+            </Badge>
             {runResult.items.map((it) => (
-              <span className="pill" key={`${it.external_id}-${it.title}`} data-testid={`il-run-item-${it.status}`}>
+              <Badge key={`${it.external_id}-${it.title}`} testId={`il-run-item-${it.status}`}>
                 {it.title || it.external_id} [{it.kind}] {it.status}
                 {it.message ? ` — ${it.message}` : ''}
-              </span>
+              </Badge>
             ))}
             {runResult.items.length === 0 && <span className="dim small"> list was empty</span>}
           </div>
         )}
         {saved && (
-          <p className="pill pill-ok" data-testid="il-saved">
+          <Badge tone="success" testId="il-saved">
             Saved
-          </p>
+          </Badge>
         )}
         <SaveError error={saveError} testId="il-error-save" />
         <button onClick={handleSave} disabled={busy || loading} data-testid="il-save">

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { NotificationSink } from '../../../api/types'
 import { SaveError, SectionCard, SectionError, useSubmit } from './shared'
 
@@ -182,15 +183,14 @@ export function NotificationsSection() {
                     Delete
                   </button>
                   {testState[s.id] && (
-                    <span
-                      className={testState[s.id] === 'ok' ? 'pill pill-ok' : 'error small'}
-                      data-testid={`notif-test-result-${s.id}`}
-                    >
-                      {testState[s.id] === 'busy'
-                        ? 'Testing…'
-                        : testState[s.id] === 'ok'
-                          ? 'Delivered'
-                          : testState[s.id]}
+                    <span data-testid={`notif-test-result-${s.id}`}>
+                      {testState[s.id] === 'ok' ? (
+                        <Badge tone="success">Delivered</Badge>
+                      ) : (
+                        <span className="text-error text-[0.8rem]">
+                          {testState[s.id] === 'busy' ? 'Testing…' : testState[s.id]}
+                        </span>
+                      )}
                     </span>
                   )}
                 </td>

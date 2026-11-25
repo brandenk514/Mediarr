@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { TagInfo, TagUsage, TagsSettings } from '../../../api/types'
 import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 
@@ -119,9 +120,9 @@ export function TagsSection() {
         Add tag
       </button>
       {saved && (
-        <p className="pill pill-ok" data-testid="tags-saved">
+        <Badge tone="success" testId="tags-saved">
           Saved
-        </p>
+        </Badge>
       )}
     </SectionCard>
   )

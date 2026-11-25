@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type {
   DownloadClient,
   DownloadClientCreate,
@@ -216,15 +217,19 @@ export function DownloadClientsSection() {
                   <td data-testid={`dcl-name-${c.id}`}>{c.name}</td>
                   <td data-testid={`dcl-kind-${c.id}`}>{c.kind}</td>
                   <td data-testid={`dcl-enabled-${c.id}`}>
-                    <span className={c.enabled ? 'pill pill-ok' : 'pill'}>
+                    <Badge tone={c.enabled ? 'success' : 'neutral'}>
                       {c.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
+                    </Badge>
                   </td>
                   <td data-testid={`dcl-last-test-${c.id}`}>
                     {testState[c.id] ? (
-                      <span className={testState[c.id] === 'ok' ? 'pill pill-ok' : 'error small'}>
-                        {testState[c.id] === 'busy' ? 'Testing…' : testState[c.id]}
-                      </span>
+                      testState[c.id] === 'ok' ? (
+                        <Badge tone="success">{testState[c.id]}</Badge>
+                      ) : (
+                        <span className="text-error text-[0.8rem]">
+                          {testState[c.id] === 'busy' ? 'Testing…' : testState[c.id]}
+                        </span>
+                      )
                     ) : (
                       '—'
                     )}
@@ -484,9 +489,9 @@ function LibraryColumn({
         <option value="false">Skip</option>
       </select>
       {saved && (
-        <p className="pill pill-ok" data-testid={`${prefix}-saved`}>
+        <Badge tone="success" testId={`${prefix}-saved`}>
           Saved
-        </p>
+        </Badge>
       )}
       <SaveError error={error} testId={`${prefix}-error`} />
       <button className="ghost" onClick={handleSave} disabled={busy || disabled} data-testid={`${prefix}-save`}>

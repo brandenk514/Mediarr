@@ -6,7 +6,9 @@ import type { SettingsSection } from '../../../api/types'
 // shared.tsx holds the small building blocks every P5 settings section
 // composes: the per-section document loader (defaults-merged read + error
 // states), the busy/error submit wrapper, the error pill, and the section
-// card frame.
+// card frame. (#122: the frames are on the #115 token utilities — the same
+// surface/border/radius/spacing the legacy .card/.dim/.error classes
+// already resolved to, so the look is unchanged.)
 
 // useSubmit is a busy/error wrapper around an async action (mirrors the
 // add-flow useAddSubmit but does not re-throw — settings save errors are shown
@@ -37,7 +39,7 @@ export function useSubmit() {
 export function SaveError({ error, testId }: { error: string; testId: string }) {
   if (!error) return null
   return (
-    <p className="error" role="alert" data-testid={testId}>
+    <p className="text-error" role="alert" data-testid={testId}>
       {error}
     </p>
   )
@@ -94,9 +96,9 @@ export function SectionError({
   testId: string
 }) {
   return (
-    <div className="card" data-testid={testId}>
-      <h3>Section unavailable</h3>
-      <p className="error" data-testid={`${testId}-message`}>
+    <div className="mb-4 rounded-[10px] border border-border bg-surface px-[1.2rem] py-4" data-testid={testId}>
+      <h3 className="text-lg font-semibold">Section unavailable</h3>
+      <p className="text-error" data-testid={`${testId}-message`}>
         {message}
       </p>
       {authLost && (
@@ -124,9 +126,9 @@ export function SectionCard({
   children: React.ReactNode
 }) {
   return (
-    <div className="card" data-testid={testId}>
-      <h3>{title}</h3>
-      {hint && <p className="dim small">{hint}</p>}
+    <div className="mb-4 rounded-[10px] border border-border bg-surface px-[1.2rem] py-4" data-testid={testId}>
+      <h3 className="text-lg font-semibold">{title}</h3>
+      {hint && <p className="text-[0.8rem] text-text-muted">{hint}</p>}
       {children}
     </div>
   )

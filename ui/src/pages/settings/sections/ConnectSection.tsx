@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { ConnectSettings, ConnectTestResult, Notification } from '../../../api/types'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
@@ -115,9 +116,9 @@ export function ConnectSection() {
       >
         {notifs.map((n) => (
           <div className="subform" key={n.id} data-testid={`connect-item-${n.id}`}>
-            <span className="pill" data-testid={`connect-kind-${n.id}`}>
+            <Badge testId={`connect-kind-${n.id}`}>
               {n.kind}
-            </span>
+            </Badge>
             <span data-testid={`connect-name-${n.id}`}>{n.name}</span>
             <label className="check">
               <input
@@ -142,22 +143,23 @@ export function ConnectSection() {
             <button className="ghost" onClick={() => runTest(n)} disabled={testing !== null} data-testid={`connect-test-${n.id}`}>
               {testing === n.id ? 'Testing…' : 'Test'}
             </button>
-            {testResults[n.id] && (
-              <p
-                className={testResults[n.id].ok ? 'pill pill-ok' : 'error'}
-                data-testid={`connect-test-result-${n.id}`}
-              >
-                {testResults[n.id].ok ? 'ok: ' : 'failed: '}
-                {testResults[n.id].message}
-              </p>
-            )}
+            {testResults[n.id] &&
+              (testResults[n.id].ok ? (
+                <Badge tone="success" testId={`connect-test-result-${n.id}`}>
+                  {`ok: ${testResults[n.id].message}`}
+                </Badge>
+              ) : (
+                <p className="text-error" data-testid={`connect-test-result-${n.id}`}>
+                  {`failed: ${testResults[n.id].message}`}
+                </p>
+              ))}
           </div>
         ))}
         {notifs.length === 0 && <p className="dim small">No notifications configured.</p>}
         {saved && (
-          <p className="pill pill-ok" data-testid="connect-saved">
+          <Badge tone="success" testId="connect-saved">
             Saved
-          </p>
+          </Badge>
         )}
         <SaveError error={saveError} testId="connect-error-save" />
         <button onClick={handleSave} disabled={busy || loading} data-testid="connect-save">

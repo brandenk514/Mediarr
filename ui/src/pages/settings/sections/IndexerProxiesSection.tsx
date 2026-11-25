@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { IndexerProxy, TagsSettings } from '../../../api/types'
 import { SaveError, SectionCard, SectionError, useSubmit } from './shared'
 import { Link } from 'react-router-dom'
@@ -191,11 +192,14 @@ export function IndexerProxiesSection() {
                     Delete
                   </button>
                   {testState[p.id] && (
-                    <span
-                      className={testState[p.id].startsWith('ok') ? 'pill pill-ok' : 'error small'}
-                      data-testid={`prox-test-result-${p.id}`}
-                    >
-                      {testState[p.id] === 'busy' ? 'Testing…' : testState[p.id]}
+                    <span data-testid={`prox-test-result-${p.id}`}>
+                      {testState[p.id].startsWith('ok') ? (
+                        <Badge tone="success">{testState[p.id]}</Badge>
+                      ) : (
+                        <span className="text-error text-[0.8rem]">
+                          {testState[p.id] === 'busy' ? 'Testing…' : testState[p.id]}
+                        </span>
+                      )}
                     </span>
                   )}
                 </td>

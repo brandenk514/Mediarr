@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { QualityLevel, QualitySettings } from '../../../api/types'
 import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 
@@ -366,9 +367,9 @@ export function QualitySection() {
         Reset Book Definitions
       </button>
       {saved && (
-        <p className="pill pill-ok" data-testid="quality-saved">
+        <Badge tone="success" testId="quality-saved">
           Saved
-        </p>
+        </Badge>
       )}
       <button onClick={handleSave} disabled={busy || loading || levels.length === 0} data-testid="quality-save">
         {busy ? 'Saving…' : 'Save quality'}

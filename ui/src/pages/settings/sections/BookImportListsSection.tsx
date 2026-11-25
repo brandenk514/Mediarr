@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { components } from '../../../api/types.gen'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
 
@@ -208,9 +209,9 @@ export function BookImportListsSection() {
       >
         {lists.map((l) => (
           <div className="subform" key={l.id} data-testid={`blb-item-${l.id}`}>
-            <span className="pill" data-testid={`blb-kind-${l.id}`}>
+            <Badge testId={`blb-kind-${l.id}`}>
               {l.kind}
-            </span>
+            </Badge>
             <span data-testid={`blb-name-${l.id}`}>{l.name}</span>
             <label className="check">
               <input
@@ -240,9 +241,9 @@ export function BookImportListsSection() {
         ))}
         {lists.length === 0 && <p className="dim small">No books import lists configured.</p>}
         {saved && (
-          <p className="pill pill-ok" data-testid="blb-saved">
+          <Badge tone="success" testId="blb-saved">
             Saved
-          </p>
+          </Badge>
         )}
         <SaveError error={saveError} testId="blb-error-save" />
         <button onClick={handleSave} disabled={busy || loading} data-testid="blb-save">
