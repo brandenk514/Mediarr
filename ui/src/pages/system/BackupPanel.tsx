@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
+import { Badge } from '../../components/primitives'
 import type { BackupDocument, BackupImportResult } from '../../api/types'
 
 // BackupPanel is System > Backup: a read-back of the current self-contained
@@ -49,7 +50,7 @@ export function BackupPanel() {
   if (!doc) {
     return (
       <div className="card" data-testid="system-backup">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Backup</h3>
+        <h3 className="mt-0 mb-2 text-xl font-semibold">Backup</h3>
         <p className="dim">Loading current config…</p>
       </div>
     )
@@ -113,7 +114,7 @@ export function BackupPanel() {
   return (
     <div data-testid="system-backup">
       <div className="card">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Backup</h3>
+        <h3 className="mt-0 mb-2 text-xl font-semibold">Backup</h3>
         <p className="dim" style={{ marginTop: 0 }}>
           A self-contained export of this instance&apos;s configuration. Optional snapshots capture
           the queue and the series library.
@@ -127,7 +128,7 @@ export function BackupPanel() {
           <div className="lt-row">
             <span>{sectionCount}</span>
             <span data-testid="backup-dl-count">
-              <span className="pill">{dlCount}</span>
+              <Badge>{dlCount}</Badge>
             </span>
             <span className="lt-dim">{doc.exported_at ? `v${doc.version} · ${new Date(doc.exported_at).toLocaleString()}` : '—'}</span>
           </div>
@@ -135,7 +136,7 @@ export function BackupPanel() {
       </div>
 
       <div className="card">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Export</h3>
+        <h3 className="mt-0 mb-2 text-xl font-semibold">Export</h3>
         <label className="dim">
           <input
             type="checkbox"
@@ -175,7 +176,7 @@ export function BackupPanel() {
       </div>
 
       <div className="card">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Import</h3>
+        <h3 className="mt-0 mb-2 text-xl font-semibold">Import</h3>
         <p className="dim" style={{ marginTop: 0 }}>
           Paste a document exported from another (or this) instance. Settings always apply; the
           queue and series snapshots apply only when toggled.

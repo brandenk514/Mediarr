@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
+import { Badge } from '../../components/primitives'
 import type { ChangelogEntry } from '../../api/types'
 
 // UpdatesPanel is System > Updates: the running version plus the changelog
@@ -41,7 +42,7 @@ export function UpdatesPanel() {
   if (loading) {
     return (
       <div className="card" data-testid="system-updates">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Updates</h3>
+        <h3 className="mt-0 mb-2 text-xl font-semibold">Updates</h3>
         <p className="dim">Loading changelog…</p>
       </div>
     )
@@ -50,7 +51,7 @@ export function UpdatesPanel() {
   return (
     <div data-testid="system-updates">
       <div className="card">
-        <h3 style={{ margin: '0 0 0.5rem' }}>
+        <h3 className="mt-0 mb-2 text-xl font-semibold">
           Updates{' '}
           <span className="dim small">
             · running <strong data-testid="updates-current-version">v{current || 'unknown'}</strong>
@@ -70,7 +71,7 @@ export function UpdatesPanel() {
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <strong>v{entry.version}</strong>
-                  {isCurrent && <span className="pill pill-ok">current</span>}
+                  {isCurrent && <Badge tone="success">current</Badge>}
                   {entry.date && <span className="dim small">{entry.date}</span>}
                 </div>
                 {entry.entries?.length ? (

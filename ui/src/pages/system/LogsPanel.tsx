@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { openSystemLogsStream } from '../../api/client'
 import type { LogStreamStatus, SystemLogLine } from '../../api/client'
+import { Badge } from '../../components/primitives'
 
 // LogsPanel is System > Log Files: a live streaming log viewer over the
 // /api/v1/system/logs SSE endpoint (the server's in-memory ring buffer —
@@ -61,14 +62,14 @@ export function LogsPanel() {
 
   return (
     <div className="card" data-testid="system-logs">
-      <h3 style={{ margin: '0 0 0.5rem' }}>
+      <h3 className="mt-0 mb-2 text-xl font-semibold">
         Log Files{' '}
-        <span
-          className={`pill ${status.state === 'open' ? 'pill-ok' : status.state === 'closed' ? 'pill-unknown' : 'pill-warn'}`}
-          data-testid="logs-status"
+        <Badge
+          tone={status.state === 'open' ? 'success' : status.state === 'closed' ? 'neutral' : 'warning'}
+          testId="logs-status"
         >
           {status.state === 'open' ? 'live' : status.state === 'closed' ? 'stopped' : 'connecting'}
-        </span>
+        </Badge>
       </h3>
       <p className="dim" style={{ marginTop: 0 }}>
         Live stream of the instance log (last {MAX_LINES} lines), newest at the bottom.

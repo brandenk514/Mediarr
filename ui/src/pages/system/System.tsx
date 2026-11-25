@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
-import { SidebarItem } from '../../components/primitives'
+import { Badge, SidebarItem, type BadgeTone } from '../../components/primitives'
 import type { DiskRoot, SystemAbout, SystemDisk, SystemHealth, SystemTasks, TaskInfo } from '../../api/types'
 import { BackupPanel } from './BackupPanel'
 import { EventsPanel } from './EventsPanel'
@@ -10,6 +10,22 @@ import { MigrationPanel } from './MigrationPanel'
 import { UpdatesPanel } from './UpdatesPanel'
 
 type SystemPage = 'status' | 'tasks' | 'backup' | 'updates' | 'events' | 'logs' | 'import'
+
+// (#122) Health severities and task states on the #115 Badge tone scale —
+// the same ok/err/warn/idle mapping the design tokens define.
+const SEVERITY_TONE: Record<SystemHealth['checks'][number]['severity'], BadgeTone> = {
+  ok: 'success',
+  warning: 'warning',
+  error: 'error',
+}
+
+// Task kinds are informational (all neutral in the legacy palette); the
+// state pill keeps the ok/error split (running is active work, not a warning).
+function taskStateTone(state: 'running' | 'error' | 'idle' | 'planned'): BadgeTone {
+  if (state === 'running') return 'success'
+  if (state === 'error') return 'error'
+  return 'neutral'
+}
 
 const PAGES: { slug: SystemPage; label: string }[] = [
   { slug: 'status', label: 'Status' },
@@ -126,7 +142,7 @@ function StatusPanel() {
                 <div className="lt-row" key={c.check} data-testid={`health-row-${c.check}`}>
                   <span>{c.check}</span>
                   <span className="lt-dim">{c.message}</span>
-                  <span className={`pill health-${c.severity}`}>{c.severity}</span>
+                  <Badge tone={SEVERITY_TONE[c.severity]}>{c.severity}</Badge>
                   <span>
                     {c.wiki_link ? (
                       <a href={c.wiki_link} target="_blank" rel="noreferrer" data-testid={`health-link-${c.check}`}>
@@ -275,11 +291,11 @@ function TaskRow({ t }: { t: TaskInfo }) {
   return (
     <div className="lt-row" data-testid={`task-row-${t.name}`}>
       <span title={t.description}>{t.name}</span>
-      <span className={`pill task-${t.kind}`}>{t.kind}</span>
+      <Badge>{t.kind}</Badge>
       <span className="lt-dim">{t.interval || '—'}</span>
       <span className="lt-dim">{t.last_run ? `${formatDateTime(t.last_run)}${t.last_duration ? ` · ${t.last_duration}` : ''}` : '—'}</span>
       <span>
-        <span className={`pill task-state-${state}`}>{state}</span>
+        <Badge tone={taskStateTone(state)}>{state}</Badge>
         {t.last_error ? <span className="lt-dim" title={t.last_error}> ⚠</span> : null}
       </span>
     </div>
