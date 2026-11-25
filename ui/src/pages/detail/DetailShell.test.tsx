@@ -246,17 +246,24 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-// Render the four existing detail routes under one router.
+// Render the four existing detail routes under one router. The four per-kind
+// add routes are stubbed (as in the real route table, the static add paths
+// rank above the kind's :id deep route) so the toolbar's Add action can be
+// exercised end-to-end inside the test (issue #120 part B).
 function renderRoute(entry: string) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
+        <Route path="/movies/add" element={<div data-testid="movies-add-stub">Add movie</div>} />
         <Route path="/movies/:id" element={<MovieDetailPage />} />
         <Route path="/movies" element={<div data-testid="movies-landing">Movies</div>} />
+        <Route path="/tv/add" element={<div data-testid="tv-add-stub">Add series</div>} />
         <Route path="/tv/:id" element={<SeriesDetailPage />} />
         <Route path="/tv" element={<div data-testid="tv-landing">TV</div>} />
+        <Route path="/music/add" element={<div data-testid="music-add-stub">Add artist</div>} />
         <Route path="/music/:id" element={<ArtistDetailPage />} />
         <Route path="/music" element={<div data-testid="music-landing">Music</div>} />
+        <Route path="/books/add" element={<div data-testid="books-add-stub">Add book</div>} />
         <Route path="/books/:id" element={<AuthorDetailPage />} />
         <Route path="/books" element={<div data-testid="books-landing">Books</div>} />
       </Routes>
@@ -550,5 +557,58 @@ describe('DetailShell across the four detail routes', () => {
     expect(await screen.findByTestId('author-detail-error')).toBeInTheDocument()
     expect(screen.getByTestId('author-detail-error-message')).toHaveTextContent('boom')
     expect(screen.getByText('Retry')).toBeInTheDocument()
+  })
+})
+
+// ---- issue #120 part B: the per-kind add flows in the detail toolbars ----
+//
+// The detail surface's action row carries an Add action per kind that opens
+// the kind's EXISTING add flow: the demoted deep page (/tv/add, /movies/add,
+// /music/add, /books/add), kept routed and functional. The link is rendered
+// in the shared Toolbar slot (detail-actions) — no parallel surface.
+
+describe('Add flows in the detail toolbars (issue #120 part B)', () => {
+  it('tv: the toolbar Add action opens the existing TV add flow', async () => {
+    const user = userEvent.setup()
+    renderRoute('/tv/1')
+    await screen.findByTestId('series-detail')
+    const add = screen.getByTestId('detail-add')
+    expect(add).toHaveTextContent('Add')
+    expect(add).toHaveAttribute('href', '/tv/add')
+    await user.click(add)
+    expect(await screen.findByTestId('tv-add-stub')).toBeInTheDocument()
+  })
+
+  it('movie: the toolbar Add action opens the existing movie add flow', async () => {
+    const user = userEvent.setup()
+    renderRoute('/movies/7')
+    await screen.findByTestId('movie-detail')
+    const add = screen.getByTestId('movie-detail-add')
+    expect(add).toHaveTextContent('Add')
+    expect(add).toHaveAttribute('href', '/movies/add')
+    await user.click(add)
+    expect(await screen.findByTestId('movies-add-stub')).toBeInTheDocument()
+  })
+
+  it('music: the toolbar Add action opens the existing music add flow', async () => {
+    const user = userEvent.setup()
+    renderRoute('/music/7')
+    await screen.findByTestId('artist-detail')
+    const add = screen.getByTestId('artist-detail-add')
+    expect(add).toHaveTextContent('Add')
+    expect(add).toHaveAttribute('href', '/music/add')
+    await user.click(add)
+    expect(await screen.findByTestId('music-add-stub')).toBeInTheDocument()
+  })
+
+  it('books: the toolbar Add action opens the existing books add flow', async () => {
+    const user = userEvent.setup()
+    renderRoute('/books/3')
+    await screen.findByTestId('author-detail')
+    const add = screen.getByTestId('author-detail-add')
+    expect(add).toHaveTextContent('Add')
+    expect(add).toHaveAttribute('href', '/books/add')
+    await user.click(add)
+    expect(await screen.findByTestId('books-add-stub')).toBeInTheDocument()
   })
 })
