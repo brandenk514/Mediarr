@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { client } from '../../api/client'
 import type {
+  AddEditionRequest,
   BookAuthorSeries,
   BookFile,
   BookHistoryEntry,
   BookSeries,
+  BookWorkDetails,
   Edition,
   Author,
   ProfilesResponse,
@@ -15,12 +17,15 @@ import type {
 } from '../../api/types'
 import { MONITOR_POLICY_OPTIONS, relTime } from '../../components/music'
 import { MonitoredToggle } from '../../components/list'
+import { AddError } from '../../components/addflow'
 import {
   Badge,
   BadgeRow,
   Modal,
   TbButton,
+  TbLink,
 } from '../../components/ui'
+import { resolveEditionFormat } from '../add/BookAdd'
 import { DetailShell } from '../detail/DetailShell'
 
 const DASH = '—'
@@ -39,16 +44,17 @@ function humanBytes(n: number): string {
 
 // AuthorDetailPage is the Readarr B1 author detail rendered through the
 // unified detail shell (issue #120 part A): a single scrolling page — common
-// action row (Refresh & Scan / Search / History | Edit / Delete), shared
-// hero (poster placeholder, name + monitor toggle, kind badge, membership
-// badges, books/added field grid), and the books accordion. Each book
-// expands to its editions — an edition is the books analogue of Radarr's
+// action row (Add / Refresh & Scan / Search / History | Edit / Delete),
+// shared hero (poster placeholder, name + monitor toggle, kind badge,
+// membership badges, books/added field grid), and the books accordion. Each
+// book expands to its editions — an edition is the books analogue of Radarr's
 // edition model, the (format, language, monitored) triple — and below the
 // editions the imported book files with their media info (pages, size,
 // format, language, added date). Edit opens the Readarr B2 Edit Author modal
 // (monitored · monitor policy · root folder · quality profile · metadata
 // profile (B3: live select) · tags, persisted through the full author-update
-// PUT); Delete is the not-yet-built stub.
+// PUT); Delete is the not-yet-built stub. The Add action (issue #120 part B)
+// opens the existing books add flow (/books/add, the demoted deep page).
 export function AuthorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const authorId = Number(id)
@@ -78,6 +84,11 @@ export function AuthorDetailPage() {
   // Readarr B3: the book metadata profile names for the metadata-profile
   // select.
   const [editMetadataProfiles, setEditMetadataProfiles] = useState<string[] | null>(null)
+  // Issue #120 part B: the in-detail Add Edition modal — the title it
+  // targets — plus a tick that forces the expanded title's edition list
+  // (TitleEditions) to refetch after a successful add.
+  const [addEditionFor, setAddEditionFor] = useState<Title | null>(null)
+  const [editionsTick, setEditionsTick] = useState(0)
 
   const reload = useCallback(() => {
     setError(null)
@@ -152,6 +163,7 @@ export function AuthorDetailPage() {
       back={{ to: '/books', label: '← Books', testId: 'author-detail-back' }}
       actionsLeft={
         <>
+          <TbLink icon="+" label="Add" to="/books/add" testId="author-detail-add" />
           <TbButton icon="⟳" label="Refresh & Scan" testId="author-detail-refresh" onClick={() => void reload()} />
           <TbButton
             icon="🔍"
@@ -261,7 +273,12 @@ export function AuthorDetailPage() {
     >
       {author ? (
         <>
-          <BooksAccordion titles={titles ?? []} onToggle={reload} />
+          <BooksAccordion
+            titles={titles ?? []}
+            onToggle={reload}
+            editionsTick={editionsTick}
+            onAddEdition={(t) => setAddEditionFor(t)}
+          />
 
           {/* History modal (the per-author history feed; books don't flow into
               the global feed yet). */}
@@ -450,6 +467,29 @@ export function AuthorDetailPage() {
               )}
             </Modal>
           )}
+
+          {/* Issue #120 part B: in-detail Add Edition modal — provider-fed
+              Open Library editions (the same lookupBooks ->
+              getBookWorkEditions chain the /books/add page uses) with a
+              manual fallback; posts to the existing
+              POST /books/titles/{id}/editions endpoint. */}
+          {addEditionFor && (
+            <AddEditionModal
+              title={addEditionFor}
+              authorName={author.Name}
+              onClose={() => setAddEditionFor(null)}
+              onAdded={(count) => {
+                setStatus(
+                  count === 1
+                    ? `Added 1 edition to "${addEditionFor.Name}".`
+                    : `Added ${count} editions to "${addEditionFor.Name}".`,
+                )
+                setEditionsTick((n) => n + 1)
+                setAddEditionFor(null)
+              }}
+              onFailed={(message) => setStatus(message)}
+            />
+          )}
         </>
       ) : null}
     </DetailShell>
@@ -460,7 +500,17 @@ export function AuthorDetailPage() {
 // title monitor toggle + series-membership badges, the edition list (the
 // (format, language, monitored) triples), and the imported book files with
 // their media info.
-function BooksAccordion({ titles, onToggle }: { titles: Title[]; onToggle: () => void }) {
+function BooksAccordion({
+  titles,
+  onToggle,
+  editionsTick,
+  onAddEdition,
+}: {
+  titles: Title[]
+  onToggle: () => void
+  editionsTick: number
+  onAddEdition: (title: Title) => void
+}) {
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set())
 
   function toggle(id: number) {
@@ -521,7 +571,12 @@ function BooksAccordion({ titles, onToggle }: { titles: Title[]; onToggle: () =>
             {expanded && (
               <div className="album-sub" data-testid={`book-detail-${t.ID}`}>
                 <TitleSeries titleId={t.ID} />
-                <TitleEditions titleId={t.ID} onToggle={onToggle} />
+                <TitleEditions
+                  titleId={t.ID}
+                  onToggle={onToggle}
+                  editionsTick={editionsTick}
+                  onAddEdition={() => onAddEdition(t)}
+                />
                 <TitleFiles titleId={t.ID} />
               </div>
             )}
@@ -653,25 +708,44 @@ function AddToSeries({ titleId, onLinked }: { titleId: number; onLinked: () => v
 
 // TitleEditions lists a book's editions. Each edition carries the B1 triple —
 // format (EPUB/MOBI/AZW3), language, and a per-edition monitored flag.
-function TitleEditions({ titleId, onToggle }: { titleId: number; onToggle: () => void }) {
+function TitleEditions({
+  titleId,
+  onToggle,
+  editionsTick,
+  onAddEdition,
+}: {
+  titleId: number
+  onToggle: () => void
+  editionsTick: number
+  onAddEdition: () => void
+}) {
   const [editions, setEditions] = useState<Edition[] | null>(null)
 
+  // editionsTick bumps after an in-detail add so the freshly added edition
+  // shows up without leaving the page (issue #120 part B).
   useEffect(() => {
     client
       .listEditions(titleId)
       .then(setEditions)
       .catch(() => setEditions([]))
-  }, [titleId])
+  }, [titleId, editionsTick])
 
   if (!editions) return null
 
   return (
     <div data-testid={`book-editions-${titleId}`}>
-      <h4>Editions</h4>
+      <div
+        style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '0.5rem' }}
+      >
+        <h4 style={{ margin: 0 }}>Editions</h4>
+        <button type="button" onClick={onAddEdition} data-testid={`book-add-edition-${titleId}`}>
+          Add Edition
+        </button>
+      </div>
       {editions.length === 0 ? (
         <p className="dim" data-testid={`book-editions-empty-${titleId}`}>
-          No editions yet. Editions are added manually (Open Library resolution
-          lands in a later phase).
+          No editions yet. Use Add Edition to fetch candidates from Open
+          Library or enter one manually.
         </p>
       ) : (
         editions.map((e) => (
@@ -781,6 +855,293 @@ function HistoryModal({ authorId, onClose }: { authorId: number; onClose: () => 
           </div>
         ))
       )}
+    </Modal>
+  )
+}
+
+// AddEditionModal is the in-detail Add Edition flow (issue #120 part B):
+// the same Open Library chain the /books/add page uses — lookupBooks
+// resolves the title to an OL work key, getBookWorkEditions fetches the
+// provider-fed edition candidates — with a manual fallback form when the
+// provider can't offer editions (no work key, a fetch failure, or an empty
+// work) so the flow never dead-ends. Each picked edition is created through
+// the existing POST /books/titles/{id}/editions endpoint (client.addEdition).
+function AddEditionModal({
+  title,
+  authorName,
+  onClose,
+  onAdded,
+  onFailed,
+}: {
+  title: Title
+  authorName: string
+  onClose: () => void
+  onAdded: (count: number) => void
+  onFailed: (message: string) => void
+}) {
+  const [phase, setPhase] = useState<'loading' | 'provider' | 'manual'>('loading')
+  const [details, setDetails] = useState<BookWorkDetails | null>(null)
+  // Per-edition monitored picks for the provider list; a missing entry means
+  // true (checked by default) — the BookAdd convention.
+  const [monitoredSel, setMonitoredSel] = useState<Record<string, boolean>>({})
+  // The manual fallback edition form.
+  const [mFormat, setMFormat] = useState<AddEditionRequest['format']>('epub')
+  const [mLanguage, setMLanguage] = useState('')
+  const [mIsbn, setMIsbn] = useState('')
+  const [mPublisher, setMPublisher] = useState('')
+  const [mYear, setMYear] = useState('')
+  const [mMonitored, setMMonitored] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Resolve the title's work key via the Open Library lookup (the same
+  // lookupBooks call the /books/add page debounces against), then fetch the
+  // work's editions. A same-named work by this author wins ties.
+  useEffect(() => {
+    let cancelled = false
+    client
+      .lookupBooks(title.Name)
+      .then((hits) => {
+        if (cancelled) return
+        const want = title.Name.trim().toLowerCase()
+        const candidates = hits.filter(
+          (h) =>
+            h.kind === 'book' &&
+            h.name.trim().toLowerCase() === want &&
+            h.work_key &&
+            /^ol\d+w$/i.test(h.work_key.trim()),
+        )
+        const hit =
+          candidates.find(
+            (h) => (h.author ?? '').trim().toLowerCase() === authorName.trim().toLowerCase(),
+          ) ?? candidates[0]
+        const key = hit?.work_key?.trim().toUpperCase() ?? null
+        if (!key) {
+          setPhase('manual')
+          return
+        }
+        client
+          .getBookWorkEditions(key)
+          .then((d) => {
+            if (cancelled) return
+            if ((d.editions ?? []).length === 0) {
+              setPhase('manual')
+              return
+            }
+            setDetails(d)
+            setPhase('provider')
+          })
+          .catch(() => {
+            if (!cancelled) setPhase('manual')
+          })
+      })
+      .catch(() => {
+        if (!cancelled) setPhase('manual')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [title.Name, authorName])
+
+  // buildRequests assembles the AddEditionRequest payloads: the picked
+  // provider editions (an unmonitorable edition — no format in the
+  // quality-profile set — is skipped, its toggle being disabled) or the
+  // manual form's single edition. Empty fields are omitted (server
+  // defaults), mirroring BookAdd's buildEditionRequests.
+  function buildRequests(): AddEditionRequest[] {
+    if (phase === 'provider' && details) {
+      const reqs: AddEditionRequest[] = []
+      for (const e of details.editions) {
+        if (monitoredSel[e.key] === false) continue
+        const format = resolveEditionFormat(e.formats)
+        if (!format) continue
+        const req: AddEditionRequest = { format, monitored: true }
+        const language = e.languages?.[0]
+        if (language) req.language = language
+        if (e.isbn) req.isbn = e.isbn
+        const publisher = e.publishers?.[0]
+        if (publisher) req.publisher = publisher
+        if (e.year && e.year > 0) req.year = e.year
+        if (e.pages && e.pages > 0) req.pages = e.pages
+        reqs.push(req)
+      }
+      return reqs
+    }
+    if (!mMonitored) return []
+    const req: AddEditionRequest = { format: mFormat, monitored: true }
+    const language = mLanguage.trim()
+    if (language) req.language = language
+    const isbn = mIsbn.trim()
+    if (isbn) req.isbn = isbn
+    const publisher = mPublisher.trim()
+    if (publisher) req.publisher = publisher
+    const year = Number(mYear.trim())
+    if (mYear.trim() !== '' && Number.isInteger(year) && year > 0) req.year = year
+    return [req]
+  }
+
+  async function submit() {
+    if (busy) return
+    const reqs = buildRequests()
+    if (reqs.length === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      for (const req of reqs) {
+        await client.addEdition(title.ID, req)
+      }
+      onAdded(reqs.length)
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'failed to add edition'
+      setError(message)
+      onFailed(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Add Edition"
+      onClose={onClose}
+      testId="add-edition-modal"
+      footer={
+        <>
+          <button type="button" className="ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy || buildRequests().length === 0}
+            onClick={() => {
+              void submit()
+            }}
+            data-testid="add-edition-button"
+          >
+            {busy ? 'Adding…' : 'Add Edition'}
+          </button>
+        </>
+      }
+    >
+      <p className="dim small" data-testid="add-edition-title">
+        {title.Name}
+        {authorName ? ` · ${authorName}` : ''}
+      </p>
+
+      {phase === 'loading' && (
+        <p className="dim" data-testid="add-edition-loading">
+          Looking up Open Library editions…
+        </p>
+      )}
+
+      {phase === 'provider' && details && (
+        <div data-testid="add-edition-provider-list">
+          {details.editions.map((e) => {
+            const monitorable = resolveEditionFormat(e.formats) !== null
+            return (
+              <div className="edition-row" key={e.key} data-testid={`add-edition-provider-${e.key}`}>
+                <span className="ed-label">{e.title || '—'}</span>
+                <span className="ed-meta dim">
+                  {e.formats && e.formats.length > 0 ? e.formats.join(', ') : '—'}
+                  {e.languages && e.languages.length > 0 ? ` · ${e.languages.join(', ')}` : ''}
+                  {e.publishers && e.publishers.length > 0 ? ` · ${e.publishers[0]}` : ''}
+                  {e.year && e.year > 0 ? ` · ${e.year}` : ''}
+                  {e.isbn ? ` · ISBN ${e.isbn}` : ''}
+                  {!monitorable ? ' · no monitorable format' : ''}
+                </span>
+                <label className="check" htmlFor={`add-edition-provider-mon-${e.key}`}>
+                  <input
+                    id={`add-edition-provider-mon-${e.key}`}
+                    type="checkbox"
+                    checked={monitoredSel[e.key] ?? true}
+                    disabled={!monitorable}
+                    onChange={(ev) =>
+                      setMonitoredSel((prev) => ({ ...prev, [e.key]: ev.target.checked }))
+                    }
+                    data-testid={`add-edition-provider-${e.key}-mon`}
+                  />
+                  Monitor
+                </label>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {phase === 'manual' && (
+        <div data-testid="add-edition-manual">
+          <p className="dim small">
+            Open Library has no editions for this title — enter one manually.
+          </p>
+          <label htmlFor="add-edition-format" className="dim small">
+            Format
+          </label>
+          <select
+            id="add-edition-format"
+            value={mFormat}
+            onChange={(e) => setMFormat(e.target.value as AddEditionRequest['format'])}
+            data-testid="add-edition-format"
+          >
+            <option value="epub">EPUB</option>
+            <option value="mobi">MOBI</option>
+            <option value="azw3">AZW3</option>
+          </select>
+          <label htmlFor="add-edition-language" className="dim small">
+            Language
+          </label>
+          <input
+            id="add-edition-language"
+            value={mLanguage}
+            onChange={(e) => setMLanguage(e.target.value)}
+            placeholder="en (optional)"
+            data-testid="add-edition-language"
+          />
+          <label htmlFor="add-edition-isbn" className="dim small">
+            ISBN
+          </label>
+          <input
+            id="add-edition-isbn"
+            value={mIsbn}
+            onChange={(e) => setMIsbn(e.target.value)}
+            placeholder="978… (optional)"
+            data-testid="add-edition-isbn"
+          />
+          <label htmlFor="add-edition-publisher" className="dim small">
+            Publisher
+          </label>
+          <input
+            id="add-edition-publisher"
+            value={mPublisher}
+            onChange={(e) => setMPublisher(e.target.value)}
+            placeholder="Publisher (optional)"
+            data-testid="add-edition-publisher"
+          />
+          <label htmlFor="add-edition-year" className="dim small">
+            Year
+          </label>
+          <input
+            id="add-edition-year"
+            type="number"
+            min={0}
+            value={mYear}
+            onChange={(e) => setMYear(e.target.value)}
+            placeholder="e.g. 2018 (optional)"
+            data-testid="add-edition-year"
+          />
+          <label className="check" htmlFor="add-edition-monitored">
+            <input
+              id="add-edition-monitored"
+              type="checkbox"
+              checked={mMonitored}
+              onChange={(e) => setMMonitored(e.target.checked)}
+              data-testid="add-edition-monitored"
+            />
+            Monitor this edition
+          </label>
+        </div>
+      )}
+
+      {error && <AddError message={error} testId="add-edition-error" />}
     </Modal>
   )
 }

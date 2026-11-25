@@ -2,14 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
 import type {
+  AddAlbumRequest,
   Album,
   Artist,
   MusicHistoryEntry,
   PageArtist,
   ProfilesResponse,
+  ReleaseGroupHit,
   Track,
   UpdateArtistRequest,
 } from '../../api/types'
+import { AddError, MonitoredField, ProfilePicker, SearchBox, useDebouncedSearch } from '../../components/addflow'
 import { MonitoredToggle } from '../../components/list'
 import {
   ALBUM_TYPE_ORDER,
@@ -20,19 +23,21 @@ import {
   humanBytes,
   relTime,
 } from '../../components/music'
-import { Modal, TbButton } from '../../components/ui'
+import { Modal, TbButton, TbLink } from '../../components/ui'
 import { DetailShell } from '../detail/DetailShell'
 
 // ArtistDetailPage is the Lidarr L1 artist detail rendered through the
 // unified detail shell (issue #120 part A): a single scrolling page —
-// common action row (Refresh & Scan / Search Monitored / Interactive
+// common action row (Add / Refresh & Scan / Search Monitored / Interactive
 // Search | Preview Rename / Preview Retag / Manage Tracks / History /
 // Manual Import | Artist Monitoring / Edit / Delete | Expand All), shared
 // hero (poster placeholder, name + rating/genre line, kind badge, green
 // pill row, prev/next paging), the overview (honest empty state until
 // artist metadata lands), and the Albums accordion grouped by album type:
 // type group -> album rows -> disc sections -> track tables (four levels
-// of lazy expansion; tracks load per album on expand).
+// of lazy expansion; tracks load per album on expand). The Add action
+// (issue #120 part B) opens the existing music add flow (/music/add, the
+// demoted deep page).
 //
 // L1 wiring: Refresh & Scan and Search Monitored hit the existing artist
 // pipeline endpoint; History opens a modal over GET /music/artists/{id}/history;
@@ -86,6 +91,74 @@ export function ArtistDetailPage() {
   // The Edit modal's Quality Profile picker (L2): music profiles loaded
   // lazily when the modal opens.
   const [editProfiles, setEditProfiles] = useState<ProfilesResponse | null>(null)
+
+  // issue #120 part B: the in-detail Add Release flow. Posts to the existing
+  // POST /music/artists/{id}/albums endpoint (client.addAlbum); release-group
+  // candidates come from the same MusicBrainz search the /music/add page uses
+  // (client.searchArtists → release_groups) and can prefill name/year and the
+  // release_group_mb_id that populates the album's tracks.
+  const [releaseOpen, setReleaseOpen] = useState(false)
+  const [relName, setRelName] = useState('')
+  const [relYear, setRelYear] = useState('')
+  const [relProfile, setRelProfile] = useState('')
+  const [relMonitored, setRelMonitored] = useState(true)
+  const [relGroup, setRelGroup] = useState<ReleaseGroupHit | null>(null)
+  const [relBusy, setRelBusy] = useState(false)
+  const [relError, setRelError] = useState('')
+
+  const searchReleases = useCallback(async (q: string): Promise<ReleaseGroupHit[]> => {
+    const res = await client.searchArtists(q)
+    return res.release_groups ?? []
+  }, [])
+  const { text: relQuery, setText: setRelQuery, state: relSearch } =
+    useDebouncedSearch<ReleaseGroupHit>(searchReleases)
+
+  function openAddRelease() {
+    setRelName('')
+    setRelYear('')
+    setRelProfile('')
+    setRelMonitored(true)
+    setRelGroup(null)
+    setRelError('')
+    setReleaseOpen(true)
+  }
+
+  function pickReleaseGroup(g: ReleaseGroupHit) {
+    setRelName(g.title)
+    setRelYear(g.year > 0 ? String(g.year) : '')
+    setRelGroup(g)
+  }
+
+  function onRelNameChange(v: string) {
+    setRelName(v)
+    // Editing the name away from the picked group drops the association:
+    // the request would otherwise carry a mismatched release_group_mb_id.
+    if (relGroup && v !== relGroup.title) setRelGroup(null)
+  }
+
+  async function submitRelease() {
+    const name = relName.trim()
+    if (!name || relBusy) return
+    setRelBusy(true)
+    setRelError('')
+    const req: AddAlbumRequest = { name, monitored: relMonitored }
+    const year = Number(relYear)
+    if (relYear.trim() !== '' && Number.isInteger(year) && year > 0) req.year = year
+    if (relProfile) req.quality_profile = relProfile
+    if (relGroup) req.release_group_mb_id = relGroup.id
+    try {
+      await client.addAlbum(artistId, req)
+      setReleaseOpen(false)
+      setStatus(`Added "${name}".`)
+      void load()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'failed to add release'
+      setRelError(msg)
+      setStatus(msg)
+    } finally {
+      setRelBusy(false)
+    }
+  }
 
   const load = useCallback(async () => {
     if (!artistId || Number.isNaN(artistId)) {
@@ -258,6 +331,7 @@ export function ArtistDetailPage() {
       back={{ to: '/music', label: '← Artists', testId: 'artist-detail-back' }}
       actionsLeft={
         <>
+          <TbLink icon="+" label="Add" to="/music/add" testId="artist-detail-add" />
           <TbButton icon="⟳" label="Refresh & Scan" testId="artist-detail-refresh" onClick={() => void runPipeline('refresh')} />
           <TbButton
             icon="🔍"
@@ -265,6 +339,13 @@ export function ArtistDetailPage() {
             testId="artist-detail-search"
             disabled={searching}
             onClick={() => void runPipeline('search')}
+          />
+          <TbButton
+            icon="+"
+            label="Add Release"
+            testId="artist-detail-add-release"
+            title="Add a release (album) to this artist (existing endpoint: POST /music/artists/{id}/albums)"
+            onClick={openAddRelease}
           />
           <TbButton
             icon="🔎"
@@ -724,6 +805,100 @@ export function ArtistDetailPage() {
                   ))}
                 </span>
               )}
+            </Modal>
+          )}
+
+          {/* issue #120 part B: in-detail Add Release dialog. Posts to the
+              existing endpoint; a picked MusicBrainz release group can
+              populate the album + tracks via release_group_mb_id. */}
+          {releaseOpen && (
+            <Modal
+              title={`Add Release — ${artist?.Name ?? 'artist'}`}
+              onClose={() => setReleaseOpen(false)}
+              testId="add-release-modal"
+              footer={
+                <>
+                  <button type="button" className="ghost" onClick={() => setReleaseOpen(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="add-release-button"
+                    disabled={relBusy || relName.trim() === ''}
+                    onClick={() => {
+                      void submitRelease()
+                    }}
+                  >
+                    {relBusy ? 'Adding…' : 'Add Release'}
+                  </button>
+                </>
+              }
+            >
+              <SearchBox
+                label="Search release groups"
+                placeholder="Search releases (MusicBrainz)…"
+                text={relQuery}
+                onText={setRelQuery}
+                state={relSearch}
+                testId="add-release-search"
+              />
+              {relSearch.phase === 'results' && relSearch.hits.length > 0 && (
+                <ul className="result-list" data-testid="add-release-results">
+                  {relSearch.hits.map((g) => (
+                    <li key={g.id}>
+                      <button
+                        type="button"
+                        className="result-card"
+                        onClick={() => pickReleaseGroup(g)}
+                        data-testid={`add-release-result-${g.id}`}
+                      >
+                        <span className="result-title">
+                          {g.title}
+                          {g.year > 0 ? <span className="dim"> ({g.year})</span> : null}
+                        </span>
+                        <span className="dim small">
+                          {g.type}
+                          {g.release_count > 0
+                            ? ` · ${g.release_count} release${g.release_count === 1 ? '' : 's'}`
+                            : ''}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <label style={{ display: 'block', marginTop: '0.6rem' }}>
+                <span className="dim small">Release name</span>
+                <input
+                  type="text"
+                  value={relName}
+                  onChange={(e) => onRelNameChange(e.target.value)}
+                  placeholder="e.g. Hail to the Thief"
+                  data-testid="add-release-name"
+                />
+              </label>
+              <label style={{ display: 'block', marginTop: '0.6rem' }}>
+                <span className="dim small">Year (optional)</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={relYear}
+                  onChange={(e) => setRelYear(e.target.value)}
+                  data-testid="add-release-year"
+                />
+              </label>
+              <div style={{ marginTop: '0.6rem' }}>
+                <ProfilePicker kind="music" value={relProfile} onChange={setRelProfile} testId="add-release-profile" />
+              </div>
+              <div style={{ marginTop: '0.6rem' }}>
+                <MonitoredField
+                  label="Monitored"
+                  checked={relMonitored}
+                  onChecked={setRelMonitored}
+                  testId="add-release-monitored"
+                />
+              </div>
+              <AddError message={relError} testId="add-release-error" />
             </Modal>
           )}
         </>

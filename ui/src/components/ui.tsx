@@ -4,6 +4,7 @@
 // toolbar (with divider groups), grid/list view toggle, Sort/Filter dropdown
 // menus, the badge set, a modal, the A–Z jump index, and a scaffold empty
 // state. They are intentionally UI-only — data wiring happens in the pages.
+import { Link } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 
 // ---- toolbar (icon-over-label, divider groups) ----
@@ -60,6 +61,44 @@ export function TbButton({
         </span>
         <span>{label}</span>
       </button>
+    </>
+  )
+}
+
+// TbLink is the toolbar control whose action is navigation to an existing
+// route (the detail toolbars' 'Add' actions open the kind's existing add
+// page, issue #120 part B). It renders the same icon-over-label chrome as
+// TbButton but as a <Link>, so middle-click, drag and screen-reader
+// navigation all behave as for a link.
+export function TbLink({
+  icon,
+  label,
+  to,
+  divider,
+  testId,
+  title,
+}: {
+  icon: string
+  label: string
+  to: string
+  divider?: boolean
+  testId?: string
+  title?: string
+}) {
+  return (
+    <>
+      {divider && <span className="tb-sep" aria-hidden />}
+      <Link
+        to={to}
+        className="tb-btn"
+        title={title ?? label}
+        data-testid={testId}
+      >
+        <span className="tb-icon" aria-hidden>
+          {icon}
+        </span>
+        <span>{label}</span>
+      </Link>
     </>
   )
 }
