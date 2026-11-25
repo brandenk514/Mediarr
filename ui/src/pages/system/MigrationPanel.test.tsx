@@ -74,7 +74,6 @@ const READARR_RESULT = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
   ;(client.getMigrationStatus as ReturnType<typeof vi.fn>).mockResolvedValue(STATUS)
   ;(client.runMigration as ReturnType<typeof vi.fn>).mockResolvedValue(RESULT)
   ;(client.getReadarrMigrationStatus as ReturnType<typeof vi.fn>).mockResolvedValue(STATUS)
@@ -346,9 +345,11 @@ describe('MigrationPanel Readarr (B6)', () => {
         include: ALL_INCLUDE,
       }),
     )
-    // The generic endpoint and the execute endpoint stay untouched.
+    // The generic endpoint and the execute endpoint stay untouched, and the
+    // read-only dry run never opens the confirm dialog.
     expect(client.runMigration).not.toHaveBeenCalled()
     expect(client.executeReadarrMigration).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('migration-confirm')).not.toBeInTheDocument()
     // The report renders with counts + item rows (actions all 'dry-run').
     const report = await screen.findByTestId('migration-result')
     expect(report).toHaveTextContent('dry run')
@@ -364,6 +365,25 @@ describe('MigrationPanel Readarr (B6)', () => {
     expect(screen.getByTestId('migration-status')).toHaveTextContent('1/1 books')
   })
 
+  it('a real run opens the confirm dialog with the migration warning before anything posts', async () => {
+    const user = userEvent.setup()
+    render(<MigrationPanel />)
+    await screen.findByTestId('migration-source-url')
+
+    await user.selectOptions(screen.getByTestId('migration-source'), 'readarr')
+    await user.type(screen.getByTestId('migration-source-url'), 'http://readarr.local:8888')
+    await user.click(screen.getByTestId('migration-dry-run')) // off -> real run
+    await user.click(screen.getByTestId('migration-run-btn'))
+
+    const dialog = await screen.findByTestId('migration-confirm')
+    expect(dialog).toHaveTextContent('Run the Readarr migration for real?')
+    expect(dialog).toHaveTextContent(
+      'Authors, books, and settings will be imported into Mediarr. A dry run changes nothing.',
+    )
+    // The execute endpoint is not called until the user confirms the dialog.
+    expect(client.executeReadarrMigration).not.toHaveBeenCalled()
+  })
+
   it('execute confirms first, then posts to the execute endpoint with resume', async () => {
     const user = userEvent.setup()
     render(<MigrationPanel />)
@@ -375,7 +395,11 @@ describe('MigrationPanel Readarr (B6)', () => {
     await user.click(screen.getByTestId('migration-resume')) // resume a partial run
     await user.click(screen.getByTestId('migration-run-btn'))
 
-    expect(window.confirm).toHaveBeenCalledTimes(1)
+    // The confirm dialog gates the write: nothing is posted before confirm.
+    await screen.findByTestId('migration-confirm')
+    expect(client.executeReadarrMigration).not.toHaveBeenCalled()
+    await user.click(screen.getByTestId('migration-confirm-confirm'))
+
     await vi.waitFor(() =>
       expect(client.executeReadarrMigration).toHaveBeenCalledWith({
         base_url: 'http://readarr.local:8888',
@@ -387,7 +411,6 @@ describe('MigrationPanel Readarr (B6)', () => {
   })
 
   it('execute honours a declined confirm and calls nothing', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
     render(<MigrationPanel />)
     await screen.findByTestId('migration-source-url')
@@ -397,7 +420,10 @@ describe('MigrationPanel Readarr (B6)', () => {
     await user.click(screen.getByTestId('migration-dry-run')) // off -> real run
     await user.click(screen.getByTestId('migration-run-btn'))
 
-    expect(window.confirm).toHaveBeenCalledTimes(1)
+    // Cancelling the dialog closes it and posts nothing.
+    await screen.findByTestId('migration-confirm')
+    await user.click(screen.getByTestId('migration-confirm-cancel'))
+    expect(screen.queryByTestId('migration-confirm')).not.toBeInTheDocument()
     expect(client.executeReadarrMigration).not.toHaveBeenCalled()
     expect(client.runReadarrMigration).not.toHaveBeenCalled()
     expect(screen.queryByTestId('migration-result')).not.toBeInTheDocument()
