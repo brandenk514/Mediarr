@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { NavLink, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
+import { SidebarItem } from '../../components/primitives'
 import type { DiskRoot, SystemAbout, SystemDisk, SystemHealth, SystemTasks, TaskInfo } from '../../api/types'
 import { BackupPanel } from './BackupPanel'
 import { EventsPanel } from './EventsPanel'
@@ -30,21 +31,23 @@ export function SystemPage() {
   return <SystemShell page={page as SystemPage} />
 }
 
-// SystemShell renders the system sub-page nav + the active sub-page.
+// SystemShell renders the system sub-page nav + the active sub-page. (#122:
+// the rows are the #115 SidebarItem primitive and the grid rides the same
+// settings-shell layout the settings IA uses.)
 function SystemShell({ page = 'status' }: { page?: SystemPage }) {
   const current: SystemPage = PAGES.some((p) => p.slug === page) ? page : 'status'
+  const navigate = useNavigate()
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '210px 1fr', gap: '1.2rem', alignItems: 'start' }}>
+    <div className="settings-shell">
       <nav className="settings-nav" aria-label="System" data-testid="system-nav">
         {PAGES.map((p) => (
-          <NavLink
+          <SidebarItem
             key={p.slug}
-            to={`/system/${p.slug}`}
-            className={p.slug === current ? 'active' : ''}
-            data-testid={`system-nav-${p.slug}`}
-          >
-            {p.label}
-          </NavLink>
+            label={p.label}
+            active={p.slug === current}
+            onClick={() => navigate(`/system/${p.slug}`)}
+            testId={`system-nav-${p.slug}`}
+          />
         ))}
       </nav>
       <div style={{ minWidth: 0 }}>
@@ -108,7 +111,7 @@ function StatusPanel() {
     <div data-testid="system-status">
       {health && (
         <div className="card" data-testid="system-health-table">
-          <h3 style={{ margin: '0 0 0.5rem' }}>Health</h3>
+          <h3 className="mt-0 mb-2 text-xl font-semibold">Health</h3>
           {health.checks.length === 0 ? (
             <p className="dim">No health checks reported.</p>
           ) : (
@@ -141,7 +144,7 @@ function StatusPanel() {
       )}
       {disk && (
         <div className="card" style={{ marginTop: '1rem' }} data-testid="system-disk">
-          <h3 style={{ margin: '0 0 0.5rem' }}>Disk Space</h3>
+          <h3 className="mt-0 mb-2 text-xl font-semibold">Disk Space</h3>
           {disk.roots.length === 0 ? (
             <p className="dim">No media roots configured.</p>
           ) : (
@@ -160,7 +163,7 @@ function StatusPanel() {
       )}
       {about && (
         <div className="card" style={{ marginTop: '1rem' }} data-testid="system-about">
-          <h3 style={{ margin: '0 0 0.5rem' }}>About</h3>
+          <h3 className="mt-0 mb-2 text-xl font-semibold">About</h3>
           <dl className="about-grid">
             <AboutRow label="Version" value={about.version} />
             <AboutRow label="Commit" value={about.commit} />
@@ -238,7 +241,7 @@ function TasksPanel() {
 
   return (
     <div className="card" data-testid="system-tasks">
-      <h3 style={{ margin: '0 0 0.5rem' }}>
+      <h3 className="mt-0 mb-2 text-xl font-semibold">
         Tasks
         {tasks && (
           <span className="dim small">
