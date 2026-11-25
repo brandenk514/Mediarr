@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { client } from '../../api/client'
 import type { GlobalHistoryItem, MediaKind } from '../../api/types'
 import { EmptyState, TbButton, Toolbar } from '../../components/ui'
+import { Badge, Dropdown } from '../../components/primitives'
 import { timeAgo } from '../../lib/format'
 
 // History is the global event feed at /activity/history (route established in
@@ -81,20 +82,18 @@ export function HistoryPage() {
               aria-label="Since date"
               style={{ width: 'auto' }}
             />
-            <select
-              value={event}
-              onChange={(e) => setEvent(e.target.value)}
-              data-testid="history-event"
-              aria-label="Filter by event type"
-              style={{ width: 'auto' }}
-            >
-              <option value="">All events</option>
-              {EVENT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            {/* #121: the event-type filter is the shared Dropdown primitive
+                (testid stays on the control). */}
+            <Dropdown
+              label="All events"
+              options={[
+                { value: '', label: 'All events' },
+                ...EVENT_TYPES.map((t) => ({ value: t, label: t })),
+              ]}
+              selected={event}
+              onChange={setEvent}
+              testId="history-event"
+            />
           </>
         }
       />
@@ -118,7 +117,7 @@ export function HistoryPage() {
           <ul className="feed" data-testid="history-feed">
             {items.map((h, i) => (
               <li key={`${h.kind}-${h.parent_id}-${h.event}-${h.at}-${i}`} className="feed-item" data-testid={`history-item-${i}`}>
-                <span className="pill pill-idle">{h.event}</span>
+                <Badge>{h.event}</Badge>
                 <span className="feed-main">
                   <span className="feed-title">
                     <Link to={mediaPath(h.kind, h.parent_id)} data-testid={`history-link-${i}`}>
