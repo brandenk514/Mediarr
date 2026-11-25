@@ -21,6 +21,7 @@ vi.mock('../../api/client', () => ({
     getSeries: vi.fn(),
     listEpisodes: vi.fn(),
     setEpisodeMonitored: vi.fn(),
+    addEpisode: vi.fn(),
     searchMissingEpisodes: vi.fn(),
   },
 }))
@@ -67,6 +68,7 @@ beforeEach(() => {
     ep(12, 1, 2, 'Cat in the Bag…'),
     ep(21, 2, 1, '…'),
   ])
+  vi.mocked(client.addEpisode).mockResolvedValue({ id: 99 })
   vi.mocked(client.searchMissingEpisodes).mockResolvedValue({ searched: 3 })
   vi.mocked(client.setEpisodeMonitored).mockResolvedValue({ id: 11, monitored: false })
 })
@@ -132,5 +134,84 @@ describe('SeriesDetailPage (P2)', () => {
     vi.mocked(client.listEpisodes).mockResolvedValue([])
     renderDetail()
     expect(await screen.findByTestId('series-detail-no-episodes')).toHaveTextContent('No episodes yet')
+  })
+})
+
+describe('SeriesDetailPage (in-detail Add Episode)', () => {
+  it('the toolbar exposes an Add Episode action in the shared action row', async () => {
+    renderDetail()
+    await screen.findByTestId('season-1')
+    const actions = screen.getByTestId('detail-actions')
+    expect(actions).toContainElement(screen.getByTestId('series-detail-add-episode'))
+  })
+
+  it('opens the modal with season 1, episode 1, monitored defaults', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('season-1')
+    await user.click(screen.getByTestId('series-detail-add-episode'))
+    const modal = await screen.findByTestId('add-episode-modal')
+    expect(within(modal).getByTestId('add-episode-season')).toHaveValue('1')
+    expect(within(modal).getByTestId('add-episode-episode')).toHaveValue('1')
+    expect(within(modal).getByTestId('add-episode-monitored')).toBeChecked()
+  })
+
+  it('submits the episode through addEpisode, reports it in the status line and refreshes episodes', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('season-1')
+    await user.click(screen.getByTestId('series-detail-add-episode'))
+    await screen.findByTestId('add-episode-modal')
+
+    await user.clear(screen.getByTestId('add-episode-season'))
+    await user.type(screen.getByTestId('add-episode-season'), '2')
+    await user.clear(screen.getByTestId('add-episode-episode'))
+    await user.type(screen.getByTestId('add-episode-episode'), '3')
+    await user.type(screen.getByTestId('add-episode-title'), 'Finale')
+    await user.click(screen.getByTestId('add-episode-button'))
+
+    expect(client.addEpisode).toHaveBeenCalledWith(1, {
+      season: 2,
+      episode: 3,
+      title: 'Finale',
+      monitored: true,
+    })
+    expect(screen.queryByTestId('add-episode-modal')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('series-detail-status')).toHaveTextContent('Added S2E3')
+    expect(client.listEpisodes).toHaveBeenCalledTimes(2)
+  })
+
+  it('omits the optional title and air date when left blank', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('season-1')
+    await user.click(screen.getByTestId('series-detail-add-episode'))
+    await screen.findByTestId('add-episode-modal')
+    await user.click(screen.getByTestId('add-episode-button'))
+    expect(client.addEpisode).toHaveBeenCalledWith(1, { season: 1, episode: 1, monitored: true })
+  })
+
+  it('sends monitored: false when the toggle is unchecked', async () => {
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('season-1')
+    await user.click(screen.getByTestId('series-detail-add-episode'))
+    await screen.findByTestId('add-episode-modal')
+    await user.uncheck(screen.getByTestId('add-episode-monitored'))
+    await user.click(screen.getByTestId('add-episode-button'))
+    expect(client.addEpisode).toHaveBeenCalledWith(1, { season: 1, episode: 1, monitored: false })
+  })
+
+  it('keeps the modal open and shows the API error in the modal and status line on failure', async () => {
+    vi.mocked(client.addEpisode).mockRejectedValue(new Error('episode already exists'))
+    const user = userEvent.setup()
+    renderDetail()
+    await screen.findByTestId('season-1')
+    await user.click(screen.getByTestId('series-detail-add-episode'))
+    await screen.findByTestId('add-episode-modal')
+    await user.click(screen.getByTestId('add-episode-button'))
+    expect(await screen.findByTestId('add-episode-error')).toHaveTextContent('episode already exists')
+    expect(screen.getByTestId('add-episode-modal')).toBeInTheDocument()
+    expect(await screen.findByTestId('series-detail-status')).toHaveTextContent('episode already exists')
   })
 })

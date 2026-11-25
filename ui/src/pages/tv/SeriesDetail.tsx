@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
 import type { Episode, Series } from '../../api/types'
 import { MonitoredToggle } from '../../components/list'
-import { Badge, BadgeRow, TbButton } from '../../components/ui'
+import { Badge, BadgeRow, TbButton, TbLink } from '../../components/ui'
 import { DetailShell } from '../detail/DetailShell'
 
 // SeriesDetail is the Sonarr-parity series page (P2) rendered through the
@@ -11,7 +11,9 @@ import { DetailShell } from '../detail/DetailShell'
 // profile, series type, monitored state, tags — the metadata the API
 // carries), a metadata credit line, and per-season accordions whose episode
 // rows keep the per-episode monitored toggles. The toolbar wires the P2
-// search endpoint (Search Monitored) alongside Refresh & Scan.
+// search endpoint (Search Monitored) alongside Refresh & Scan, and the
+// issue #120 part B Add action that opens the existing TV add flow
+// (/tv/add, the demoted deep page).
 export function SeriesDetailPage() {
   const { id } = useParams<{ id: string }>()
   const seriesId = Number(id)
@@ -99,6 +101,7 @@ export function SeriesDetailPage() {
       back={{ to: '/tv', label: '← Series', testId: 'series-detail-back' }}
       actionsLeft={
         <>
+          <TbLink icon="+" label="Add" to="/tv/add" testId="detail-add" />
           <TbButton icon="⟳" label="Refresh & Scan" testId="detail-refresh" onClick={() => void load()} />
           <TbButton
             icon="🔍"

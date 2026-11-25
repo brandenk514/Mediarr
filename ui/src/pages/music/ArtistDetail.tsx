@@ -20,19 +20,21 @@ import {
   humanBytes,
   relTime,
 } from '../../components/music'
-import { Modal, TbButton } from '../../components/ui'
+import { Modal, TbButton, TbLink } from '../../components/ui'
 import { DetailShell } from '../detail/DetailShell'
 
 // ArtistDetailPage is the Lidarr L1 artist detail rendered through the
 // unified detail shell (issue #120 part A): a single scrolling page —
-// common action row (Refresh & Scan / Search Monitored / Interactive
+// common action row (Add / Refresh & Scan / Search Monitored / Interactive
 // Search | Preview Rename / Preview Retag / Manage Tracks / History /
 // Manual Import | Artist Monitoring / Edit / Delete | Expand All), shared
 // hero (poster placeholder, name + rating/genre line, kind badge, green
 // pill row, prev/next paging), the overview (honest empty state until
 // artist metadata lands), and the Albums accordion grouped by album type:
 // type group -> album rows -> disc sections -> track tables (four levels
-// of lazy expansion; tracks load per album on expand).
+// of lazy expansion; tracks load per album on expand). The Add action
+// (issue #120 part B) opens the existing music add flow (/music/add, the
+// demoted deep page).
 //
 // L1 wiring: Refresh & Scan and Search Monitored hit the existing artist
 // pipeline endpoint; History opens a modal over GET /music/artists/{id}/history;
@@ -258,6 +260,7 @@ export function ArtistDetailPage() {
       back={{ to: '/music', label: '← Artists', testId: 'artist-detail-back' }}
       actionsLeft={
         <>
+          <TbLink icon="+" label="Add" to="/music/add" testId="artist-detail-add" />
           <TbButton icon="⟳" label="Refresh & Scan" testId="artist-detail-refresh" onClick={() => void runPipeline('refresh')} />
           <TbButton
             icon="🔍"

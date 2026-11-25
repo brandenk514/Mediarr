@@ -20,6 +20,7 @@ import {
   BadgeRow,
   Modal,
   TbButton,
+  TbLink,
 } from '../../components/ui'
 import { DetailShell } from '../detail/DetailShell'
 
@@ -39,16 +40,17 @@ function humanBytes(n: number): string {
 
 // AuthorDetailPage is the Readarr B1 author detail rendered through the
 // unified detail shell (issue #120 part A): a single scrolling page — common
-// action row (Refresh & Scan / Search / History | Edit / Delete), shared
-// hero (poster placeholder, name + monitor toggle, kind badge, membership
-// badges, books/added field grid), and the books accordion. Each book
-// expands to its editions — an edition is the books analogue of Radarr's
+// action row (Add / Refresh & Scan / Search / History | Edit / Delete),
+// shared hero (poster placeholder, name + monitor toggle, kind badge,
+// membership badges, books/added field grid), and the books accordion. Each
+// book expands to its editions — an edition is the books analogue of Radarr's
 // edition model, the (format, language, monitored) triple — and below the
 // editions the imported book files with their media info (pages, size,
 // format, language, added date). Edit opens the Readarr B2 Edit Author modal
 // (monitored · monitor policy · root folder · quality profile · metadata
 // profile (B3: live select) · tags, persisted through the full author-update
-// PUT); Delete is the not-yet-built stub.
+// PUT); Delete is the not-yet-built stub. The Add action (issue #120 part B)
+// opens the existing books add flow (/books/add, the demoted deep page).
 export function AuthorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const authorId = Number(id)
@@ -152,6 +154,7 @@ export function AuthorDetailPage() {
       back={{ to: '/books', label: '← Books', testId: 'author-detail-back' }}
       actionsLeft={
         <>
+          <TbLink icon="+" label="Add" to="/books/add" testId="author-detail-add" />
           <TbButton icon="⟳" label="Refresh & Scan" testId="author-detail-refresh" onClick={() => void reload()} />
           <TbButton
             icon="🔍"

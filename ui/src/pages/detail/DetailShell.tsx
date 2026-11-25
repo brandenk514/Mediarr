@@ -5,8 +5,10 @@
 // row, status line, hero (poster/backdrop area + title + kind badge +
 // metadata) and the kind-specific body sections. The four pages keep their
 // data loading, error/loading/retry/auth states, testids and body sections;
-// the shell owns the shared chrome. The action row is a reusable slot for
-// later work (issue #120 part B integrates the per-kind add flows into it).
+// the shell owns the shared chrome. The action row is a reusable slot:
+// part B (issue #120) wires each detail page's Add action into it — the
+// link that opens the kind's existing add flow at its demoted deep route
+// (/tv/add, /movies/add, /music/add, /books/add).
 //
 // Art: no existing endpoint serves poster/backdrop images for these kinds,
 // so the poster renders an accessible decorative initials placeholder.

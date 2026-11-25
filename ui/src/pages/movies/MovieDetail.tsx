@@ -3,19 +3,20 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
 import type { Movie, PageMovie } from '../../api/types'
 import { MonitoredToggle } from '../../components/list'
-import { Badge, BadgeRow, TbButton } from '../../components/ui'
+import { Badge, BadgeRow, TbButton, TbLink } from '../../components/ui'
 import { DetailShell } from '../detail/DetailShell'
 
 // MovieDetailPage is the Radarr R1 movie detail rendered through the unified
 // detail shell (issue #120 part A): a single scrolling page — common action
-// row (Refresh & Scan / Search Movie / Interactive Search | Preview Rename /
-// Manage Files / History | Edit / Delete), shared hero (poster placeholder,
-// title + year, kind badge, prev/next nav, badge row, score badges, two-row
-// field grid, overview, monitoring toggle), the conditional Editions section
-// (per-edition monitor toggle), the Files table, and Cast / Crew / Titles.
-// Null fields render em-dashes; a keyless TMDB degrades to em-dashes, never
-// an error. Buttons without a backend are disabled with a "later phase"
-// title (the P7 pattern).
+// row (Add / Refresh & Scan / Search Movie / Interactive Search | Preview
+// Rename / Manage Files / History | Edit / Delete), shared hero (poster
+// placeholder, title + year, kind badge, prev/next nav, badge row, score
+// badges, two-row field grid, overview, monitoring toggle), the conditional
+// Editions section (per-edition monitor toggle), the Files table, and Cast /
+// Crew / Titles. Null fields render em-dashes; a keyless TMDB degrades to
+// em-dashes, never an error. Buttons without a backend are disabled with a
+// "later phase" title (the P7 pattern). The Add action (issue #120 part B)
+// opens the existing movie add flow (/movies/add, the demoted deep page).
 function humanBytes(n: number): string {
   if (!n) return '0 B'
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
@@ -137,6 +138,7 @@ export function MovieDetailPage() {
       back={{ to: '/movies', label: '← Movies', testId: 'movie-detail-back' }}
       actionsLeft={
         <>
+          <TbLink icon="+" label="Add" to="/movies/add" testId="movie-detail-add" />
           <TbButton icon="⟳" label="Refresh & Scan" testId="movie-detail-refresh" onClick={() => void load()} />
           <TbButton
             icon="🔍"
