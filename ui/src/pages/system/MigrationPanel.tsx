@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
+import { ConfirmDialog } from '../../components/primitives'
 import type {
   MigrationInclude,
   MigrationRequest,
@@ -158,6 +159,9 @@ export function MigrationPanel() {
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
   const [result, setResult] = useState<MigrationResult | null>(null)
+  // B6: the dedicated execute writes for real — gate it behind the design
+  // system's ConfirmDialog (dry runs are read-only and run straight away).
+  const [confirming, setConfirming] = useState(false)
 
   const copy = SOURCE_COPY[source]
   const isReadarr = source === 'readarr'
@@ -201,15 +205,7 @@ export function MigrationPanel() {
     )
   }
 
-  async function handleRun() {
-    // B6: the dedicated execute writes for real — confirm before running.
-    // (Dry runs are read-only and safe to repeat, so they need no confirm.)
-    if (!dryRun && isReadarr) {
-      const ok = window.confirm(
-        'Run the Readarr migration for real? Authors, books, and settings will be imported into Mediarr. A dry run changes nothing.',
-      )
-      if (!ok) return
-    }
+  async function runMigration() {
     setRunning(true)
     setRunError(null)
     try {
@@ -242,6 +238,16 @@ export function MigrationPanel() {
       setRunning(false)
       void load()
     }
+  }
+
+  async function handleRun() {
+    // B6: the dedicated execute writes for real — confirm before running.
+    // (Dry runs are read-only and safe to repeat, so they need no confirm.)
+    if (!dryRun && isReadarr) {
+      setConfirming(true)
+      return
+    }
+    void runMigration()
   }
 
   const report = result ?? (status.last_result as MigrationResult | null | undefined) ?? null
@@ -362,6 +368,20 @@ export function MigrationPanel() {
         </button>
         {runError && <p className="error">{runError}</p>}
       </div>
+
+      {confirming && (
+        <ConfirmDialog
+          title="Run the Readarr migration for real?"
+          message="Authors, books, and settings will be imported into Mediarr. A dry run changes nothing."
+          confirmLabel="Run migration"
+          onConfirm={() => {
+            setConfirming(false)
+            void runMigration()
+          }}
+          onCancel={() => setConfirming(false)}
+          testId="migration-confirm"
+        />
+      )}
 
       {report && (
         <div className="card" data-testid="migration-result">
