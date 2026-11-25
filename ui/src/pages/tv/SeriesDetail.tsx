@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ApiError, client } from '../../api/client'
-import type { Episode, Series } from '../../api/types'
+import type { AddEpisodeRequest, Episode, Series } from '../../api/types'
 import { MonitoredToggle } from '../../components/list'
-import { Badge, BadgeRow, TbButton, TbLink } from '../../components/ui'
+import { AddError } from '../../components/addflow'
+import { Badge, BadgeRow, Modal, TbButton, TbLink } from '../../components/ui'
 import { DetailShell } from '../detail/DetailShell'
 
 // SeriesDetail is the Sonarr-parity series page (P2) rendered through the
@@ -24,6 +25,59 @@ export function SeriesDetailPage() {
   const [status, setStatus] = useState<string | null>(null)
   const [openSeasons, setOpenSeasons] = useState<Set<number>>(() => new Set())
   const [searching, setSearching] = useState(false)
+
+  // issue #120 part B: the in-detail Add Episode flow. Posts to the
+  // existing POST /tv/{id}/episodes endpoint (client.addEpisode); there is
+  // no season-add endpoint — seasons are derived from episode rows, so
+  // adding an episode for a new season number creates that season.
+  const [addEpisodeOpen, setAddEpisodeOpen] = useState(false)
+  const [epSeason, setEpSeason] = useState('1')
+  const [epNumber, setEpNumber] = useState('1')
+  const [epTitle, setEpTitle] = useState('')
+  const [epAirDate, setEpAirDate] = useState('')
+  const [epMonitored, setEpMonitored] = useState(true)
+  const [addEpisodeBusy, setAddEpisodeBusy] = useState(false)
+  const [addEpisodeError, setAddEpisodeError] = useState('')
+
+  function openAddEpisode() {
+    setEpSeason('1')
+    setEpNumber('1')
+    setEpTitle('')
+    setEpAirDate('')
+    setEpMonitored(true)
+    setAddEpisodeError('')
+    setAddEpisodeOpen(true)
+  }
+
+  const epSeasonNum = Number(epSeason)
+  const epNumberNum = Number(epNumber)
+  const episodeFormValid =
+    !Number.isNaN(epSeasonNum) && epSeasonNum > 0 && !Number.isNaN(epNumberNum) && epNumberNum > 0
+
+  async function submitEpisode() {
+    if (!episodeFormValid || addEpisodeBusy) return
+    setAddEpisodeBusy(true)
+    setAddEpisodeError('')
+    const req: AddEpisodeRequest = { season: epSeasonNum, episode: epNumberNum, monitored: epMonitored }
+    const title = epTitle.trim()
+    if (title) req.title = title
+    const airDate = epAirDate.trim()
+    if (airDate) req.air_date = airDate
+    try {
+      await client.addEpisode(seriesId, req)
+      setAddEpisodeOpen(false)
+      setStatus(
+        `Added S${epSeasonNum}E${epNumberNum}${title ? ` "${title}"` : ''}.`,
+      )
+      void load()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'failed to add episode'
+      setAddEpisodeError(msg)
+      setStatus(msg)
+    } finally {
+      setAddEpisodeBusy(false)
+    }
+  }
 
   const load = useCallback(async () => {
     if (!seriesId || Number.isNaN(seriesId)) {
@@ -109,6 +163,13 @@ export function SeriesDetailPage() {
             testId="detail-search"
             disabled={searching}
             onClick={() => void searchMonitored()}
+          />
+          <TbButton
+            icon="+"
+            label="Add Episode"
+            testId="series-detail-add-episode"
+            title="Add an episode to this series (existing endpoint: POST /tv/{id}/episodes)"
+            onClick={openAddEpisode}
           />
         </>
       }
@@ -205,6 +266,86 @@ export function SeriesDetailPage() {
             </div>
           )
         })
+      )}
+
+      {/* issue #120 part B: in-detail Add Episode dialog. Posts a new
+          episode row to the existing endpoint; the new season (if any)
+          appears in the accordions after the list refreshes. */}
+      {addEpisodeOpen && (
+        <Modal
+          title={`Add Episode — ${series?.Title ?? 'series'}`}
+          onClose={() => setAddEpisodeOpen(false)}
+          testId="add-episode-modal"
+          footer={
+            <>
+              <button type="button" className="ghost" onClick={() => setAddEpisodeOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="add-episode-button"
+                disabled={addEpisodeBusy || !episodeFormValid}
+                onClick={() => {
+                  void submitEpisode()
+                }}
+              >
+                {addEpisodeBusy ? 'Adding…' : 'Add Episode'}
+              </button>
+            </>
+          }
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+            <label style={{ display: 'block' }}>
+              <span className="dim small">Season</span>
+              <input
+                type="number"
+                min={1}
+                value={epSeason}
+                onChange={(e) => setEpSeason(e.target.value)}
+                data-testid="add-episode-season"
+              />
+            </label>
+            <label style={{ display: 'block' }}>
+              <span className="dim small">Episode</span>
+              <input
+                type="number"
+                min={1}
+                value={epNumber}
+                onChange={(e) => setEpNumber(e.target.value)}
+                data-testid="add-episode-episode"
+              />
+            </label>
+          </div>
+          <label style={{ display: 'block', marginTop: '0.6rem' }}>
+            <span className="dim small">Title (optional)</span>
+            <input
+              type="text"
+              value={epTitle}
+              onChange={(e) => setEpTitle(e.target.value)}
+              placeholder="e.g. The Pilot"
+              data-testid="add-episode-title"
+            />
+          </label>
+          <label style={{ display: 'block', marginTop: '0.6rem' }}>
+            <span className="dim small">Air date (optional)</span>
+            <input
+              type="date"
+              value={epAirDate}
+              onChange={(e) => setEpAirDate(e.target.value)}
+              data-testid="add-episode-air-date"
+            />
+          </label>
+          <label className="check" style={{ marginTop: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <input
+              type="checkbox"
+              checked={epMonitored}
+              onChange={(e) => setEpMonitored(e.target.checked)}
+              data-testid="add-episode-monitored"
+            />
+            Monitored
+          </label>
+          <AddError message={addEpisodeError} testId="add-episode-error" />
+        </Modal>
       )}
     </DetailShell>
   )
