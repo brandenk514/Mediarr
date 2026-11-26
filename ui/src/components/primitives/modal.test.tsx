@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmDialog, Modal } from './modal'
 
 describe('Modal', () => {
@@ -79,6 +79,76 @@ describe('Modal', () => {
     )
     const dialog = screen.getByRole('dialog')
     expect(dialog.contains(document.activeElement as HTMLElement)).toBe(true)
+  })
+})
+
+// #123: at ≤768px the dialog fills the viewport (square corners, no
+// max-width cap); ≥769px keeps the centered, max-w sizing. The behavior
+// contract (Escape / overlay / focus / aria) above is unchanged.
+describe('Modal — mobile full-screen (issue #123)', () => {
+  function stubMatchMedia(matches: boolean) {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches,
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      })),
+    )
+  }
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('goes full-screen at mobile widths', () => {
+    stubMatchMedia(true)
+    render(
+      <Modal title="t" onClose={vi.fn()} testId="m">
+        body
+      </Modal>,
+    )
+    const panel = screen.getByRole('dialog')
+    expect(panel).toHaveClass('max-w-none')
+    expect(panel).toHaveClass('h-full')
+    expect(panel).not.toHaveClass('max-h-[85vh]')
+  })
+
+  it('fills the remaining height with the body so the footer stays pinned at the bottom (mobile)', () => {
+    stubMatchMedia(true)
+    render(
+      <Modal
+        title="t"
+        onClose={vi.fn()}
+        testId="m"
+        footer={
+          <button type="button">ok</button>
+        }
+      >
+        body
+      </Modal>,
+    )
+    const panel = screen.getByRole('dialog')
+    // The scrollable body is the dialog's middle section (header, body, footer).
+    const body = panel.children[1]
+    expect(body).toHaveClass('flex-1')
+    expect(body).toHaveClass('overflow-y-auto')
+    // Footer present and last in the panel.
+    expect(panel.children[panel.children.length - 1]).toContainElement(
+      screen.getByRole('button', { name: 'ok' }),
+    )
+  })
+
+  it('keeps the centered max-w sizing at desktop widths', () => {
+    stubMatchMedia(false)
+    render(
+      <Modal title="t" onClose={vi.fn()} testId="m">
+        body
+      </Modal>,
+    )
+    const panel = screen.getByRole('dialog')
+    expect(panel).toHaveClass('max-h-[85vh]')
+    expect(panel).toHaveClass('max-w-lg') // default md size
+    expect(panel).not.toHaveClass('h-full')
   })
 })
 

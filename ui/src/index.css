@@ -1741,6 +1741,14 @@ button.danger:hover {
   }
 }
 
+/* #123: 2 columns on small phones (375px). The ≥800px tiers above are
+   unchanged. */
+@media (max-width: 480px) {
+  .poster-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .poster-card {
   position: relative;
   background: var(--panel);
@@ -3228,6 +3236,115 @@ button.danger:hover {
   .sh-head,
   .sh-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* =========================================================================
+   Responsive shell (issue #123): mobile (≤768px) nav drawer, overflow
+   fixes, and settings/detail adjustments. Desktop (≥769px) rendering is
+   untouched — every rule in this block is inside a max-width media query,
+   except the drawer chrome itself, which only exists in the mobile DOM.
+   ========================================================================= */
+
+/* ---- nav drawer (the rail, re-shown inside a fixed overlay) ---- */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.drawer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(85vw, 20rem);
+  background: var(--rail);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 0.8rem 0.6rem 1.4rem;
+  outline: none;
+}
+
+/* Drawer header: "Menu" label + close button above the rail. */
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -0.4rem 0.2rem 0.6rem;
+}
+.drawer-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* The rail keeps its own background/padding in the static desktop shell;
+   inside the drawer the panel carries them. */
+.drawer .rail {
+  width: auto;
+  background: transparent;
+  border-right: none;
+  padding: 0;
+  overflow: visible;
+}
+
+/* ---- ≤768px: top bar, content pane, settings, tables ---- */
+
+@media (max-width: 768px) {
+  .topbar {
+    gap: 0.6rem;
+    padding: 0 0.75rem;
+  }
+  /* The right cluster keeps the search breathing room: the username
+     (name text) and the version chip drop off at phone widths. */
+  .topbar-user > span:last-child {
+    display: none;
+  }
+  .topbar-right > .dim {
+    display: none;
+  }
+
+  .content {
+    padding: 0.9rem 0.85rem 1.5rem;
+  }
+
+  /* Settings: the section nav and the pane stack (one column). */
+  .settings-shell {
+    grid-template-columns: 1fr;
+    gap: 0.9rem;
+  }
+  .settings-nav {
+    position: static;
+  }
+
+  /* Tables may scroll horizontally inside their card rather than reflow
+     (acceptable per the #123 work order). */
+  .list-table,
+  .settings .idx-table,
+  .queue-table {
+    overflow-x: auto;
+  }
+}
+
+/* ---- ≤480px: small phones (375px) ---- */
+
+@media (max-width: 480px) {
+  /* The top bar keeps brand + search + essentials; the avatar drops off
+     (the username text is already hidden at ≤768px). */
+  .topbar-user {
+    display: none;
+  }
+  /* The detail hero stacks: poster above the metadata. */
+  .detail-hero-body {
+    flex-direction: column;
+  }
+  .detail-hero-poster {
+    margin-top: 0.5rem;
+  }
+  .detail-hero-main {
+    padding-top: 0.5rem;
   }
 }
 

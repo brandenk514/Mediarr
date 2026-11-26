@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { AuthProvider } from '../auth/AuthContext'
@@ -15,6 +15,11 @@ vi.mock('../api/client', () => ({
     listMovies: vi.fn(),
     getMovieStats: vi.fn().mockRejectedValue(new Error('stats unavailable')),
     getSystemHealth: vi.fn().mockResolvedValue({ checks: [], ok: 0, warning: 0, error: 0 }),
+    // #123 redirect tests: the global search results route (fan-out).
+    searchTv: vi.fn(),
+    searchMovies: vi.fn(),
+    searchArtists: vi.fn(),
+    lookupBooks: vi.fn(),
   },
 }))
 
@@ -105,5 +110,83 @@ describe('LoginPage', () => {
     // ...and the user lands back on the movies list, not the login page.
     expect(await screen.findByTestId('movies-title')).toBeInTheDocument()
     expect(screen.queryByTestId('username')).not.toBeInTheDocument()
+  })
+
+  // #123: the post-login redirect used to read ONLY from.pathname, so a
+  // bounce from the top-bar global search (/search/all?q=…) landed on
+  // /search/all with the query dropped. The stored location is the full
+  // router location; the redirect must carry all of it.
+  it('preserves the query string when returning to the global search route after login', async () => {
+    const user = userEvent.setup()
+    vi.mocked(client.login).mockResolvedValue({
+      token: 'ma_t',
+      user: 'admin',
+      role: 'admin',
+      token_prefix: 'ma_',
+    } as never)
+    vi.mocked(client.me).mockResolvedValue({ username: 'admin', role: 'admin' })
+    vi.mocked(client.searchTv).mockResolvedValue([] as never)
+    vi.mocked(client.searchMovies).mockResolvedValue([] as never)
+    vi.mocked(client.searchArtists).mockResolvedValue({ artists: [] } as never)
+    vi.mocked(client.lookupBooks).mockResolvedValue([] as never)
+
+    render(
+      <MemoryRouter initialEntries={['/search/all?q=dune']}>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    // The auth gate bounced the visit to /login with the full location
+    // (pathname + ?q=) in state; sign in.
+    await user.type(await screen.findByTestId('username'), 'admin')
+    await user.type(screen.getByTestId('password'), 'a-very-long-password')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    // The preserved query reaches the results page, not the idle state.
+    const queryLine = await screen.findByTestId('global-search-query')
+    expect(queryLine).toHaveTextContent('dune')
+    expect(screen.queryByTestId('global-search-idle')).not.toBeInTheDocument()
+  })
+
+  it('preserves the hash when returning to a route after login', async () => {
+    const user = userEvent.setup()
+    vi.mocked(client.login).mockResolvedValue({
+      token: 'ma_t',
+      user: 'admin',
+      role: 'admin',
+      token_prefix: 'ma_',
+    } as never)
+    vi.mocked(client.me).mockResolvedValue({ username: 'admin', role: 'admin' })
+    vi.mocked(client.listMovies).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      page_size: 25,
+    } as never)
+
+    // Probe: observes the location the router settles on after login.
+    let observed = ''
+    function LocationProbe() {
+      const location = useLocation()
+      observed = `${location.pathname}${location.search}${location.hash}`
+      return null
+    }
+    render(
+      <MemoryRouter initialEntries={['/movies#top']}>
+        <AuthProvider>
+          <App />
+          <LocationProbe />
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    await user.type(await screen.findByTestId('username'), 'admin')
+    await user.type(screen.getByTestId('password'), 'a-very-long-password')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    expect(await screen.findByTestId('movies-title')).toBeInTheDocument()
+    expect(observed).toBe('/movies#top')
   })
 })

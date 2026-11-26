@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { client } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Badge, SidebarItem } from '../components/primitives'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { PATHS, SECTIONS, sectionForPath, type KindGroup, type NavSection } from '../nav'
 
 // Layout is the unified app shell (issue #116): a full-width top bar
@@ -14,6 +15,16 @@ import { PATHS, SECTIONS, sectionForPath, type KindGroup, type NavSection } from
 export function Layout({ children }: { children: React.ReactNode }) {
   const { me, logout } = useAuth()
   const [version, setVersion] = useState('')
+  // #123: the shell is mobile (≤768px) when the breakpoint matches; the
+  // fixed rail is then hidden behind the top-bar nav drawer.
+  const isMobile = useMediaQuery('(max-width: 768px)')
+  const [navOpen, setNavOpen] = useState(false)
+
+  // If the viewport grows back past the breakpoint, the drawer state is
+  // meaningless for the desktop shell — close it.
+  useEffect(() => {
+    if (!isMobile) setNavOpen(false)
+  }, [isMobile])
 
   useEffect(() => {
     fetch('/version')
@@ -24,30 +35,130 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app">
-      <TopBar version={version} username={me?.username ?? ''} onLogout={logout} />
+      <TopBar
+        version={version}
+        username={me?.username ?? ''}
+        onLogout={logout}
+        onMenuClick={isMobile ? () => setNavOpen(true) : undefined}
+        menuOpen={navOpen}
+      />
       <div className="app-body">
-        <Sidebar />
+        {/* Desktop only: the fixed rail. On mobile the SAME Sidebar lives
+            inside the nav drawer (NavDrawer), so it isn't rendered twice. */}
+        {!isMobile && <Sidebar />}
         <div className="main">
           <div className="content">{children}</div>
         </div>
       </div>
+      {isMobile && navOpen && <NavDrawer onClose={() => setNavOpen(false)} />}
     </div>
   )
 }
 
 // ---- top bar ----
 
+// NavDrawer is the mobile (≤768px) replacement for the fixed rail (issue
+// #123): a fixed overlay holding the SAME Sidebar component (all rail-*
+// testids intact), opened from the top-bar hamburger. Contract: backdrop
+// click closes, Escape closes, selecting a nav item closes (the item
+// navigates, and the route change closes the drawer), body scroll is
+// locked while open, and focus moves into the drawer on open and back to
+// the toggle on close.
+export function NavDrawer({ onClose }: { onClose: () => void }) {
+  const location = useLocation()
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // A nav selection changes the route while the drawer is open -> close.
+  const routeKey = `${location.pathname}${location.search}${location.hash}`
+  const lastRoute = useRef(routeKey)
+  useEffect(() => {
+    if (routeKey !== lastRoute.current) {
+      lastRoute.current = routeKey
+      onClose()
+    }
+  }, [routeKey, onClose])
+
+  // Focus moves into the drawer on open; back to the menu toggle on close.
+  useEffect(() => {
+    panelRef.current?.focus()
+    return () => {
+      document.querySelector<HTMLElement>('[data-testid="nav-toggle"]')?.focus()
+    }
+  }, [])
+
+  // Body scroll locked while the drawer is open.
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
+
+  // Escape closes (document-level so it works from any focus).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="drawer-overlay"
+      data-testid="nav-drawer-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div
+        ref={panelRef}
+        id="nav-drawer"
+        tabIndex={-1}
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+        data-testid="nav-drawer"
+      >
+        <div className="drawer-head">
+          <span className="drawer-title">Menu</span>
+          <button
+            type="button"
+            className="topbar-icon"
+            aria-label="Close menu"
+            onClick={onClose}
+            data-testid="nav-drawer-close"
+          >
+            ✕
+          </button>
+        </div>
+        <Sidebar />
+      </div>
+    </div>
+  )
+}
+
 // TopBar is the shell's header (brand · global search · notifications ·
 // profile). Exported (like Sidebar) so the global-search bar's behavior
 // (issue #117) is testable in isolation.
+//
+// #123: at mobile widths the shell passes `onMenuClick`/`menuOpen` and the
+// bar renders a hamburger (testId nav-toggle) that opens the nav drawer.
+// Without those props (desktop, or isolated renders) no toggle renders.
 export function TopBar({
   version,
   username,
   onLogout,
+  onMenuClick,
+  menuOpen = false,
 }: {
   version: string
   username: string
   onLogout: () => void
+  onMenuClick?: () => void
+  menuOpen?: boolean
 }) {
   const navigate = useNavigate()
   // The global search (issue #117): the input holds a draft query and fires
@@ -67,6 +178,20 @@ export function TopBar({
 
   return (
     <header className="topbar">
+      {onMenuClick && (
+        <button
+          type="button"
+          className="topbar-icon"
+          title="Menu"
+          aria-label="Menu"
+          aria-expanded={menuOpen}
+          aria-controls="nav-drawer"
+          onClick={onMenuClick}
+          data-testid="nav-toggle"
+        >
+          ☰
+        </button>
+      )}
       <Link to="/" className="brand" data-testid="brand">
         mediarr
       </Link>

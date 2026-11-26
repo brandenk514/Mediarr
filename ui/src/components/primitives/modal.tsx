@@ -12,6 +12,7 @@
 import { useEffect, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
+import { useMediaQuery } from '../../lib/useMediaQuery'
 
 export interface ModalProps {
   title: string
@@ -33,6 +34,11 @@ const SIZE_CLASSES: Record<NonNullable<ModalProps['size']>, string> = {
 export function Modal({ title, onClose, children, footer, size = 'md', testId }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
+  // #123: at ≤768px the dialog fills the viewport (square corners, no
+  // max-width cap); ≥769px keeps today's centered, max-w sizing. The
+  // panel is a non-scrolling flex column in either mode (the body scrolls),
+  // so the header and footer stay pinned at full height.
+  const isMobile = useMediaQuery('(max-width: 768px)')
 
   // Focus the dialog on open; restore focus to the trigger on close.
   useEffect(() => {
@@ -52,7 +58,11 @@ export function Modal({ title, onClose, children, footer, size = 'md', testId }:
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className={
+        isMobile
+          ? 'fixed inset-0 z-50 flex items-stretch bg-black/60'
+          : 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
+      }
       data-testid={testId ? `${testId}-overlay` : undefined}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
@@ -64,7 +74,11 @@ export function Modal({ title, onClose, children, footer, size = 'md', testId }:
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`flex max-h-[85vh] w-full ${SIZE_CLASSES[size]} flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl outline-none`}
+        className={
+          isMobile
+            ? 'flex h-full w-full max-h-none max-w-none flex-col overflow-hidden rounded-none bg-surface outline-none'
+            : `flex max-h-[85vh] w-full ${SIZE_CLASSES[size]} flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl outline-none`
+        }
         data-testid={testId}
       >
         <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
@@ -83,7 +97,7 @@ export function Modal({ title, onClose, children, footer, size = 'md', testId }:
             </span>
           </button>
         </div>
-        <div className="overflow-y-auto px-4 py-3 text-sm text-text">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 text-sm text-text">{children}</div>
         {footer && <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">{footer}</div>}
       </div>
     </div>,
