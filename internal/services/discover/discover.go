@@ -229,8 +229,8 @@ func (s *Service) Discover(ctx context.Context) (*Response, error) {
 	add("book", "trending", items, err)
 
 	// ---- upcoming row: movie, tv, music, book ----
-	// Window is [today, today+upcomingWindowDays] from the calendar (the
-	// domain also drops already-airing/released rows).
+	// Window is [today UTC, today+upcomingWindowDays UTC] from the calendar
+	// (the domain also drops already-airing/released rows).
 	addUpcoming := func(kind string, k cdom.Kind) {
 		var items []Item
 		var err error
@@ -266,9 +266,12 @@ func (s *Service) Discover(ctx context.Context) (*Response, error) {
 }
 
 // calendarCell fetches one kind's upcoming entries for the fixed window
-// [today, today+upcomingWindowDays] and folds them into items.
+// [today UTC, today+upcomingWindowDays UTC] and folds them into items. The
+// window is anchored on the UTC calendar date of `now`, not its local date
+// (issue #139).
 func (s *Service) calendarCell(ctx context.Context, k cdom.Kind, now time.Time) ([]Item, error) {
-	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	n := now.UTC()
+	start := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 0, upcomingWindowDays)
 	entries, err := s.deps.Calendar.Calendar(ctx, k, start, end)
 	if err != nil {

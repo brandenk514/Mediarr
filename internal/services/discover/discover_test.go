@@ -623,25 +623,56 @@ func TestDiscover_BooksLibraryError(t *testing.T) {
 	}
 }
 
+// fixedESTNow is a fixed instant in a zone behind UTC whose UTC date is one
+// day AHEAD of its local date (2026-11-25 21:00 EST = 2026-11-26 02:00
+// UTC) — the band in which local-date truncation diverges from the
+// documented UTC-date semantics (issue #139). The window tests inject it so
+// they never read the wall clock.
+var fixedESTNow = time.Date(2026, 11, 25, 21, 0, 0, 0, time.FixedZone("EST", -5*3600))
+
 // TestDiscover_UpcomingWindow: the service asks the calendar for exactly
 // [today UTC, today+14d UTC] and for all three calendar kinds (movie, tv,
-// music) in that order.
+// music) in that order. The injected now is non-UTC with a local date one
+// day behind its UTC date (issue #139): the window must still be anchored
+// on the UTC date.
 func TestDiscover_UpcomingWindow(t *testing.T) {
-	now := time.Now().UTC()
 	deps, _, _, _, _, cal := allDeps()
 	s := New(deps)
+	s.now = func() time.Time { return fixedESTNow }
 
 	_, err := s.Discover(context.Background())
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	wantStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// fixedESTNow is 2026-11-26 02:00 UTC: the window starts at the UTC
+	// date's midnight, not the (earlier) local date's.
+	wantStart := time.Date(2026, 11, 26, 0, 0, 0, 0, time.UTC)
 	wantEnd := wantStart.AddDate(0, 0, upcomingWindowDays)
 	if !cal.start.Equal(wantStart) || !cal.end.Equal(wantEnd) {
 		t.Fatalf("window = %s .. %s, want %s .. %s", cal.start, cal.end, wantStart, wantEnd)
 	}
 	if len(cal.kinds) != 3 || cal.kinds[0] != cdom.KindMovie || cal.kinds[1] != cdom.KindTV || cal.kinds[2] != cdom.KindMusic {
 		t.Fatalf("kinds = %v, want [movie tv music]", cal.kinds)
+	}
+}
+
+// TestDiscover_UpcomingWindowUTCAnchored: the calendar window is anchored on
+// the UTC calendar date of `now`, not its local date: a fixed now in a zone
+// behind UTC whose local date lags the UTC date by one day still yields
+// exactly [2026-11-26 00:00 UTC, 2026-12-10 00:00 UTC] (issue #139).
+func TestDiscover_UpcomingWindowUTCAnchored(t *testing.T) {
+	deps, _, _, _, _, cal := allDeps()
+	s := New(deps)
+	s.now = func() time.Time { return fixedESTNow }
+
+	_, err := s.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	wantStart := time.Date(2026, 11, 26, 0, 0, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, 12, 10, 0, 0, 0, 0, time.UTC)
+	if !cal.start.Equal(wantStart) || !cal.end.Equal(wantEnd) {
+		t.Fatalf("window = %s .. %s, want %s .. %s", cal.start, cal.end, wantStart, wantEnd)
 	}
 }
 
@@ -693,11 +724,14 @@ func TestDiscover_RecentTVWindow(t *testing.T) {
 
 // TestDiscover_UpcomingWindowEndToEnd: through the real calendar service
 // the 14-day horizon excludes a +15d airing while +1d/+13d are in; the
-// future cutoff drops yesterday.
+// future cutoff drops yesterday. Both services share one fixed non-UTC now
+// (issue #139) and the air dates are anchored on its UTC date, so the test
+// never reads the wall clock.
 func TestDiscover_UpcomingWindowEndToEnd(t *testing.T) {
-	now := time.Now().UTC()
+	// fixedESTNow is 2026-11-26 02:00 UTC; air dates are anchored on that
+	// UTC date at 21:00 UTC.
 	air := func(d int) *time.Time {
-		t := now.AddDate(0, 0, d)
+		t := time.Date(2026, 11, 26, 21, 0, 0, 0, time.UTC).AddDate(0, 0, d)
 		return &t
 	}
 	repo := &memCalRepo{
@@ -708,14 +742,16 @@ func TestDiscover_UpcomingWindowEndToEnd(t *testing.T) {
 			{SeriesID: 4, SeriesTitle: "Past", Season: 1, Episode: 1, AirDate: air(-1), Monitored: true},
 		},
 	}
-	s := New(Deps{Calendar: calsvc.New(repo)})
+	cal := calsvc.NewWithNow(repo, func() time.Time { return fixedESTNow })
+	s := New(Deps{Calendar: cal})
+	s.now = func() time.Time { return fixedESTNow }
 
 	res, err := s.Discover(context.Background())
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	// The [today, today+14d] window keeps the +1d and +13d airings and
-	// excludes the +15d one and yesterday.
+	// The [2026-11-26, 2026-12-10] UTC window keeps the +1d and +13d
+	// airings and excludes the +15d one and yesterday (2026-11-25 UTC).
 	if len(res.Upcoming) != 2 {
 		t.Fatalf("upcoming = %+v, want 2 (the tv +1d and +13d airings)", res.Upcoming)
 	}

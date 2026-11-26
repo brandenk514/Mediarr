@@ -25,6 +25,13 @@ func New(repo dom.Repo) *Service {
 	return &Service{repo: repo, now: time.Now}
 }
 
+// NewWithNow builds a calendar service with an injected clock (tests use a
+// fixed, possibly non-UTC, now so the future cutoff is deterministic;
+// production uses New).
+func NewWithNow(repo dom.Repo, now func() time.Time) *Service {
+	return &Service{repo: repo, now: now}
+}
+
 // Calendar returns the calendar entries for kind in [start, end]. kind=tv
 // (the default; an empty kind falls back to it) is the Sonarr P4 episode
 // calendar, unchanged. kind=movie (Radarr R4) is the movie release-date
