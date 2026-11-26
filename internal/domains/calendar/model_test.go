@@ -431,3 +431,73 @@ func TestRenderICal_MusicAllDay(t *testing.T) {
 		}
 	}
 }
+
+// estNow is 2026-11-25 21:00 EST = 2026-11-26 02:00 UTC: its local date
+// (Nov 25) is one day behind its UTC date (Nov 26) — the band in which
+// local-date truncation diverges from the documented UTC semantics
+// (issue #139).
+var estNow = time.Date(2026, 11, 25, 21, 0, 0, 0, time.FixedZone("EST", -5*3600))
+
+// estWindow is a window covering BOTH of estNow's candidate "today" dates
+// (local Nov 25 and UTC Nov 26), so the future cutoff — not the range
+// check — is what excludes the UTC-yesterday row.
+func estWindow() (start, end time.Time) {
+	return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 12, 10, 0, 0, 0, 0, time.UTC)
+}
+
+// TestBuild_NonUTCNowUsesUTCDate: with now in a zone behind UTC, the
+// future cutoff anchors on now's UTC calendar date: a row airing on the UTC
+// date is upcoming; a row airing on the local date (= UTC yesterday) is
+// already aired (issue #139).
+func TestBuild_NonUTCNowUsesUTCDate(t *testing.T) {
+	start, end := estWindow()
+	cases := []struct {
+		name string
+		row  EpisodeRow
+		want bool
+	}{
+		{"airing UTC today is upcoming", row("UTC Today", 1, 1, time.Date(2026, 11, 26, 0, 0, 0, 0, time.UTC), true), true},
+		{"airing local today (UTC yesterday) is already aired", row("UTC Yesterday", 1, 1, time.Date(2026, 11, 25, 0, 0, 0, 0, time.UTC), true), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := includedTitles(t, []EpisodeRow{tc.row}, start, end, estNow)
+			if in := got[tc.row.SeriesTitle]; in != tc.want {
+				t.Fatalf("row %q included = %v, want %v", tc.row.SeriesTitle, in, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildMovies_NonUTCNowUsesUTCDate: the same UTC-date cutoff rule for
+// movie releases, plus the shared status derivation: a release on the UTC
+// date is "unreleased"; a release on the local date (= UTC yesterday) is
+// already released and the row is dropped (issue #139).
+func TestBuildMovies_NonUTCNowUsesUTCDate(t *testing.T) {
+	start, end := estWindow()
+	utcToday := time.Date(2026, 11, 26, 0, 0, 0, 0, time.UTC)
+	utcYesterday := time.Date(2026, 11, 25, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name       string
+		row        MovieRow
+		want       bool
+		wantStatus string
+	}{
+		{"release UTC today is upcoming", MovieRow{ID: 1, Title: "UTC Today", ReleaseDate: &utcToday, Monitored: true}, true, "unreleased"},
+		{"release local today (UTC yesterday) is already released", MovieRow{ID: 2, Title: "UTC Yesterday", ReleaseDate: &utcYesterday, Monitored: true}, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			entries := BuildMovies([]MovieRow{tc.row}, start, end, estNow)
+			if len(entries) > 1 {
+				t.Fatalf("entries = %+v, want 0 or 1", entries)
+			}
+			if in := len(entries) == 1; in != tc.want {
+				t.Fatalf("row included = %v, want %v (entries %+v)", in, tc.want, entries)
+			}
+			if len(entries) == 1 && entries[0].Status != tc.wantStatus {
+				t.Fatalf("status = %q, want %q", entries[0].Status, tc.wantStatus)
+			}
+		})
+	}
+}

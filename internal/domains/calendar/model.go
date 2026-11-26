@@ -174,6 +174,7 @@ func ReleaseRange(releaseDate time.Time) (start, end time.Time) {
 // utcDate truncates t to its UTC calendar date (midnight), so date-only
 // comparisons are independent of the input's time-of-day or location.
 func utcDate(t time.Time) time.Time {
+	t = t.UTC()
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 

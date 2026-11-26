@@ -186,8 +186,9 @@ const (
 //  1. downloaded — the wanted row is satisfied (a file was imported),
 //     split by the movie's monitored flag;
 //  2. queued — an active (queued/downloading) queue entry exists;
-//  3. unreleased — the provider release date is today or in the future (no
-//     key, no fetch, or a past date simply skips this case);
+//  3. unreleased — the provider release date is on or after `now`'s UTC
+//     calendar date (no key, no fetch, or a past date simply skips this
+//     case);
 //  4. missing — everything else, split by the monitored flag.
 //
 // releaseDate is a UTC midnight *time.Time (see ParseReleaseDate); nil when
@@ -203,7 +204,8 @@ func DeriveMovieStatus(wantedSatisfied, inQueue, monitored bool, releaseDate *ti
 		return StatusQueued
 	}
 	if releaseDate != nil {
-		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		n := now.UTC()
+		today := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, time.UTC)
 		if !releaseDate.Before(today) {
 			return StatusUnreleased
 		}
