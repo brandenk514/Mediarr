@@ -28,11 +28,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
 	legacyrouter "github.com/getkin/kin-openapi/routers/legacy"
-	"github.com/gorilla/websocket"
 
 	"github.com/brandenk514/mediarr/internal/api"
 	"github.com/brandenk514/mediarr/internal/auth"
@@ -310,9 +310,13 @@ func (d *driftWorld) driftWebSocket(t *testing.T) {
 		scheme = "wss"
 	}
 	dial := func(token string) (*websocket.Conn, *http.Response, error) {
-		return websocket.DefaultDialer.Dial(
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		return websocket.Dial(
+			ctx,
 			fmt.Sprintf("%s://%s/api/v1/events?token=%s", scheme, strings.TrimPrefix(d.ts.URL, "http://"), url.QueryEscape(token)),
-			nil)
+			&websocket.DialOptions{},
+		)
 	}
 	// Invalid token: rejected before the upgrade.
 	if _, resp, err := dial("ma_invalid"); err == nil || (resp != nil && resp.StatusCode != http.StatusUnauthorized) {
@@ -322,11 +326,17 @@ func (d *driftWorld) driftWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ws dial: %v (status %v)", err, statusOf(resp))
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
-	var frame map[string]any
-	if err := conn.ReadJSON(&frame); err != nil {
+	readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelRead()
+	_, data, err := conn.Read(readCtx)
+	if err != nil {
 		t.Fatalf("ws read hello frame: %v", err)
+	}
+	var frame map[string]any
+	if err := json.Unmarshal(data, &frame); err != nil {
+		t.Fatalf("ws unmarshal hello frame: %v", err)
 	}
 	if err := d.doc.ValidateSchemaJSON(d.doc.Components.Schemas["EventFrame"].Value, frame); err != nil {
 		t.Fatalf("ws: hello frame does not match EventFrame schema: %v\nframe: %v", err, frame)

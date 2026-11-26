@@ -192,7 +192,7 @@ func (r *statusRecorder) WriteHeader(code int) {
 }
 
 // Hijack and Flush are delegated to the wrapped writer so that
-// WebSocket upgrades (gorilla/websocket) and streaming responses work
+// WebSocket upgrades (coder/websocket) and streaming responses work
 // through the request-logging middleware. Without them, the recorder's
 // embedding of the interface hides those methods and Upgrade fails with 500.
 func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {

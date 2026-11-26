@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 
 	"github.com/brandenk514/mediarr/internal/auth"
 	"github.com/brandenk514/mediarr/internal/health"
@@ -74,23 +74,24 @@ func newEventsTestServer(t *testing.T) (*Server, string, *fakeBus) {
 	return s, pair.Raw, bus
 }
 
-// wsDial connects a gorilla client to the events endpoint with the given
-// bearer token ("" = no Authorization header).
+// wsDial connects a coder/websocket client to the events endpoint with the
+// given bearer token ("" = no Authorization header).
 func wsDial(t *testing.T, url, token string) *websocket.Conn {
 	t.Helper()
 	header := http.Header{}
 	if token != "" {
 		header.Set("Authorization", "Bearer "+token)
 	}
-	dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
-	conn, _, err := dialer.Dial(toWS(url), header)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, toWS(url), &websocket.DialOptions{HTTPHeader: header})
 	if err != nil {
 		t.Fatalf("ws dial: %v", err)
 	}
 	return conn
 }
 
-// toWS converts an http(s) test URL to a ws(s) URL for the gorilla dialer.
+// toWS converts an http(s) test URL to a ws(s) URL for the WebSocket dialer.
 func toWS(u string) string {
 	if strings.HasPrefix(u, "https://") {
 		return "wss://" + strings.TrimPrefix(u, "https://")
@@ -102,10 +103,15 @@ func toWS(u string) string {
 // regression that never writes can't hang the test.
 func readFrame(t *testing.T, conn *websocket.Conn) wsEvent {
 	t.Helper()
-	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	var ev wsEvent
-	if err := conn.ReadJSON(&ev); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, data, err := conn.Read(ctx)
+	if err != nil {
 		t.Fatalf("read frame: %v", err)
+	}
+	var ev wsEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		t.Fatalf("unmarshal frame: %v", err)
 	}
 	return ev
 }
@@ -128,16 +134,17 @@ func TestEvents_RequiresAuth(t *testing.T) {
 		{"bad token", "ma_invalid_token_value", ""},
 		{"bad query token", "", "ma_invalid_token_value"},
 	} {
-		dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		hdr := http.Header{}
 		if tc.token != "" {
 			hdr.Set("Authorization", "Bearer "+tc.token)
 		}
-		url := toWS(srv.URL + "/api/v1/events")
+		u := toWS(srv.URL + "/api/v1/events")
 		if tc.query != "" {
-			url += "?token=" + tc.query
+			u += "?token=" + tc.query
 		}
-		_, resp, err := dialer.Dial(url, hdr)
+		_, resp, err := websocket.Dial(ctx, u, &websocket.DialOptions{HTTPHeader: hdr})
+		cancel()
 		if err == nil {
 			t.Fatalf("%s: expected handshake to fail, but it succeeded", tc.name)
 		}
@@ -151,12 +158,13 @@ func TestEvents_RequiresAuth(t *testing.T) {
 	}
 
 	// A valid token in the query string upgrades cleanly (browser path).
-	dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
-	conn, resp, err := dialer.Dial(toWS(srv.URL+"/api/v1/events?token="+token), http.Header{})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	conn, resp, err := websocket.Dial(ctx, toWS(srv.URL+"/api/v1/events?token="+token), &websocket.DialOptions{})
+	cancel()
 	if err != nil {
 		t.Fatalf("query-token dial failed: %v (resp %v)", err, resp)
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 	hello := readFrame(t, conn)
 	if hello.Type != "hello" {
 		t.Fatalf("first frame = %q, want hello", hello.Type)
@@ -173,7 +181,7 @@ func TestEvents_Stream(t *testing.T) {
 	defer srv.Close()
 
 	conn := wsDial(t, srv.URL+"/api/v1/events", token)
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 
 	// 1. hello frame.
 	hello := readFrame(t, conn)

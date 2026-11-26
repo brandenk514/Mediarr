@@ -1,12 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 
 	"github.com/brandenk514/mediarr/internal/auth"
 	"github.com/brandenk514/mediarr/internal/store"
@@ -28,19 +29,6 @@ func (s *Server) SetEvents(deps *EventsDeps) {
 	s.mux.HandleFunc("GET /api/v1/events", s.Events)
 }
 
-// eventsUpgrader upgrades the authenticated handshake to a WebSocket.
-//
-// CheckOrigin is permissive: mediarr is a single-user local app, the UI is
-// served from the same host, and the browser already enforces same-origin for
-// the fetch that mints the bearer token. A hostile cross-origin page cannot
-// obtain a token without the user's credentials, so origin-checking adds
-// nothing here.
-var eventsUpgrader = websocket.Upgrader{
-	ReadBufferSize:  4 * 1024,
-	WriteBufferSize: 4 * 1024,
-	CheckOrigin:     func(*http.Request) bool { return true },
-}
-
 // wsEvent is one on-the-wire frame. The first frame is a "hello" handshake
 // frame (payload null) so the client knows the socket is live before the first
 // real event arrives.
@@ -59,8 +47,8 @@ var liveEventTypes = []string{"queue.updated", "history.appended"}
 // history events. The handshake is authenticated with the same bearer token as
 // the REST API (no token / invalid token → 401 before upgrade). Browsers
 // cannot set the Authorization header on a WebSocket handshake, so the token
-// may also be passed as ?token= (the single-user local app trade-off noted in
-// eventsUpgrader; the token is a server-minted secret, not a credential).
+// may also be passed as ?token= (the token is a server-minted secret, not a
+// credential).
 // Once connected, the server subscribes to the bus and streams every matching
 // event as a JSON frame. The connection is torn down when the client closes it
 // or the request context is cancelled.
@@ -78,33 +66,37 @@ func (s *Server) Events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := eventsUpgrader.Upgrade(w, r, nil)
+	ctx := r.Context()
+	// InsecureSkipVerify (no origin check): mediarr is a single-user local
+	// app, the UI is served from the same host, and the browser already
+	// enforces same-origin for the fetch that mints the bearer token. A
+	// hostile cross-origin page cannot obtain a token without the user's
+	// credentials, so origin-checking adds nothing here.
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
-		return // Upgrade already sent the appropriate error response.
+		return // Accept already sent the appropriate error response.
 	}
-	defer func() { _ = conn.Close() }() // teardown: handler exits either way
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }() // teardown: handler exits either way
 
-	sub, err := s.eventsDeps.Events.Subscribe(r.Context(), liveEventTypes...)
+	sub, err := s.eventsDeps.Events.Subscribe(ctx, liveEventTypes...)
 	if err != nil {
-		writeCloseError(conn, "failed to subscribe to events: "+err.Error())
+		writeCloseError(ctx, conn, "failed to subscribe to events: "+err.Error())
 		return
 	}
 
 	// Greet the client so it can confirm the socket is live before the first
 	// real event.
-	_ = conn.WriteJSON(wsEvent{Type: "hello", At: time.Now().UTC()})
+	_ = writeEvent(ctx, conn, wsEvent{Type: "hello", At: time.Now().UTC()})
 
 	// Read pump: the client sends no data, so this just detects close /
-	// protocol errors (and answers pings). One reader + one writer is the
-	// pattern gorilla/websocket allows concurrently.
+	// protocol errors; coder/websocket answers pings automatically and a
+	// data message would trip its StatusPolicyViolation close. One reader +
+	// one writer is the pattern the library allows.
 	readErr := make(chan error, 1)
 	go func() {
-		for {
-			if _, _, rerr := conn.ReadMessage(); rerr != nil {
-				readErr <- rerr
-				return
-			}
-		}
+		// CloseRead returns a context cancelled when the peer closes.
+		<-conn.CloseRead(ctx).Done()
+		readErr <- nil
 	}()
 
 	// Write pump: stream bus events to the socket until the bus channel
@@ -114,7 +106,7 @@ func (s *Server) Events(w http.ResponseWriter, r *http.Request) {
 		for ev := range sub {
 			var payload map[string]any
 			_ = decodeEventPayload(ev, &payload)
-			if err := conn.WriteJSON(wsEvent{Type: ev.Type, Payload: payload, At: time.Now().UTC()}); err != nil {
+			if err := writeEvent(ctx, conn, wsEvent{Type: ev.Type, Payload: payload, At: time.Now().UTC()}); err != nil {
 				writeErr <- err
 				return
 			}
@@ -123,7 +115,7 @@ func (s *Server) Events(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	select {
-	case <-r.Context().Done():
+	case <-ctx.Done():
 	case rerr := <-readErr:
 		_ = rerr // connection teardown: no further handling needed
 	case werr := <-writeErr:
@@ -141,13 +133,21 @@ func decodeEventPayload(ev store.Event, out *map[string]any) error {
 	return json.Unmarshal(ev.Payload, out)
 }
 
-// writeCloseError sends a 4000-series close and closes the socket, for the
-// rare post-upgrade failure (e.g. the bus is down).
-func writeCloseError(conn *websocket.Conn, msg string) {
-	_ = conn.WriteControl(
-		websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseInternalServerErr, msg),
-		time.Now().Add(time.Second),
-	)
-	_ = conn.Close()
+// writeEvent marshals a wire frame and writes it to the socket as a text
+// message.
+func writeEvent(ctx context.Context, conn *websocket.Conn, ev wsEvent) error {
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	return conn.Write(ctx, websocket.MessageText, b)
+}
+
+// writeCloseError sends a 1011 (internal error) close for the rare post-
+// upgrade failure (e.g. the bus is down). coder/websocket's Close sends the
+// close frame and waits for the peer's, then the deferred normal-closure
+// close in Events sees an already-closed connection and its ignored error
+// keeps teardown exactly-once.
+func writeCloseError(ctx context.Context, conn *websocket.Conn, msg string) {
+	_ = conn.Close(websocket.StatusInternalError, msg)
 }

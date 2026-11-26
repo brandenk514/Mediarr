@@ -2418,7 +2418,7 @@ export interface paths {
         };
         /**
          * Live WebSocket push of queue and history events.
-         * @description Hand-rolled WebSocket (gorilla/websocket), not part of the generated
+         * @description Hand-rolled WebSocket (coder/websocket), not part of the generated
          *     client. Auth is a bearer token like the REST API, or a token query
          *     parameter (browsers cannot set headers on a WebSocket handshake).
          *
