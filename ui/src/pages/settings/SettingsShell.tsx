@@ -1,5 +1,6 @@
-import { NavLink, useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { SettingsLayout } from '../../components/ui'
+import { SidebarItem } from '../../components/primitives'
 import { GeneralSection } from './sections/GeneralSection'
 import { UISection } from './sections/UISection'
 import { QualitySection } from './sections/QualitySection'
@@ -101,26 +102,30 @@ function renderSection(slug: string) {
 
 // SettingsShell is the settings IA: a left section nav + a content pane,
 // framed by the shared SettingsLayout. The default section (media-management)
-// matches the P1 e2e contract.
+// matches the P1 e2e contract. (#122: the nav rows are the #115 SidebarItem
+// primitive and the page title rides the page-head of the new views — 24px
+// is the token scale's page-title size.)
 export function SettingsShell() {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const current = pathname.split('/')[2] || 'media-management'
   const label = SETTINGS_SECTIONS.find((s) => s.slug === current)?.label ?? 'Settings'
 
   return (
     <SettingsLayout
       nav={SETTINGS_SECTIONS.map((s) => (
-        <NavLink
+        <SidebarItem
           key={s.slug}
-          to={`/settings/${s.slug}`}
-          className={s.slug === current ? 'active' : ''}
-          data-testid={`settings-nav-${s.slug}`}
-        >
-          {s.label}
-        </NavLink>
+          label={s.label}
+          active={s.slug === current}
+          onClick={() => navigate(`/settings/${s.slug}`)}
+          testId={`settings-nav-${s.slug}`}
+        />
       ))}
     >
-      <h2 style={{ marginBottom: '0.8rem' }}>{label}</h2>
+      <div className="page-head">
+        <h2>{label}</h2>
+      </div>
       {renderSection(current)}
     </SettingsLayout>
   )

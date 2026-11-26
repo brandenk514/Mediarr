@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
+import { Badge, type BadgeTone } from '../../components/primitives'
 import type { GlobalHistoryItem } from '../../api/types'
 
 // EventsPanel is System > Events: the instance-wide event log (the global
 // history feed — every media-kind event), with an event-type filter.
 const PAGE_SIZE = 100
+
+// (#122) Media-kind chips keep the legacy palette's tones: movie is the
+// accent, music is warning, and the plain kinds are neutral.
+const KIND_TONE: Record<GlobalHistoryItem['kind'], BadgeTone> = {
+  movie: 'accent',
+  music: 'warning',
+  tv: 'neutral',
+  book: 'neutral',
+}
 
 export function EventsPanel() {
   const [events, setEvents] = useState<GlobalHistoryItem[]>([])
@@ -48,7 +58,7 @@ export function EventsPanel() {
 
   return (
     <div className="card" data-testid="system-events">
-      <h3 style={{ margin: '0 0 0.5rem' }}>
+      <h3 className="mt-0 mb-2 text-xl font-semibold">
         Events
         {filterApplied && (
           <span className="dim small">
@@ -113,7 +123,7 @@ export function EventsPanel() {
             <div className="lt-row" data-testid={`event-row-${i}`} key={`${ev.at}-${ev.event}-${i}`}>
               <span className="lt-dim">{new Date(ev.at).toLocaleString()}</span>
               <span>
-                <span className={`pill pill-${ev.kind}`}>{ev.kind}</span>
+                <Badge tone={KIND_TONE[ev.kind]}>{ev.kind}</Badge>
               </span>
               <span>{ev.event}</span>
               <span>{ev.name}</span>

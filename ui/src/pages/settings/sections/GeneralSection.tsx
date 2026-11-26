@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { GeneralSettings } from '../../../api/types'
 import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 
@@ -177,9 +178,9 @@ export function GeneralSection() {
         Send anonymous usage analytics (opt-in; off by default)
       </label>
       {saved && (
-        <p className="pill pill-ok" data-testid="general-saved">
+        <Badge tone="success" testId="general-saved">
           Saved
-        </p>
+        </Badge>
       )}
       <button onClick={handleSave} disabled={busy || loading} data-testid="general-save">
         {busy ? 'Saving…' : 'Save general'}

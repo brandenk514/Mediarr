@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type {
   BookMetadataProfile,
   DelayProfile,
@@ -660,9 +661,7 @@ export function ProfilesSection() {
           </div>
           <div className="row wrap" data-testid={`metadataprofile-items-${m.id}`}>
             {m.items.map((item) => (
-              <span key={item} className="pill">
-                {item}
-              </span>
+              <Badge key={item}>{item}</Badge>
             ))}
           </div>
         </div>
@@ -748,9 +747,9 @@ export function ProfilesSection() {
       </button>
 
       {saved && (
-        <p className="pill pill-ok" data-testid="profiles-saved">
+        <Badge tone="success" testId="profiles-saved">
           Saved
-        </p>
+        </Badge>
       )}
       <button onClick={handleSave} disabled={busy || loading || profiles.length === 0} data-testid="profiles-save">
         {busy ? 'Saving…' : 'Save profiles'}

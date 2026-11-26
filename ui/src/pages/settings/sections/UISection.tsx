@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { UISettings } from '../../../api/types'
 import { SectionCard, SectionError, useSectionDoc, useSubmit } from './shared'
 
@@ -199,9 +200,9 @@ export function UISection() {
         data-testid="ui-language"
       />
       {saved && (
-        <p className="pill pill-ok" data-testid="ui-saved">
+        <Badge tone="success" testId="ui-saved">
           Saved
-        </p>
+        </Badge>
       )}
       <button onClick={handleSave} disabled={busy || loading} data-testid="ui-save">
         {busy ? 'Saving…' : 'Save UI'}

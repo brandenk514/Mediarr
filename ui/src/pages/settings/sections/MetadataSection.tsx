@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type { MediaKind, MetadataConsumer, MetadataSettings } from '../../../api/types'
 import type { components } from '../../../api/types.gen'
 import { SectionCard, SectionError, SaveError, useSectionDoc, useSubmit } from './shared'
@@ -204,9 +205,9 @@ export function MetadataSection() {
         </select>
       </div>
       {saved && (
-        <p className="pill pill-ok" data-testid="metadata-saved">
+        <Badge tone="success" testId="metadata-saved">
           Saved
-        </p>
+        </Badge>
       )}
       <SaveError error={saveError} testId="metadata-error-save" />
       <button onClick={handleSave} disabled={busy || loading} data-testid="metadata-save">

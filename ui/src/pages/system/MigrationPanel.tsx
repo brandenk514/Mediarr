@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { client } from '../../api/client'
+import { Badge, ConfirmDialog, type BadgeTone } from '../../components/primitives'
 import type {
   MigrationInclude,
   MigrationRequest,
@@ -47,21 +48,23 @@ const READARR_LABELS: Partial<Record<keyof MigrationInclude, string>> = {
 
 type MigrationAction = MigrationResult['items'][number]['action']
 
-const ACTION_PILL: Record<MigrationAction, string> = {
-  created: 'pill-ok',
-  exists: 'pill-idle',
-  updated: 'pill-adding',
-  skipped: 'pill-unknown',
-  error: 'pill-err',
-  'dry-run': 'pill-warn',
+// (#122) The action/state pills on the #115 Badge tone scale — the same
+// ok/err/warn/idle mapping the design tokens define.
+const ACTION_TONE: Record<MigrationAction, BadgeTone> = {
+  created: 'success',
+  exists: 'neutral',
+  updated: 'warning',
+  skipped: 'neutral',
+  error: 'error',
+  'dry-run': 'warning',
 }
 
-const STATUS_PILL: Record<MigrationStatus['status'], string> = {
-  idle: 'pill-idle',
-  running: 'pill-downloading',
-  completed: 'pill-ok',
-  partial: 'pill-warn',
-  failed: 'pill-err',
+const STATUS_TONE: Record<MigrationStatus['status'], BadgeTone> = {
+  idle: 'neutral',
+  running: 'warning',
+  completed: 'success',
+  partial: 'warning',
+  failed: 'error',
 }
 
 // Per-source copy: labels, the done/total noun, the include filter, and the
@@ -158,6 +161,9 @@ export function MigrationPanel() {
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
   const [result, setResult] = useState<MigrationResult | null>(null)
+  // B6: the dedicated execute writes for real — gate it behind the design
+  // system's ConfirmDialog (dry runs are read-only and run straight away).
+  const [confirming, setConfirming] = useState(false)
 
   const copy = SOURCE_COPY[source]
   const isReadarr = source === 'readarr'
@@ -195,21 +201,13 @@ export function MigrationPanel() {
   if (!status) {
     return (
       <div className="card" data-testid="system-migration">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Migration</h3>
+        <h3 className="mt-0 mb-2 text-xl font-semibold">Migration</h3>
         <p className="dim">Loading migration status…</p>
       </div>
     )
   }
 
-  async function handleRun() {
-    // B6: the dedicated execute writes for real — confirm before running.
-    // (Dry runs are read-only and safe to repeat, so they need no confirm.)
-    if (!dryRun && isReadarr) {
-      const ok = window.confirm(
-        'Run the Readarr migration for real? Authors, books, and settings will be imported into Mediarr. A dry run changes nothing.',
-      )
-      if (!ok) return
-    }
+  async function runMigration() {
     setRunning(true)
     setRunError(null)
     try {
@@ -244,12 +242,22 @@ export function MigrationPanel() {
     }
   }
 
+  async function handleRun() {
+    // B6: the dedicated execute writes for real — confirm before running.
+    // (Dry runs are read-only and safe to repeat, so they need no confirm.)
+    if (!dryRun && isReadarr) {
+      setConfirming(true)
+      return
+    }
+    void runMigration()
+  }
+
   const report = result ?? (status.last_result as MigrationResult | null | undefined) ?? null
 
   return (
     <div data-testid="system-migration">
       <div className="card">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Migration</h3>
+        <h3 className="mt-0 mb-2 text-xl font-semibold">Migration</h3>
         <p className="dim" style={{ marginTop: 0 }}>
           {copy.blurb}{' '}
           Idempotent and resumable — a dry run changes nothing.
@@ -257,7 +265,7 @@ export function MigrationPanel() {
         <div className="list-table" data-testid="migration-status">
           <div className="lt-row">
             <span>
-              <span className={`pill ${STATUS_PILL[status.status]}`}>{status.status}</span>
+              <Badge tone={STATUS_TONE[status.status]}>{status.status}</Badge>
             </span>
             <span className="lt-dim">
               {status.done}/{status.total} {copy.unit}
@@ -277,7 +285,7 @@ export function MigrationPanel() {
       </div>
 
       <div className="card">
-        <h3 style={{ margin: '0 0 0.5rem' }}>Source</h3>
+        <h3 className="mt-0 mb-2 text-xl font-semibold">Source</h3>
         <label>
           Source application
           <select
@@ -363,9 +371,23 @@ export function MigrationPanel() {
         {runError && <p className="error">{runError}</p>}
       </div>
 
+      {confirming && (
+        <ConfirmDialog
+          title="Run the Readarr migration for real?"
+          message="Authors, books, and settings will be imported into Mediarr. A dry run changes nothing."
+          confirmLabel="Run migration"
+          onConfirm={() => {
+            setConfirming(false)
+            void runMigration()
+          }}
+          onCancel={() => setConfirming(false)}
+          testId="migration-confirm"
+        />
+      )}
+
       {report && (
         <div className="card" data-testid="migration-result">
-          <h3 style={{ margin: '0 0 0.5rem' }}>
+          <h3 className="mt-0 mb-2 text-xl font-semibold">
             Mapping report{report.dry_run ? ' (dry run)' : ''}
           </h3>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }} data-testid="migration-counts">
@@ -408,7 +430,7 @@ export function MigrationPanel() {
                   <span>{item.entity}</span>
                   <span className="lt-dim">{item.source_title || item.external_id}</span>
                   <span>
-                    <span className={`pill ${ACTION_PILL[item.action]}`}>{item.action}</span>
+                    <Badge tone={ACTION_TONE[item.action]}>{item.action}</Badge>
                   </span>
                   <span>{item.target_id ? `#${item.target_id}` : '—'}</span>
                   <span className="lt-dim">{item.message ?? ''}</span>

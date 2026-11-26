@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ApiError, client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type {
   MediaKind,
   MetadataSourceSearchResult,
@@ -117,10 +118,10 @@ export function MetadataSourceSection() {
             <h4>{k}</h4>
             {(sources[k] ?? []).map((p, i) => (
               <div className="ms-row" key={`${p}-${i}`} data-testid={`ms-src-${k}-${i}`}>
-                <span className="pill">
+                <Badge>
                   {p}
                   {KEYED.has(p) ? ' (keyed)' : ' (keyless)'}
-                </span>
+                </Badge>
                 <button
                   className="ghost"
                   disabled={i === 0}
@@ -156,9 +157,9 @@ export function MetadataSourceSection() {
           </div>
         ))}
         {saved && (
-          <p className="pill pill-ok" data-testid="ms-saved">
+          <Badge tone="success" testId="ms-saved">
             Saved
-          </p>
+          </Badge>
         )}
         <SaveError error={saveError} testId="ms-error-save" />
         <button onClick={handleSave} disabled={busy || loading} data-testid="ms-save">
@@ -216,13 +217,13 @@ function ChainResult({ r, allFailed }: { r: MetadataSourceSearchResult; allFaile
       {r.attempts.length > 0 && (
         <div data-testid="ms-chain-attempts">
           {r.attempts.map((a: ProviderAttempt) => (
-            <span
+            <Badge
               key={a.source}
-              className={a.ok ? 'pill pill-ok' : 'pill'}
-              data-testid={`ms-attempt-${a.source}`}
+              tone={a.ok ? 'success' : 'neutral'}
+              testId={`ms-attempt-${a.source}`}
             >
               {a.source}: {a.ok ? `ok ${a.latency_ms}ms` : a.error || 'failed'}
-            </span>
+            </Badge>
           ))}
         </div>
       )}

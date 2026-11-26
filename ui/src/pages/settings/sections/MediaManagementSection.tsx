@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type {
   FileManagement,
   MovieNaming,
@@ -950,9 +951,9 @@ export function MediaManagementSection() {
                   {/* Readarr B5: an enabled per-root Calibre forces hard
                       links OFF for this root (the server computes it). */}
                   {r.HardlinksDisabled && (
-                    <span className="pill" data-testid={`rfc-hardlinks-${r.ID}`}>
+                    <Badge testId={`rfc-hardlinks-${r.ID}`}>
                       hardlinks off (Calibre)
-                    </span>
+                    </Badge>
                   )}{' '}
                   <button
                     className="ghost"
@@ -1106,9 +1107,9 @@ export function MediaManagementSection() {
                         data-testid="rfc-tags"
                       />
                       {calibreError && (
-                        <p className="pill pill-bad" data-testid="rfc-error">
+                        <Badge tone="error" testId="rfc-error">
                           {calibreError}
-                        </p>
+                        </Badge>
                       )}
                       <div>
                         <button onClick={saveCalibre} data-testid="rfc-save">
@@ -1134,9 +1135,9 @@ export function MediaManagementSection() {
         </tbody>
       </table>
       {saved && (
-        <p className="pill pill-ok" data-testid="media-management-saved">
+        <Badge tone="success" testId="media-management-saved">
           Saved
-        </p>
+        </Badge>
       )}
       <button
         onClick={handleSave}

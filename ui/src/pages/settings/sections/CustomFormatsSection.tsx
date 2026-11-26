@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '../../../api/client'
+import { Badge } from '../../../components/primitives'
 import type {
   CFRule,
   CustomFormat,
@@ -156,7 +157,7 @@ export function CustomFormatsSection() {
             </button>
             <div className="cf-rules" data-testid={`cf-rules-${f.id}`}>
               {f.rules.map((r, i) => (
-                <span className="pill" key={i} data-testid={`cf-rule-${f.id}-${i}`}>
+                <Badge key={i} testId={`cf-rule-${f.id}-${i}`}>
                   {r.field} {r.operator} {r.value}
                   <button
                     className="ghost"
@@ -171,7 +172,7 @@ export function CustomFormatsSection() {
                   >
                     ×
                   </button>
-                </span>
+                </Badge>
               ))}
               {f.rules.length === 0 && <span className="dim small">no rules (a format needs at least one to save)</span>}
             </div>
@@ -179,9 +180,9 @@ export function CustomFormatsSection() {
         ))}
         {formats.length === 0 && <p className="dim small">No custom formats yet.</p>}
         {saved && (
-          <p className="pill pill-ok" data-testid="cf-saved">
+          <Badge tone="success" testId="cf-saved">
             Saved
-          </p>
+          </Badge>
         )}
         <SaveError error={saveError} testId="cf-error-save" />
         <button onClick={handleSave} disabled={busy || loading} data-testid="cf-save">
@@ -261,13 +262,13 @@ export function CustomFormatsSection() {
         )}
         {scoreResult && (
           <div data-testid="cf-score-result">
-            <span className="pill" data-testid="cf-score-total">
+            <Badge testId="cf-score-total">
               total: {scoreResult.total}
-            </span>
+            </Badge>
             {scoreResult.matches.map((m) => (
-              <span className="pill" key={m.name} data-testid={`cf-match-${m.name}`}>
+              <Badge key={m.name} testId={`cf-match-${m.name}`}>
                 {m.name}: {m.score}
-              </span>
+              </Badge>
             ))}
             {scoreResult.matches.length === 0 && <span className="dim small"> no format matched</span>}
           </div>
