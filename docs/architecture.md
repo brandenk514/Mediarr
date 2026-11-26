@@ -2,8 +2,9 @@
 
 > This document is the **as-built** architecture overview, carried past M2:
 > it reflects the five-app parity work (P1–P7), the Books metadata module,
-> and the v0.3.0 containerized UI (built UI shipped in the image and served
-> same-origin, #86/#87/#88). For the original design intent and milestone
+> the v0.3.0 containerized UI (built UI shipped in the image and served
+> same-origin, #86/#87/#88), and the v0.4.0 unified app shell
+> (#115–#123, #126, #139). For the original design intent and milestone
 > history, read [`docs/PLAN.md`](PLAN.md); for the full environment-variable
 > reference, [`docs/config.md`](config.md); for the wire-format contract,
 > [`docs/openapi.md`](openapi.md).
@@ -121,6 +122,56 @@ There are no background workers in the as-built system beyond one periodic loop
 | `services/movies`, `services/tv`, `services/music`, `services/books` | The four domain services. Each implements the shared pipeline: add/monitor items, create wanted rows, run the download pipeline (search → match → send → poll → import), and publish `queue.updated` / `history.appended` events. `movies` is the reference implementation; `tv`, `music`, and `books` add domain-specific entities (series/episodes, artists/albums/tracks, authors/titles/editions). |
 | `settings` | Typed settings: the `DownloadClient` struct (kind + qBittorrent/SABnzbd connection fields, credentials vault-sealed at rest) and per-domain library overrides. Backed by the Postgres `settings` table. |
 | `store` | Store-level interfaces (`Store`, `Cache`, `Events`, `Queue`, `Event`) that decouple the services from `internal/postgres` and `internal/redis` — the seams unit tests fake. |
+
+### `ui/`
+
+The Vite/React/TypeScript SPA (vitest unit tests; Playwright browser e2e in
+`ui/e2e/`). As-built for the v0.4.0 unified shell:
+
+- **Single source of truth for the shell.** `src/nav.ts` holds every route
+  path (`PATHS`) and the eight sidebar sections (`SECTIONS`): Dashboard,
+  Discover, Library, Calendar, Activity, Indexers, Settings, System. The
+  sidebar rail (`src/pages/Layout.tsx`) and the route tree (`src/App.tsx`)
+  both derive from it, so rail and routes cannot drift (#116).
+- **Routing model.** `/` is a redirect to the unified cross-kind
+  **Discover** page (`/discover`) — the default landing (supersedes the
+  pre-v0.4.0 Movies-list landing, #118). **Library** is the unified
+  cross-kind grid at `/library`; kind is a facet, not a switch — the
+  Library section's four kind rows deep-link the grid to
+  `/library?kind=tv|movie|music|book` (#119). The per-kind list pages
+  (`/tv`, `/movies`, `/music`, `/books`) and all deep pages (`/movies/add`,
+  `/tv/:id`, `/music/:id`, `/books/:id`, collections/discover/calendar,
+  unmapped files, bookshelves/series) stay fully routed, reachable by direct
+  URL and via the rail sub-links. Activity routes live at
+  `/activity/{queue,history,blocklist}` (with the legacy `/queue` alias),
+  Wanted at `/wanted/{missing,cutoff}`, the Indexers hub at `/indexers`
+  (with `/search` = manual release search, `/history` = search history,
+  `/indexers/stats`), and Settings/System under `/settings/:section` and
+  `/system/:page` (both no-section roots redirect to their default
+  sub-page).
+- **Global search (#117).** The top-bar search is cross-kind and
+  deep-linkable: it navigates to `/search/all?q=…`, a first-class results
+  route that fans out client-side to the four per-kind search endpoints and
+  renders one unified grid with per-kind badges. It is distinct from
+  `/search` (the Indexers manual release-search page).
+- **Unified media detail + integrated add flows (#120).** The four detail
+  pages share one detail shell (header, badges, toolbar, files), and the
+  per-kind add flows are integrated into the detail toolbars (Add Episode on
+  the series page, Add Release on the artist page, Add Edition on the author
+  page) alongside the standalone add pages.
+- **Responsive (#123).** The shell is responsive down to phone widths: a
+  fixed overlay nav drawer reuses the same rail (identical `rail-*`
+  selectors), and the detail toolbar scrolls on narrow screens instead of
+  widening the page.
+- **UTC anchoring (#139).** Calendar windows and queue/episode status
+  derivations are anchored to the UTC date so a day's releases and statuses
+  do not shift with the browser's local timezone.
+- **Live events (#126).** The UI consumes `WS /api/v1/events` (the
+  backend's WebSocket bridge, migrated from gorilla/websocket to
+  coder/websocket) for live queue/history redraws.
+- **Auth in the browser.** The token lives in page memory only (never
+  `localStorage`/`sessionStorage`/cookies); the WebSocket accepts it as
+  `?token=`. See §5.
 
 ## 4. HTTP API
 
@@ -544,7 +595,9 @@ Scoped per PLAN §5 — Redis is never the source of truth:
     (`deploy/compose.ci.yml`, project `mediarr-ci`), seeds the first-boot
     admin, runs the served-UI probes, then the Playwright browser subset
     (`ui/e2e/container-ui.spec.ts`: real login form → dashboard renders →
-    each per-kind page loads without unhandled JS errors).
+    each per-kind page loads without unhandled JS errors). The full 23-spec
+    suite in `ui/e2e/` is the local bar: `cd ui && npm run e2e` against the
+    compose dev stack (`deploy/compose.dev.yml` + Vite).
   - `release-notes` (tag pushes only) — `scripts/release-notes.sh` renders
     notes from the issues referenced by the tag's commits and creates the
     GitHub release (`gh release create`).

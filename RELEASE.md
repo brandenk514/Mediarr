@@ -147,8 +147,10 @@ export E2E_PASSWORD="<password, at least 10 chars>"
 
    - `GET /` renders the login page (the SPA is served same-origin — 200,
      not a 404);
-   - sign in with `E2E_USER` / `E2E_PASSWORD` → the **dashboard** renders
-     (live counts and queue cards, not an error card);
+   - sign in with `E2E_USER` / `E2E_PASSWORD` → the unified **Discover**
+     page (the v0.4.0 default landing) renders, not an error card;
+   - visit the **dashboard** (live counts and queue cards, not an error
+     card);
    - visit one page per kind — `/movies`, `/tv`, `/music`, `/books` — each
      renders its real header without unhandled JavaScript errors.
 

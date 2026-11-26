@@ -32,6 +32,15 @@ handles caching and live event push.
   WebSocket.
 - **Dashboard.** Cross-library counts, queue depth by state, and recent
   activity in one authenticated endpoint that the UI refreshes.
+- **Unified app shell (v0.4.0).** One eight-section sidebar — Dashboard,
+  Discover, Library, Calendar, Activity, Indexers, Settings, System — with
+  kind (TV / Movies / Music / Books) a facet under Library, not a top-level
+  switch. The default landing is the unified cross-kind **Discover** page;
+  **Library** is the cross-kind grid with a URL-synced kind filter
+  (`/library?kind=…`), while the per-kind list and deep pages (e.g.
+  `/movies/add`, `/tv/:id`) stay fully routed. The top-bar **global search**
+  is cross-kind and deep-linkable (`/search/all?q=…`), distinct from the
+  Indexers manual release-search page (`/search`).
 - **Settings.** Download-client kind + connection details (credentials
   encrypted at rest) and per-domain library overrides (media roots,
   quality/format profiles) — all at runtime via the API, persisted in
@@ -106,8 +115,9 @@ UI is built into the image and served by the backend on `:8080`.
    that sign-in is the admin. API-first equivalent: the first
    `POST /api/v1/auth/login` mints the admin and returns the token.
 
-That is the whole deployment: a signed-in dashboard at `:8080`, with the SPA
-and the API served same-origin by the single backend container.
+That is the whole deployment: a signed-in app at `:8080` (the unified
+Discover page is the default landing), with the SPA and the API served
+same-origin by the single backend container.
 
 The only required env vars are `MEDIARR_ENCRYPTION_KEY` (64 hex chars),
 `MEDIARR_POSTGRES_DSN`, and `MEDIARR_REDIS_URL`; everything else has a

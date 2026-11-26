@@ -587,8 +587,9 @@ jobs:
 
           # The focused browser subset: real login form -> dashboard renders
           # -> each per-kind page loads without unhandled errors. (The full
-          # 20-spec suite remains the local/manual bar; this keeps PR
-          # feedback fast per the issue's scope.)
+          # 23-spec suite in ui/e2e/ remains the local/manual bar:
+          # `cd ui && npm run e2e` against the compose dev stack; this keeps
+          # PR feedback fast per the issue's scope.)
           (cd ui && npx playwright test e2e/container-ui.spec.ts)
 
       # Safety-net teardown: `if: always()` so a step timeout/cancel still
