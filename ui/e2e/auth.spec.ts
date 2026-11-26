@@ -17,13 +17,14 @@ test('wrong password surfaces the 401 error and stays on /login', async ({ page 
   await expect(page.getByTestId('login-error')).toHaveText(INVALID_CREDENTIALS_TEXT)
 })
 
-test('valid credentials sign in and land on the Movies home', async ({ page }) => {
-  // R7 home decision (radarr-parity-plan §4 R7): the default landing is the
-  // Movies list — a sign-in with no return target lands on /movies, not the
-  // old dashboard home.
+test('valid credentials sign in and land on the unified Discover page', async ({ page }) => {
+  // v0.4.0 shell (#118): the default landing is the unified cross-kind
+  // Discover page (supersedes the R7 Movies-list landing) — a sign-in with
+  // no return target lands on /, which redirects to /discover.
   await page.goto('/login')
   await signIn(page)
-  await expect(page).toHaveURL(/\/movies$/)
+  await expect(page).toHaveURL(/\/discover$/)
+  await expect(page.getByTestId('discover-page-title')).toBeVisible()
   // The login form is gone; we are behind the gate.
   await expect(page.getByTestId('username')).not.toBeVisible()
 })
