@@ -19,7 +19,16 @@ export function LoginPage() {
       await login(username, password)
       // Successful sign-in: send the user to the route that originally
       // bounced them to /login (stored by AuthGate), or the dashboard.
-      const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
+      // AuthGate stores the FULL router location, so carry all of it
+      // (pathname + search + hash): the top-bar global search deep-links
+      // as /search/all?q=… and a pathname-only redirect would drop the
+      // query (issue #123).
+      const fromState = (location.state as {
+        from?: { pathname: string; search?: string; hash?: string }
+      } | null)?.from
+      const from = fromState
+        ? `${fromState.pathname}${fromState.search ?? ''}${fromState.hash ?? ''}`
+        : null
       navigate(from && from !== '/login' ? from : '/', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'login failed')
