@@ -3326,6 +3326,13 @@ button.danger:hover {
   .queue-table {
     overflow-x: auto;
   }
+
+  /* The detail/calendar toolbar's button row (fixed-min-width buttons)
+     scrolls horizontally inside the page rather than widening it — same
+     allowance as tables. No effect on desktop (≥769px). */
+  .toolbar {
+    overflow-x: auto;
+  }
 }
 
 /* ---- ≤480px: small phones (375px) ---- */
