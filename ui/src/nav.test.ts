@@ -1,3 +1,4 @@
+import { createElement, isValidElement } from 'react'
 import { describe, expect, it } from 'vitest'
 import { PATHS, SECTIONS, sectionForPath } from './nav'
 
@@ -23,8 +24,10 @@ describe('nav model — Seerr-shaped shell sections (issue #148)', () => {
   it('gives every section a label, an SVG icon, a default destination, and bases', () => {
     for (const s of SECTIONS) {
       expect(s.label.length).toBeGreaterThan(0)
-      // Icons are SVG line-icon components (heroicons), never glyph strings.
-      expect(typeof s.icon).toBe('function')
+      // Icons are React SVG components (heroicons outline — function or
+      // forwardRef object), never glyph strings.
+      expect(typeof s.icon).not.toBe('string')
+      expect(isValidElement(createElement(s.icon))).toBe(true)
       expect(s.to.startsWith('/')).toBe(true)
       expect(s.base.length).toBeGreaterThan(0)
     }

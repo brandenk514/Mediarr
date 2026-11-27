@@ -6,7 +6,7 @@ import { DEFAULT_PAGE_SIZE } from '../../components/list'
 import { Badge, type BadgeTone } from '../../components/primitives'
 import { Pagination } from '../../components/list'
 import { progressLabel, timeAgo } from '../../lib/format'
-import { LiveBadge } from '../dashboard/LiveBadge'
+import { LiveBadge } from '../../components/live-badge'
 
 // QueueFilter is the UI's local filter state: an empty string means "all"
 // (the server treats an absent/empty kind/state as unfiltered).

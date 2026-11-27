@@ -87,11 +87,6 @@
   --rail: var(--color-rail);
   --rail-2: var(--color-rail-hover);
   --rail-active: var(--color-rail-active);
-  /* #147: the legacy top bar re-aliases to the neutral dark chrome so
-     --color-topbar / --color-topbar-hover have zero consumers (the legacy
-     layout retires in #148; token definitions stay in tokens.css). */
-  --topbar: var(--color-content);
-  --topbar-2: var(--color-rail-hover);
   --text: var(--color-text);
   --dim: var(--color-text-muted);
   --accent: var(--color-accent);
@@ -143,52 +138,6 @@ h2 {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.6rem 1.2rem;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-}
-
-.brand {
-  font-weight: 700;
-  font-size: 1.1rem;
-  color: var(--accent);
-  text-decoration: none;
-  letter-spacing: 0.02em;
-}
-
-.topbar nav {
-  display: flex;
-  gap: 0.2rem;
-  flex: 1;
-}
-
-.topbar nav a {
-  color: var(--dim);
-  text-decoration: none;
-  padding: 0.35rem 0.7rem;
-  border-radius: 6px;
-}
-
-.topbar nav a:hover {
-  color: var(--text);
-  background: var(--panel-2);
-}
-
-.topbar nav a.active {
-  color: var(--text);
-  background: var(--panel-2);
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
 }
 
 .content {
@@ -1089,198 +1038,268 @@ button.danger:hover {
    Sonarr shell & design system (P1)
    ========================================================================= */
 
-/* The app is a column: full-width teal top bar, then a row of (slate rail +
-   charcoal content). Replaces the old top-nav Layout. */
+/* The app is a row (issue #148, Seerr shape): full-height sidebar, then the
+   content column (header + pane). Replaces the old top-bar + rail layout. */
 .app {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   min-height: 100vh;
 }
 
-/* ---- top bar (full-width, teal accent, ~60px) ---- */
-
-.topbar {
+.app-main {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  height: 60px;
-  padding: 0 1.1rem;
-  background: var(--topbar);
-  color: #eafffb;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.28);
+  flex-direction: column;
 }
 
-.brand {
-  font-weight: 700;
-  font-size: 1.15rem;
-  color: #fff;
-  text-decoration: none;
-  letter-spacing: 0.02em;
+/* ---- content header (pill search + avatar menu; replaces the retired
+   .topbar, issue #148) ---- */
+
+.content-header {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  height: 60px;
+  padding: 0 1.1rem;
+  background: var(--content);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-.brand:hover {
-  color: #fff;
-}
-
-.topbar-search {
+/* Pill search: rounded input with the submit icon inside (the Seerr
+   SearchInput shape, issue #117 behavior preserved). */
+.content-search {
   flex: 1;
   max-width: 520px;
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3rem 0.6rem 0.3rem 0.9rem;
 }
 
-.topbar-search input {
+.content-search:focus-within {
+  border-color: var(--accent);
+}
+
+.content-search input {
   flex: 1;
   min-width: 0;
   background: transparent;
   border: none;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.3);
-  color: #fff;
-  padding: 0.5rem 0.15rem;
+  color: var(--text);
+  padding: 0.45rem 0;
   margin: 0;
   font-size: 0.95rem;
 }
 
-.topbar-search input::placeholder {
-  color: rgba(255, 255, 255, 0.6);
+.content-search input::placeholder {
+  color: var(--dim);
 }
 
-.topbar-search input:focus {
+.content-search input:focus {
   outline: none;
-  border-bottom-color: #fff;
 }
 
-.topbar-right {
+.content-header-right {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 0.9rem;
-}
-
-.topbar-icon {
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 1.05rem;
-  cursor: pointer;
-  padding: 0.35rem 0.5rem;
-  margin: 0;
-  border-radius: 6px;
-  line-height: 1;
-}
-
-.topbar-icon:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-}
-
-.topbar-icon:disabled {
-  color: rgba(255, 255, 255, 0.3);
-  cursor: default;
-}
-
-.topbar-icon:disabled:hover {
-  background: transparent;
-  color: rgba(255, 255, 255, 0.3);
-}
-
-.topbar-user {
-  display: flex;
-  align-items: center;
   gap: 0.5rem;
-  color: #fff;
-  font-size: 0.9rem;
+  flex-shrink: 0;
 }
 
-.topbar-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.22);
-  display: flex;
+/* Icon buttons in the header (menu toggle, search submit, notifications). */
+.content-header-icon {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-}
-
-/* ---- body: rail + content ---- */
-
-.app-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-/* Left rail (slate, ~210px) with section sub-navigation. */
-.rail {
-  width: 212px;
-  flex-shrink: 0;
-  background: var(--rail);
-  border-right: 1px solid var(--border);
-  padding: 0.8rem 0.6rem 1.4rem;
-  overflow-y: auto;
-}
-
-.rail-kind {
-  margin: 0 0.3rem 0.7rem;
-}
-
-.rail-kind .segmented {
-  width: 100%;
-}
-
-.rail-kind .seg {
-  flex: 1;
-  text-align: center;
-}
-
-.rail-item {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: 6px;
-  color: var(--dim);
-  text-decoration: none;
-  font-size: 0.92rem;
-  border: none;
   background: transparent;
-  width: 100%;
-  text-align: left;
+  border: none;
+  color: var(--dim);
   cursor: pointer;
-  margin: 0 0 0.1rem;
+  padding: 0.45rem;
+  margin: 0;
+  border-radius: 8px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
-.rail-item:hover {
-  background: var(--rail-2);
+.content-header-icon:hover {
+  background: var(--panel-2);
   color: var(--text);
 }
 
-.rail-item.active {
-  background: var(--rail-active);
-  color: #fff;
+.content-search .content-header-icon:hover {
+  background: transparent;
 }
 
-.rail-item.active .rail-icon {
-  color: var(--accent);
-}
-
-.rail-item.active .rail-label {
-  color: #fff;
-}
-
-.rail-icon {
-  width: 18px;
-  text-align: center;
+.content-header-icon:disabled {
   color: var(--dim);
-  font-size: 0.95rem;
+  opacity: 0.4;
+  cursor: default;
+}
+
+.content-header-icon:disabled:hover {
+  background: transparent;
+}
+
+/* ---- user menu (circular avatar button, issue #148) ---- */
+
+.user-menu {
+  position: relative;
   flex-shrink: 0;
 }
 
-.rail-label {
+.user-menu-trigger {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  line-height: 0;
+}
+
+.user-menu-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--rail-2);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.user-menu-trigger:hover .user-menu-avatar {
+  background: var(--accent);
+  color: #fff;
+}
+
+.user-menu-avatar-lg {
+  width: 36px;
+  height: 36px;
+  font-size: 0.95rem;
+}
+
+.user-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 12rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  padding: 0.35rem;
+}
+
+.user-menu-id {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem;
+  margin-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.user-menu-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.user-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0.5rem;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.88rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.user-menu-item:hover {
+  background: var(--panel-2);
+}
+
+/* ---- sidebar: brand + nav + version pill (Seerr shape, issue #148) ---- */
+
+/* Full-height rail: brand at the top, scrollable nav in the middle, version
+   pill pinned to the bottom. The background is the Seerr sidebar scrim
+   gradient staged in issue #147 (--color-rail-scrim). */
+.rail {
+  width: 212px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-rail-scrim);
+  border-right: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 0;
+  overflow: visible;
+}
+
+.rail-brand {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 1rem 1.1rem 0.8rem;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.rail-nav {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0.6rem 0.6rem;
+}
+
+.rail-foot {
+  flex-shrink: 0;
+  padding: 0.6rem 0.6rem 1rem;
+}
+
+/* Version pill: the sidebar footer chip fed by the public GET /version. */
+.version-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+
+.version-pill-state {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.version-pill-ver {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1294,29 +1313,6 @@ button.danger:hover {
 
 .rail-caret.open {
   transform: rotate(90deg);
-}
-
-.rail-badge {
-  background: var(--warn);
-  color: #1a1a1a;
-  font-size: 0.68rem;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 0.05rem 0.4rem;
-  min-width: 1.05rem;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.rail-sub {
-  padding-left: 0.9rem;
-  margin-top: 0.1rem;
-  margin-bottom: 0.2rem;
-}
-
-.rail-sub .rail-item {
-  padding: 0.38rem 0.6rem;
-  font-size: 0.86rem;
 }
 
 /* ---- content pane ---- */
@@ -3271,15 +3267,32 @@ button.danger:hover {
   outline: none;
 }
 
-/* Drawer header: "Menu" label + close button above the rail. */
+/* Drawer header: the close button above the (re-shown) rail. The close
+   button carries its own class — the drawer chrome no longer borrows the
+   retired topbar-icon style (issue #148). */
 .drawer-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin: -0.4rem 0.2rem 0.6rem;
+  justify-content: flex-end;
+  margin: -0.4rem 0.2rem 0.2rem;
 }
-.drawer-title {
-  font-weight: 600;
+
+.drawer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 0.35rem;
+  margin: 0;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.drawer-close:hover {
+  background: var(--rail-2);
   color: var(--text);
 }
 
@@ -3287,26 +3300,22 @@ button.danger:hover {
    inside the drawer the panel carries them. */
 .drawer .rail {
   width: auto;
+  position: static;
+  height: auto;
   background: transparent;
   border-right: none;
   padding: 0;
   overflow: visible;
 }
 
-/* ---- ≤768px: top bar, content pane, settings, tables ---- */
+/* ---- ≤768px: content header, content pane, settings, tables ---- */
 
 @media (max-width: 768px) {
-  .topbar {
-    gap: 0.6rem;
+  /* The header keeps the hamburger + search + essentials; the gap tightens
+     for phone widths. */
+  .content-header {
+    gap: 0.5rem;
     padding: 0 0.75rem;
-  }
-  /* The right cluster keeps the search breathing room: the username
-     (name text) and the version chip drop off at phone widths. */
-  .topbar-user > span:last-child {
-    display: none;
-  }
-  .topbar-right > .dim {
-    display: none;
   }
 
   .content {
@@ -3341,11 +3350,6 @@ button.danger:hover {
 /* ---- ≤480px: small phones (375px) ---- */
 
 @media (max-width: 480px) {
-  /* The top bar keeps brand + search + essentials; the avatar drops off
-     (the username text is already hidden at ≤768px). */
-  .topbar-user {
-    display: none;
-  }
   /* The detail hero stacks: poster above the metadata. */
   .detail-hero-body {
     flex-direction: column;

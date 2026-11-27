@@ -87,7 +87,7 @@ describe('mobile nav drawer (issue #123)', () => {
     renderLayout()
     expect(screen.queryByTestId('nav-toggle')).not.toBeInTheDocument()
     // The fixed rail is the desktop navigation.
-    expect(screen.getByTestId('rail-dashboard')).toBeInTheDocument()
+    expect(screen.getByTestId('rail-discover')).toBeInTheDocument()
   })
 
   it('renders the menu toggle at mobile widths and opens the drawer with the same rail', async () => {
@@ -98,7 +98,7 @@ describe('mobile nav drawer (issue #123)', () => {
     expect(toggle).toHaveAttribute('aria-label', 'Menu')
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     // The fixed rail is hidden from the mobile shell.
-    expect(screen.queryByTestId('rail-dashboard')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('rail-discover')).not.toBeInTheDocument()
 
     await user.click(toggle)
 

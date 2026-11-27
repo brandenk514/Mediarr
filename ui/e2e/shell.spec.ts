@@ -1,55 +1,64 @@
 import { expect, test } from '@playwright/test'
 import { signIn } from './login'
 
-// Unified app shell coverage (issue #116). Verifies the shell chrome (top
-// bar with global search + sidebar) and that every route in the route tree
-// renders at its path. Each test signs in fresh because the auth token is
-// in-memory (page-scoped) — a page.goto would drop it.
+// Unified app shell coverage (issue #116; reshaped by issue #148 to the Seerr
+// layout: sidebar with brand + nav + version pill, and a content header with
+// the global search + avatar menu — no top bar). Verifies the shell chrome
+// and that every route in the route tree renders at its path. Each test signs
+// in fresh because the auth token is in-memory (page-scoped) — a page.goto
+// would drop it.
 
-test('authenticated shell shows the top bar and sidebar', async ({ page }) => {
+test('authenticated shell shows the sidebar and content header', async ({ page }) => {
   await page.goto('/tv')
   await signIn(page)
   await expect(page).toHaveURL(/\/tv$/)
 
-  // Top bar chrome. Global search is functional (issue #117): typing +
-  // Enter navigates to the /search/all results route.
-  await expect(page.getByTestId('brand')).toBeVisible()
+  // Content header chrome. Global search is functional (issue #117): typing
+  // + Enter navigates to the /search/all results route. The notifications
+  // bell is a no-op placeholder.
   await expect(page.getByTestId('global-search')).toBeVisible()
   await expect(page.getByTestId('notifications')).toBeVisible()
+  // The avatar button stands in for the old topbar logout link; opening it
+  // reveals the sign-out menu item.
+  await expect(page.getByTestId('user-menu')).toBeVisible()
+  await page.getByTestId('user-menu').click()
   await expect(page.getByTestId('logout')).toBeVisible()
 
-  // Sidebar: the eight unified-shell sections (no kind switcher).
+  // Sidebar: brand, the nine sections (issue #148 IA: kind-first, Activity
+  // before Calendar; Indexers parked under Settings), and the version pill.
+  await expect(page.getByTestId('brand')).toBeVisible()
   for (const id of [
-    'dashboard',
     'discover',
-    'library',
-    'calendar',
+    'movie',
+    'tv',
+    'music',
+    'book',
     'activity',
-    'indexers',
+    'calendar',
     'settings',
     'system',
   ]) {
     await expect(page.getByTestId(`rail-${id}`)).toBeVisible()
   }
+  await expect(page.getByTestId('version-pill')).toBeVisible()
 
-  // The kind facet: the Library section's four kind rows (visible while on a
-  // library route, where /tv is).
-  for (const id of ['tv', 'movies', 'music', 'books']) {
-    await expect(page.getByTestId(`rail-sub-${id}`)).toBeVisible()
-  }
+  // While on a /tv route the Series section is active and reveals its
+  // sub-links (first-class per-kind pages).
+  await expect(page.getByTestId('rail-sub-tvadd')).toBeVisible()
+  await expect(page.getByTestId('rail-sub-tvimport')).toBeVisible()
 })
 
-test('Library kind rows navigate to the grid filtered to each kind (#119)', async ({ page }) => {
+test('kind sections navigate to the per-kind pages (#148 IA)', async ({ page }) => {
   await page.goto('/tv')
   await signIn(page)
   await expect(page).toHaveURL(/\/tv$/)
 
-  // #119: the sidebar kind rows are shortcuts into the unified Library grid
-  // (deep-linked to the kind filter, ?kind=…), not the per-kind list pages.
+  // #148: the kind sections are top-level sidebar entries pointing at the
+  // per-kind routes, not facets of the /library grid.
   const targets: [string, RegExp][] = [
-    ['rail-sub-movies', /\/library\?kind=movie$/],
-    ['rail-sub-music', /\/library\?kind=music$/],
-    ['rail-sub-books', /\/library\?kind=book$/],
+    ['rail-movie', /\/movies$/],
+    ['rail-music', /\/music$/],
+    ['rail-book', /\/books$/],
   ]
   for (const [id, re] of targets) {
     await page.getByTestId(id).click()
@@ -68,7 +77,9 @@ const ROUTES: [string, string][] = [
   ['/settings/media-management', 'settings-shell'],
   ['/system/status', 'system-status'],
   ['/tv/import', 'library-import'],
-  ['/dashboard', 'refresh'],
+  // #148: /dashboard is a redirect to the Discover landing (the Dashboard
+  // page was removed).
+  ['/dashboard', 'discover-page-title'],
   // Prowlarr PR3: the Indexers hub + Stats page, and the Search/History pages.
   ['/indexers', 'idx-hub-title'],
   ['/indexers/stats', 'indexers-stats-title'],
@@ -105,8 +116,8 @@ test('series detail route renders at /tv/:id', async ({ page }) => {
 })
 
 // #118: the default landing is the unified cross-kind Discover page
-// (supersedes the R7 Movies-list landing). The Movies list stays reachable
-// from the Library rail section.
+// (supersedes the R7 Movies-list landing). The Movies list is a top-level
+// sidebar section since #148.
 test('landing at / resolves to the unified Discover page', async ({ page }) => {
   await page.goto('/')
   await signIn(page)
@@ -114,11 +125,11 @@ test('landing at / resolves to the unified Discover page', async ({ page }) => {
   await expect(page.getByTestId('discover-page-title')).toBeVisible()
 })
 
-test('rail Dashboard item opens the Dashboard', async ({ page }) => {
-  await page.goto('/tv')
+// #148: the Dashboard page was removed; the /dashboard deep link stays
+// navigable and lands on the Discover landing.
+test('/dashboard redirects to the Discover landing', async ({ page }) => {
+  await page.goto('/dashboard')
   await signIn(page)
-  await expect(page.getByTestId('rail-dashboard')).toBeVisible()
-  await page.getByTestId('rail-dashboard').click()
-  await expect(page).toHaveURL(/\/dashboard$/)
-  await expect(page.getByTestId('refresh')).toBeVisible()
+  await expect(page).toHaveURL(/\/discover$/)
+  await expect(page.getByTestId('discover-page-title')).toBeVisible()
 })
