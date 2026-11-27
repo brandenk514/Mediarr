@@ -42,13 +42,29 @@ func entryName(maxAge, expireAtMs int64, ext string) string {
 	return fmt.Sprintf("%d.%d..%s", maxAge, expireAtMs, ext)
 }
 
-// parseEntryName decodes entryName back into (maxAge, expireAtMs, ext).
+// maxCacheMaxAgeSeconds bounds the cache entry max-age parsed from an
+// entry filename. The filename is written by put() from the upstream
+// Cache-Control, but the cache dir lives on shared disk — a corrupt or
+// hostile filename must not overflow the later int64 -> int conversion
+// (CodeQL run-5 #149 CI triage). Ten years is far past any real CDN
+// max-age.
+const maxCacheMaxAgeSeconds int64 = 315_360_000
+
+// parseEntryName splits a cache entry filename into its recorded
+// max-age (seconds, clamped to maxCacheMaxAgeSeconds), expiry (Unix
+// milliseconds), and extension. A malformed name yields zero values.
 func parseEntryName(name string) (maxAge, expireAtMs int64, ext string) {
 	parts := strings.SplitN(name, ".", 4)
 	if len(parts) != 4 {
 		return 0, 0, ""
 	}
 	maxAge, _ = strconv.ParseInt(parts[0], 10, 64)
+	if maxAge < 0 {
+		maxAge = 0
+	}
+	if maxAge > maxCacheMaxAgeSeconds {
+		maxAge = maxCacheMaxAgeSeconds
+	}
 	expireAtMs, _ = strconv.ParseInt(parts[1], 10, 64)
 	return maxAge, expireAtMs, parts[3]
 }
