@@ -117,8 +117,9 @@ export interface Section {
 }
 
 // Issue #148: icons are heroicons outline components (the legacy
-// unicode-glyph/emoji set ▦ ✨ 📚 ▶ 🎬 ♫ 📖 📅 ⚡ 🧲 ⚙ 🖥 is retired).
-// The rail draws them at a fixed 20px; color is inherited from the item.
+// unicode-glyph/emoji icon set is retired; no glyph characters remain in
+// the nav markup). The rail draws them at a fixed 20px; color is
+// inherited from the item.
 export const SECTIONS: Section[] = [
   {
     // The unified cross-kind landing is the section's home (issue #118).
