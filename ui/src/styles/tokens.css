@@ -39,8 +39,6 @@
   --color-rail: #1f2937; /* left rail (gray-800; Seerr .sidebar base) */
   --color-rail-hover: #374151; /* rail item hover (gray-700) */
   --color-rail-active: #4b5563; /* legacy rail active row (gray-600); the new SidebarItem active state is the accent pill (bg-accent) */
-  --color-topbar: #1f2937; /* top bar (gray-800, neutral chrome; zero consumers since #147 — legacy layout retires in #148) */
-  --color-topbar-hover: #374151; /* top bar hover (gray-700) */
 
   /* ---- color: text (semantic) ---- */
   --color-text: #e5e7eb; /* primary text (gray-200) */

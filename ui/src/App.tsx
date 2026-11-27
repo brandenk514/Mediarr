@@ -3,7 +3,6 @@ import { PATHS } from './nav'
 import { useAuth } from './auth/AuthContext'
 import { Layout } from './pages/Layout'
 import { LoginPage } from './pages/Login'
-import { DashboardPage } from './pages/Dashboard'
 import { MoviesPage } from './pages/lists/Movies'
 import { TvPage } from './pages/lists/Tv'
 import { MusicPage } from './pages/lists/Music'
@@ -70,7 +69,9 @@ export default function App() {
             page (supersedes the R7 Movies-list landing decision). The
             Movies list stays reachable from the Library rail section. */}
         <Route path={PATHS.home} element={<Navigate to={PATHS.discover} replace />} />
-        <Route path={PATHS.dashboard} element={<DashboardPage />} />
+        {/* #148: the Dashboard section is retired; the route stays only as
+            a redirect to the Discover landing. */}
+        <Route path={PATHS.dashboard} element={<Navigate to={PATHS.discover} replace />} />
         {/* #119: the unified cross-kind Library grid — the Library section's
             home. The four per-kind list pages stay routed beneath it. */}
         <Route path={PATHS.library} element={<LibraryPage />} />

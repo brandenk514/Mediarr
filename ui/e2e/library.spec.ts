@@ -52,21 +52,22 @@ test('the kind filter switches the view and syncs ?kind= in the URL', async ({ p
   await expectLibrarySettled(page, 4)
 })
 
-test('sidebar: kind row filters the grid; Library header returns to /library', async ({ page }) => {
+// #148: the Library grid dropped out of the sidebar (kind-first IA). The
+// old kind facet rows and the Library section row are gone; the sidebar's
+// kind entries point at the per-kind pages. /library stays navigable as a
+// direct URL, so this spec keeps asserting the grid itself.
+test('the sidebar no longer points at the Library grid (#148 IA)', async ({ page }) => {
   await page.goto('/library')
   await signIn(page)
   await expect(page).toHaveURL(/\/library$/)
   await expectLibrarySettled(page, 4)
 
-  // The Movies kind row is a shortcut into the grid filtered to Movies (#119)
-  // — its destination is the unified grid, not the per-kind list page.
-  await page.getByTestId('rail-sub-movies').click()
-  await expect(page).toHaveURL(/\/library\?kind=movie$/)
-  await expectLibrarySettled(page, 1)
+  // The retired selectors must be absent from the sidebar.
+  await expect(page.getByTestId('rail-library')).toHaveCount(0)
+  await expect(page.getByTestId('rail-sub-movies')).toHaveCount(0)
 
-  // The section header is the Library home: clicking it resets to the
-  // unfiltered grid (the ?kind= param is cleared).
-  await page.getByTestId('rail-library').click()
-  await expect(page).toHaveURL(/\/library$/)
-  await expectLibrarySettled(page, 4)
+  // The Movies section now goes to the per-kind Movies page, not the grid.
+  await page.getByTestId('rail-movie').click()
+  await expect(page).toHaveURL(/\/movies$/)
+  await expect(page.getByTestId('movies-title')).toBeVisible()
 })

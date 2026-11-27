@@ -8,7 +8,8 @@ import { signIn } from './login'
 // subset the issue calls for:
 //
 //   * sign in through the REAL login form (not a hand-minted token);
-//   * the cross-kind Dashboard renders behind the gate;
+//   * the /dashboard deep-link lands on the Discover landing after the
+//     #148 shell change (the Dashboard section is retired);
 //   * each per-kind library page loads without unhandled JS errors.
 //
 // "Without unhandled errors" is tracked via page.on('pageerror'), which
@@ -39,19 +40,19 @@ async function settle(page: Page): Promise<void> {
   await page.waitForTimeout(1000)
 }
 
-test('signs in through the real login form and the dashboard renders', async ({ page }) => {
+test('signs in through the real login form and lands on the Discover landing', async ({ page }) => {
   const unhandled = trackUnhandled(page)
 
-  // Deep-link to the Dashboard while unauthenticated: AuthGate bounces us to
-  // /login, and sign-in's returnTo brings us client-side back to /dashboard.
+  // Deep-link to the retired Dashboard route while unauthenticated:
+  // AuthGate bounces us to /login, and sign-in's returnTo brings us
+  // client-side back to /dashboard — which #148 redirects to /discover.
   await page.goto('/dashboard')
   await expect(page).toHaveURL(/\/login$/)
   await signIn(page)
-  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page).toHaveURL(/\/discover$/)
 
-  // The dashboard rendered its live chrome (not the error card).
-  await expect(page.getByTestId('refresh')).toBeVisible()
-  await expect(page.getByTestId('dashboard-error')).toHaveCount(0)
+  // The Discover landing rendered its header (not an error card).
+  await expect(page.getByTestId('discover-page-title')).toBeVisible()
 
   await settle(page)
   expect(unhandled, `unhandled JS errors: ${unhandled.join('; ')}`).toEqual([])

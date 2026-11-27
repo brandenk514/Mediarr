@@ -1,6 +1,8 @@
-// LiveBadge shows the /api/v1/events WebSocket phase for the dashboard (#40:
+// LiveBadge shows the /api/v1/events WebSocket phase (issue #40:
 // "WebSocket subscription for live queue/history updates"). open = live,
 // connecting = establishing / reconnecting, closed = caller stopped it.
+// Moved out of the retired Dashboard (issue #148): the Queue page still
+// renders it in its header.
 export function LiveBadge({ status }: { status: 'connecting' | 'open' | 'closed' }) {
   const map = {
     open: { cls: 'pill-ok', label: 'live' },

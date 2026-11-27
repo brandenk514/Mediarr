@@ -48,8 +48,7 @@ Single source of truth; every `@theme` token becomes a Tailwind utility.
 | `--color-surface`                         | `#1f2937` (gray-800)                                                                                     | `bg-surface`           | panels, cards (bordered, like the fork)    |
 | `--color-surface-raised`                  | `#374151` (gray-700)                                                                                     | `bg-surface-raised`    | hover rows, popovers                       |
 | `--color-rail` / `-hover` / `-active`     | `#1f2937` / `#374151` / `#4b5563` (gray-800/700/600)                                                     | `bg-rail`, `bg-rail-active` | sidebar (rail)                            |
-| `--color-topbar` / `-hover`               | `#1f2937` / `#374151` (gray-800/700)                                                                     | `bg-topbar`            | top bar — **zero consumers since #147** (legacy aliases re-pointed to `--color-content` / `--color-rail-hover`); definitions stay here until the legacy layout retires (#148) |
-| `--color-rail-scrim`                      | `linear-gradient(180deg, rgba(31, 41, 55, 1) 0%, #131928 100%)` (seerr `globals.css` `.sidebar`)        | `background: var(--color-rail-scrim)` | sidebar scrim, for issue #148              |
+| `--color-rail-scrim`                      | `linear-gradient(180deg, rgba(31, 41, 55, 1) 0%, #131928 100%)` (seerr `globals.css` `.sidebar`)        | `background: var(--color-rail-scrim)` | sidebar scrim (the #148 sidebar background) |
 
 `--color-rail-scrim` and the `--tone-*` pairs below are plain `:root`
 custom properties (outside `@theme`) so they always ship verbatim.
@@ -155,10 +154,9 @@ semibold 600 (headings, badges), bold 700 (brand, KPIs).
 
 Legacy aliases: the P1 `:root` variables (`--bg`, `--panel`, `--dim`,
 `--ok`, ...) now resolve to these tokens, so old pages keep working without
-duplication. Since #147 the `--topbar` / `--topbar-2` aliases point at
-`--color-content` / `--color-rail-hover` (neutral dark chrome) instead of
-the `--color-topbar` tokens, which are now defined-but-unconsumed pending
-the #148 layout retirement.
+duplication. The `--topbar` / `--topbar-2` aliases and the
+`--color-topbar` / `--color-topbar-hover` tokens were deleted outright in
+#148, together with the legacy topbar layout's retirement.
 
 ## Primitives (`ui/src/components/primitives/`)
 
@@ -183,7 +181,8 @@ callbacks), use token utilities throughout, and carry unit tests
 - Existing pages are not migrated — the unified shell (#116) and views
   (#117–#123) adopt the primitives; the P1 components in
   `components/ui.tsx` / `poster.tsx` stay until then.
-- The legacy topbar/sidebar layout is untouched by #147 (color-only
-  retune); its retirement is issue #148, and the artwork API is #149.
+- The legacy topbar layout was retired in #148: the shell is now the Seerr
+  shape (full-height sidebar with brand + nav + version pill, and a content
+  header with the pill search + avatar menu); the artwork API is #149.
 - No API contract, auth, or packaging changes (UI layer only; see #86:
   built assets ship at `/home/nonroot/ui`, served same-origin on :8080).

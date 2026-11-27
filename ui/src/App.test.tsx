@@ -31,7 +31,6 @@ vi.mock('./api/client', () => {
       listSeries: vi.fn(),
       listMovies: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 25 }),
       getMovieStats: vi.fn().mockResolvedValue(null),
-      getDashboard: vi.fn(),
       getSystemHealth: vi.fn(),
       // #118: the unified Discover page (the new default landing).
       discover: vi.fn(),
@@ -93,16 +92,22 @@ describe('App', () => {
     await expect(screen.findByTestId('discover-page-title')).resolves.toBeVisible()
   })
 
-  // The Dashboard stays reachable from the /dashboard route (the rail's
-  // Dashboard item links here).
-  it('renders the Dashboard at /dashboard', async () => {
+  // #148: the Dashboard section left the shell; the /dashboard route is kept
+  // only as a redirect to the Discover landing.
+  it('redirects /dashboard to /discover', async () => {
     ;(getToken as ReturnType<typeof vi.fn>).mockReturnValue('tok')
     ;(client.me as ReturnType<typeof vi.fn>).mockResolvedValue({ username: 'admin' })
-    ;(client.getDashboard as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('offline'))
+    // The (all-empty) page still renders: title + the three row EmptyStates.
+    ;(client.discover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      trending: [],
+      upcoming: [],
+      newReleases: [],
+      unavailable: [],
+    })
     ;(client.getSystemHealth as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('nope'))
 
     renderApp(['/dashboard'])
-    await expect(screen.findByTestId('dashboard-error')).resolves.toBeVisible()
+    await expect(screen.findByTestId('discover-page-title')).resolves.toBeVisible()
   })
 
   // Issue #117: the global search results page is a FIRST-CLASS route
