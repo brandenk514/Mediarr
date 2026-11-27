@@ -53,3 +53,17 @@ func TestListArtists_MapsCoverToPosterURL(t *testing.T) {
 		t.Fatal("music BackdropURL must be empty")
 	}
 }
+
+func TestGetArtist_KeylessArtworkEmpty(t *testing.T) {
+	repo := newMemRepo()
+	repo.artists[1] = dom.Artist{ID: 1, Name: "No Art"} // no persisted cover: keyless degrades to ""
+	svc := New(Deps{Repo: repo})
+
+	a, err := svc.GetArtist(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetArtist: %v", err)
+	}
+	if a.PosterURL != "" || a.BackdropURL != "" {
+		t.Fatalf("keyless artwork = %q/%q, want empty/empty", a.PosterURL, a.BackdropURL)
+	}
+}

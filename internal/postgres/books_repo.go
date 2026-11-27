@@ -135,6 +135,32 @@ func (r *BooksRepo) AuthorFirstISBNs(ctx context.Context) (map[int64]string, err
 	return out, rows.Err()
 }
 
+// TitleFirstISBNs returns each title's first ISBN'd edition (issue #149:
+// the covers.openlibrary.org ISBN cover is the ListBooks poster).
+func (r *BooksRepo) TitleFirstISBNs(ctx context.Context) (map[int64]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT e.title_id, e.isbn
+		FROM book_editions e
+		WHERE e.isbn IS NOT NULL AND e.isbn <> ''
+		ORDER BY e.title_id, e.id`)
+	if err != nil {
+		return nil, fmt.Errorf("books: title first isbns: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[int64]string{}
+	for rows.Next() {
+		var titleID int64
+		var isbn string
+		if err := rows.Scan(&titleID, &isbn); err != nil {
+			return nil, fmt.Errorf("books: scan title first isbn: %w", err)
+		}
+		if _, ok := out[titleID]; !ok {
+			out[titleID] = isbn
+		}
+	}
+	return out, rows.Err()
+}
+
 // SetAuthorMonitored toggles an author's monitored flag.
 func (r *BooksRepo) SetAuthorMonitored(ctx context.Context, id int64, monitored bool) error {
 	res, err := r.db.ExecContext(ctx, `

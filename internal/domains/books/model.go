@@ -111,6 +111,10 @@ type Book struct {
 	AuthorName string
 	HasFile    bool
 	Format     string
+	// PosterURL (issue #149): the covers.openlibrary.org ISBN cover of the
+	// book's first ISBN'd edition — serialized with the bare Go field name
+	// like the rest of this struct (docs/openapi.md convention).
+	PosterURL string
 }
 
 // SeriesBook is a book in a series, with its author's name (the series read
@@ -213,6 +217,11 @@ type Repo interface {
 	// cover is the author poster). One query over all authors; map is
 	// empty (or misses an id) when the author has no ISBN'd edition.
 	AuthorFirstISBNs(ctx context.Context) (map[int64]string, error)
+	// TitleFirstISBNs returns each title's first ISBN'd edition (issue
+	// #149: the OpenLibrary covers.openlibrary.org ISBN cover is the
+	// ListBooks poster). One query over all titles; the map misses a
+	// title that has no ISBN'd edition.
+	TitleFirstISBNs(ctx context.Context) (map[int64]string, error)
 	// UpdateAuthor writes the author's B2 editable fields (the full merged
 	// author; the service passes current values plus the edits).
 	UpdateAuthor(ctx context.Context, a Author) error
