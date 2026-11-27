@@ -216,6 +216,17 @@ func (r *listMoviesRepo) SetMovieReleaseDate(ctx context.Context, id int64, rele
 	return nil
 }
 
+func (r *listMoviesRepo) SetMovieArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error {
+	m, ok := r.movies[id]
+	if !ok {
+		return moviesdom.ErrMovieNotFound
+	}
+	m.PosterURL = posterURL
+	m.BackdropURL = backdropURL
+	r.movies[id] = m
+	return nil
+}
+
 // newListTestServer returns an authenticated movies server plus a valid bearer
 // token, so the contract tests can hit the real requireAuth-wrapped routes.
 func newListTestServer(t *testing.T, repo moviesdom.Repo) (*Server, string) {

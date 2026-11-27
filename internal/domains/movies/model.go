@@ -402,4 +402,10 @@ type Repo interface {
 	// reported (Radarr R4), as "YYYY-MM-DD". Best-effort: a failure must
 	// never fail the read that triggered it.
 	SetMovieReleaseDate(ctx context.Context, id int64, releaseDate string) error
+
+	// SetMovieArtwork persists the upstream poster/backdrop URLs the
+	// enricher reported (issue #149 Stage A), so list reads serve
+	// PosterURL without a per-row provider call. Best-effort: a failure
+	// must never fail the read that triggered it. ''/'' = keyless/no art.
+	SetMovieArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error
 }

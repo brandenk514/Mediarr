@@ -311,6 +311,17 @@ func (r *memRepo) SetMovieReleaseDate(ctx context.Context, id int64, releaseDate
 	return nil
 }
 
+func (r *memRepo) SetMovieArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error {
+	m, ok := r.movies[id]
+	if !ok {
+		return dom.ErrMovieNotFound
+	}
+	m.PosterURL = posterURL
+	m.BackdropURL = backdropURL
+	r.movies[id] = m
+	return nil
+}
+
 var _ dom.Repo = (*memRepo)(nil)
 
 // TestPipeline_EndToEnd drives the full movie pipeline with an in-memory repo,

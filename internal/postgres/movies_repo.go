@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	caldomain "github.com/brandenk514/mediarr/internal/domains/calendar"
@@ -518,6 +519,12 @@ func (r *MovieRepo) SetMovieReleaseDate(ctx context.Context, id int64, releaseDa
 		return movies.ErrMovieNotFound
 	}
 	return nil
+}
+
+// SetMovieArtwork persists the upstream poster/backdrop URLs (issue #149
+// Stage A). RED-phase stub: the columns arrive with migration 0034.
+func (r *MovieRepo) SetMovieArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error {
+	return errors.New("movies: set artwork: not implemented")
 }
 
 // MovieRows returns the movies the R4 movie calendar renders over: every
