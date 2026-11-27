@@ -2961,6 +2961,10 @@ export interface components {
             CollectionID?: string | null;
             /** @description Provider release date, "YYYY-MM-DD" (persisted by the enricher, Radarr R4); "" when unknown (keyless dev). Feeds the movie calendar and the "unreleased" status. */
             ReleaseDate?: string;
+            /** @description Upstream TMDB poster URL, w342 size (issue #149 Stage A; persisted by the enricher so list reads carry it without a per-row provider call). "" when keyless or no art — never an error. The same-origin /api/v1/images route (Stage B) proxies these bytes; this field is the upstream URL, NOT a proxy URL. */
+            PosterURL?: string;
+            /** @description Upstream TMDB backdrop URL, w1280 size (issue #149 Stage A). Detail-only: "" on list items and when keyless or no art. */
+            BackdropURL?: string;
             /** @description Plot overview; null when unknown. */
             Overview?: string | null;
             Scores?: components["schemas"]["MovieScores"];
