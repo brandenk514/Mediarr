@@ -4,6 +4,39 @@
  */
 
 export interface paths {
+    "/api/v1/images/{type}/{size}/{path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Same-origin artwork proxy.
+         * @description Streams artwork bytes from one of two allowlisted upstream image
+         *     hosts (TMDB's image CDN, TheTVDB's artwork CDN). PUBLIC (no auth,
+         *     like /version): the login backdrop consumes it pre-auth; safety
+         *     comes from the upstream allowlist, the per-segment path
+         *     whitelist, the per-host rate limit, and the on-disk cache cap.
+         *
+         *     `{path}` is a multi-segment wildcard (the route matches every
+         *     remaining path segment). Segments must be `[\w.-]+` or the duotone
+         *     filter form `w<size>_filter(duotone,<hex6>,<hex6>)`; '.'/'..'
+         *     segments, a leading '//' or any '://' are rejected.
+         *
+         *     The general settings' `cache_images` toggle (default ON) gates the
+         *     whole route: disabled → 404. Responses carry `X-Cache-Key` and
+         *     `X-Cache-Status: MISS|HIT`.
+         */
+        get: operations["getImage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -6058,6 +6091,67 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The upstream image host. */
+                type: "tmdb" | "tvdb";
+                /** @description The size segment, e.g. `w342` or a duotone filter segment. */
+                size: string;
+                /** @description The remaining artwork path segments (multi-segment wildcard). */
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The artwork bytes, passed through unmodified (no re-encode, no resize). */
+            200: {
+                headers: {
+                    /** @description sha256 cache key of the entry. */
+                    "X-Cache-Key"?: string;
+                    /** @description MISS when fetched from upstream, HIT when served from the on-disk cache. */
+                    "X-Cache-Status"?: "MISS" | "HIT";
+                    /** @description `public, max-age=<ttl>` — the upstream max-age, default 86400. */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Non-whitelisted path segment or unknown {type}. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The joined path starts with '//' or contains '://'. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Upstream image not found, or cache_images disabled. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Upstream fetch failed or answered non-2xx. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getLiveness: {
         parameters: {
             query?: never;

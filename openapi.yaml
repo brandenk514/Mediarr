@@ -83,6 +83,77 @@ tags:
   - name: system
     description: System area (P6) — Status (structured health, disk space, about), Tasks (worker inventory), Backup (config export/import), Updates (changelog), Events (history source), Log Files (SSE stream), and the Sonarr drop-in migration.
 paths:
+  /api/v1/images/{type}/{size}/{path}:
+    get:
+      tags: [ops]
+      summary: Same-origin artwork proxy.
+      operationId: getImage
+      security: []
+      description: |
+        Streams artwork bytes from one of two allowlisted upstream image
+        hosts (TMDB's image CDN, TheTVDB's artwork CDN). PUBLIC (no auth,
+        like /version): the login backdrop consumes it pre-auth; safety
+        comes from the upstream allowlist, the per-segment path
+        whitelist, the per-host rate limit, and the on-disk cache cap.
+
+        `{path}` is a multi-segment wildcard (the route matches every
+        remaining path segment). Segments must be `[\w.-]+` or the duotone
+        filter form `w<size>_filter(duotone,<hex6>,<hex6>)`; '.'/'..'
+        segments, a leading '//' or any '://' are rejected.
+
+        The general settings' `cache_images` toggle (default ON) gates the
+        whole route: disabled → 404. Responses carry `X-Cache-Key` and
+        `X-Cache-Status: MISS|HIT`.
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [tmdb, tvdb]
+          description: The upstream image host.
+        - name: size
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The size segment, e.g. `w342` or a duotone filter segment.
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The remaining artwork path segments (multi-segment wildcard).
+      responses:
+        "200":
+          description: The artwork bytes, passed through unmodified (no re-encode, no resize).
+          headers:
+            X-Cache-Key:
+              description: sha256 cache key of the entry.
+              schema:
+                type: string
+            X-Cache-Status:
+              description: MISS when fetched from upstream, HIT when served from the on-disk cache.
+              schema:
+                type: string
+                enum: [MISS, HIT]
+            Cache-Control:
+              description: "`public, max-age=<ttl>` — the upstream max-age, default 86400."
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Non-whitelisted path segment or unknown {type}.
+        "403":
+          description: The joined path starts with '//' or contains '://'.
+        "404":
+          description: Upstream image not found, or cache_images disabled.
+        "502":
+          description: Upstream fetch failed or answered non-2xx.
   /healthz:
     get:
       tags: [ops]

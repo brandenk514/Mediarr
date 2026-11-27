@@ -2,7 +2,9 @@
 
 `openapi.yaml` is the **source of truth for the API wire format** — every
 `/api/v1` route (70 operations, 51 paths), plus the ops routes
-(`/healthz`, `/readyz`, `/version`) and the `/api/v1/events` WebSocket.
+(`/healthz`, `/readyz`, `/version`), the public image proxy
+(`/api/v1/images/{type}/{size}/{path}`, issue #149), and the
+`/api/v1/events` WebSocket.
 The Go handlers and the UI types are both downstream of it.
 
 ## Wire-format conventions

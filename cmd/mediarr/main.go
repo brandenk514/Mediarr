@@ -49,6 +49,7 @@ import (
 	calendarsvc "github.com/brandenk514/mediarr/internal/services/calendar"
 	discoversvc "github.com/brandenk514/mediarr/internal/services/discover"
 	historysvc "github.com/brandenk514/mediarr/internal/services/historyfeed"
+	"github.com/brandenk514/mediarr/internal/services/imageproxy"
 	moviesvc "github.com/brandenk514/mediarr/internal/services/movies"
 	musicsvc "github.com/brandenk514/mediarr/internal/services/music"
 	rootfolders "github.com/brandenk514/mediarr/internal/services/rootfolders"
@@ -391,6 +392,24 @@ func run(logSvc *system.LogService) error {
 	authRepo := auth.NewRepo(pg.DB())
 	srv.SetAuth(&api.AuthDeps{Repo: authRepo})
 	srv.SetEvents(&api.EventsDeps{Repo: authRepo, Events: events})
+
+	// --- Image proxy (issue #149) ---------------------------------------
+	// Same-origin artwork proxy: the upstream allowlist (TMDB/TheTVDB
+	// CDNs), segment whitelist, 1 GiB on-disk cache, and per-host rate
+	// limit live in the imageproxy package; the cache_images settings
+	// toggle (default ON) is read per request from the settings store.
+	// The cache root is the OS user cache dir; no new env vars (the
+	// issue forbids them), so a UserCacheDir failure falls back to /tmp.
+	// In-container persistence (a volume mount for the cache dir) is
+	// deferred to the PR stage.
+	imagesCacheDir := "/tmp/mediarr/images"
+	if userCache, err := os.UserCacheDir(); err == nil {
+		imagesCacheDir = filepath.Join(userCache, "mediarr", "images")
+	}
+	srv.SetImages(&api.ImagesDeps{
+		Proxy:    imageproxy.New(imageproxy.Config{CacheDir: imagesCacheDir}),
+		Settings: settingsRepo,
+	})
 
 	// --- Movies pipeline -----------------------------------------------
 	// M1: wire the movie pipeline end-to-end. The running service uses a fake
