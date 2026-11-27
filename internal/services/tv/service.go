@@ -68,6 +68,11 @@ type Deps struct {
 	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
 	// Nil-safe: the pipeline runs identically without it.
 	Metrics *metrics.Metrics
+	// Artwork, when non-nil, fills the series' PosterURL/BackdropURL wire
+	// fields (issue #149) on the detail read and the paged list. It is the
+	// keyed TMDB adapter in production; nil (no TMDB key) leaves the
+	// fields "" (R3 keyless convention).
+	Artwork Artworker
 }
 
 // Service implements the TV use-cases.

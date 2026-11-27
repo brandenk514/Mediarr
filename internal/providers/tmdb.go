@@ -104,6 +104,42 @@ type MovieDetail struct {
 	CollectionName   string
 	Cast             []CastCredit
 	Crew             []CrewCredit
+	// Artwork (issue #149): raw TMDB image paths ("/abc.jpg"), the
+	// inputs to TMDBPosterURL / TMDBBackdropURL. "" when TMDB has no art.
+	PosterPath   string
+	BackdropPath string
+}
+
+// TMDB image CDN bases (issue #149). The poster base matches the Discover
+// feed's #118 size (w342); the backdrop base is the hero size (w1280).
+const (
+	tmdbPosterBase   = "https://image.tmdb.org/t/p/w342"
+	tmdbBackdropBase = "https://image.tmdb.org/t/p/w1280"
+)
+
+// SeriesArtwork is a series' TMDB image paths (issue #149): the raw
+// /movie-style paths ("/abc.jpg") the tv service folds into wire URLs.
+type SeriesArtwork struct {
+	PosterPath   string
+	BackdropPath string
+}
+
+// TMDBPosterURL builds the absolute upstream poster URL from a TMDB image
+// path. "" in, "" out.
+func TMDBPosterURL(path string) string {
+	if path == "" {
+		return ""
+	}
+	return tmdbPosterBase + path
+}
+
+// TMDBBackdropURL builds the absolute upstream backdrop URL from a TMDB
+// image path. "" in, "" out.
+func TMDBBackdropURL(path string) string {
+	if path == "" {
+		return ""
+	}
+	return tmdbBackdropBase + path
 }
 
 // GetMovieDetail fetches the TMDB detail for a movie by TMDB id, including

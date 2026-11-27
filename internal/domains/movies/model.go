@@ -57,6 +57,15 @@ type Movie struct {
 	RootFolder          string // root folder path; '' = server default
 	MinimumAvailability string // see the Availability* constants; '' = unset
 
+	// Artwork URLs (issue #149): poster + backdrop on the detail and list
+	// wire shapes, serialized with bare Go field names like the rest of
+	// this struct (docs/openapi.md convention; owner decision 2026-11-27).
+	// The camelCase posterUrl/backdropUrl spelling lives only on the
+	// Discover Item document (#118, API-only). "" = keyless or no art (the
+	// R3 keyless convention: never an error, never a 5xx).
+	PosterURL   string
+	BackdropURL string
+
 	// SeedEditionMonitored is the monitored state the repository gives the
 	// 'Theatrical' edition it seeds on create (R2 edition-aware monitor).
 	// Nil keeps the R1 default (monitored). An input to create, not part of

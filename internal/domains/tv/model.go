@@ -31,6 +31,14 @@ type Series struct {
 	SeasonFolder   bool   // organize files under a per-season folder
 	Tags           []string
 	AddedAt        time.Time
+	// Artwork URLs (issue #149): poster + backdrop on the detail and list
+	// wire shapes, serialized with bare Go field names like the rest of
+	// this struct (docs/openapi.md convention; owner decision 2026-11-27).
+	// The camelCase posterUrl/backdropUrl spelling lives only on the
+	// Discover Item document (#118, API-only). "" = keyless or no art (the
+	// R3 keyless convention).
+	PosterURL   string
+	BackdropURL string
 }
 
 // SeriesPatch is a partial series update: nil fields are left unchanged.

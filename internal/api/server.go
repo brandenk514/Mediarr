@@ -43,6 +43,7 @@ type Server struct {
 	indexerSearchDeps   *IndexerSearchDeps
 	discoverDeps        *DiscoverDeps
 	discoverPageDeps    *DiscoverPageDeps
+	imagesDeps          *ImagesDeps
 	rootFolderDeps      *RootFolderDeps
 	historyDeps         *HistoryDeps
 	blocklistDeps       *BlocklistDeps

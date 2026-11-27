@@ -30,6 +30,14 @@ type Author struct {
 	RootFolder      string   // root folder path for the author's files; "" = server default
 	Tags            []string // free-form tag labels; empty = none
 	AddedAt         time.Time
+	// Artwork URLs (issue #149): the cover of the author's first title
+	// (Open Library / Google Books) as the poster field (backdrop stays
+	// "" — books have no landscape art), serialized with bare Go field
+	// names like the rest of this struct (docs/openapi.md convention;
+	// owner decision 2026-11-27). The camelCase posterUrl spelling lives
+	// only on the Discover Item document (#118, API-only).
+	PosterURL   string
+	BackdropURL string
 }
 
 // Title is a book title (a logical book, e.g. "The Dispossessed") within an

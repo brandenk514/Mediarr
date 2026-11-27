@@ -103,6 +103,20 @@ type Deps struct {
 	// supplements, it fills the empty gap). Nil or not-configured =
 	// leg disabled (skip, no error, no 503 — the lookup is unchanged).
 	GoogleBooks GoogleBooksSearcher
+	// Artwork, when non-nil, fills the author's PosterURL wire field
+	// (issue #149) with the cover of the author's first title (Open
+	// Library covers; Google Books is the keyed secondary). Nil (tests,
+	// no provider) leaves the field "" (R3 keyless convention).
+	Artwork AuthorArtworker
+}
+
+// AuthorArtworker is the narrow provider surface the author artwork
+// enrichment needs (issue #149). *providers.OpenLibrary (with the Google
+// Books fallback) satisfies it in production; tests use a fake.
+type AuthorArtworker interface {
+	// AuthorTitleCover resolves the cover URL for a title under an author
+	// name. "" when no cover is known; an error never fails the read.
+	AuthorTitleCover(ctx context.Context, author, title string) (string, error)
 }
 
 // ErrSearcherNotConfigured is returned by BooksLookup when no metadata

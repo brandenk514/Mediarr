@@ -67,6 +67,14 @@ type Artist struct {
 	// L4 (Lidarr metadata): the artist's Cover Art Archive front cover;
 	// "" = none/unknown.
 	Cover string
+	// Artwork URLs (issue #149): the artist's Cover Art Archive cover as
+	// the poster field (backdrop stays "" — music has no landscape art),
+	// serialized with bare Go field names like the rest of this struct
+	// (docs/openapi.md convention; owner decision 2026-11-27). The
+	// camelCase posterUrl spelling lives only on the Discover Item
+	// document (#118, API-only).
+	PosterURL   string
+	BackdropURL string
 	// Per-artist aggregates for the Lidarr grid ribbon (L1 spec gap): computed
 	// by the repository from the tracks and the download queue — never stored.
 	TrackCount  int   // known tracks across the artist's albums
