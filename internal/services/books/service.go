@@ -498,9 +498,33 @@ func (s *Service) GetAuthorHistory(ctx context.Context, authorID int64, limit in
 }
 
 // ListBooks returns every book across all authors (the flat Books index) with
-// each book's author name, sorted by author name then title name.
+// each book's author name, sorted by author name then title name. Each book's
+// PosterURL (issue #149) is the covers.openlibrary.org ISBN cover of its first
+// ISBN'd edition (the documented keyless scheme); best-effort — a repo
+// failure or a missing ISBN leaves the field "" (R3).
 func (s *Service) ListBooks(ctx context.Context) ([]dom.Book, error) {
-	return s.deps.Repo.ListBooks(ctx)
+	books, err := s.deps.Repo.ListBooks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.applyBookArtwork(ctx, books)
+	return books, nil
+}
+
+// applyBookArtwork maps each book's first ISBN'd edition to the documented
+// covers.openlibrary.org large-cover URL (issue #149). Best-effort: a repo
+// failure or a missing ISBN leaves the field "" — artwork never fails the
+// read.
+func (s *Service) applyBookArtwork(ctx context.Context, books []dom.Book) {
+	isbns, err := s.deps.Repo.TitleFirstISBNs(ctx)
+	if err != nil {
+		return
+	}
+	for i := range books {
+		if isbn := isbns[books[i].ID]; isbn != "" {
+			books[i].PosterURL = providers.OLISBNCoverURL(isbn)
+		}
+	}
 }
 
 // GetBookFiles returns a title's imported e-book files with their media info

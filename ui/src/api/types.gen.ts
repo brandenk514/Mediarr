@@ -3996,6 +3996,8 @@ export interface components {
             HasFile: boolean;
             /** @description The book's resolvable quality — the newest imported file's format, else the newest edition's format, empty = unknown (Readarr B4 bookshelves rollup). */
             Format: string;
+            /** @description The covers.openlibrary.org large-cover URL of the book's first ISBN'd edition (OpenLibrary covers, issue #149 Stage A; keyless scheme). "" when there is no ISBN'd edition — never an error. */
+            PosterURL?: string;
         };
         /** @description An imported e-book file and its media info (Readarr B1). */
         BookFile: {
