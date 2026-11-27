@@ -3,12 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../api/client'
-import { TopBar } from './Layout'
+import { ContentHeader } from './Layout'
 
-// Global search bar behavior (issue #117): the input holds a draft query and
-// fires NOTHING on keystrokes — no per-kind endpoint is called while typing.
-// Only form submission (Enter in the input, or the dedicated submit button)
-// navigates to the results route carrying the query in the URL (?q=…).
+// Global search bar behavior (issue #117; #148 moves it into the content
+// header): the input holds a draft query and fires NOTHING on keystrokes —
+// no per-kind endpoint is called while typing. Only form submission (Enter
+// in the input, or the dedicated submit button) navigates to the results
+// route carrying the query in the URL (?q=…).
 vi.mock('../api/client', () => ({
   client: {
     // The bar itself never calls the API; these exist only so the module
@@ -29,7 +30,7 @@ function LocationProbe() {
 function renderBar(initial = '/movies') {
   return render(
     <MemoryRouter initialEntries={[initial]}>
-      <TopBar version="dev" username="admin" onLogout={vi.fn()} />
+      <ContentHeader username="admin" onLogout={vi.fn()} />
       <Routes>
         <Route path="/movies" element={<LocationProbe />} />
         <Route path="/search/all" element={<LocationProbe />} />
@@ -46,7 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('TopBar global search (issue #117)', () => {
+describe('ContentHeader global search (issue #117)', () => {
   it('renders the input and a (disabled) submit button', () => {
     renderBar()
     const input = screen.getByTestId('global-search')

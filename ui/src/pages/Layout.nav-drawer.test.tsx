@@ -67,12 +67,13 @@ function renderLayoutWithLocationProbe(initial = '/library') {
 }
 
 const RAIL_IDS = [
-  'dashboard',
   'discover',
-  'library',
-  'calendar',
+  'movie',
+  'tv',
+  'music',
+  'book',
   'activity',
-  'indexers',
+  'calendar',
   'settings',
   'system',
 ]
@@ -104,12 +105,12 @@ describe('mobile nav drawer (issue #123)', () => {
     const drawer = screen.getByTestId('nav-drawer')
     expect(drawer).toBeInTheDocument()
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    // The SAME Sidebar component: all eight sections keep their rail-* testids.
+    // The drawer holds the SAME Sidebar component: every section keeps its
+    // rail-* testid, and the top-level kind rows are always visible (#148).
     for (const id of RAIL_IDS) {
       expect(drawer).toContainElement(screen.getByTestId(`rail-${id}`))
     }
-    // The Library kind rows are revealed while on /library (sub-nav intact).
-    expect(screen.getByTestId('rail-sub-tv')).toBeInTheDocument()
+    expect(screen.getByTestId('rail-movie')).toBeInTheDocument()
   })
 
   it('moves focus into the drawer on open and back to the toggle on close', async () => {
@@ -179,13 +180,13 @@ describe('mobile nav drawer (issue #123)', () => {
   it('closes when a nav item is selected (and navigates)', async () => {
     stubMobile(true)
     const user = userEvent.setup()
-    const probe = renderLayoutWithLocationProbe('/library')
+    const probe = renderLayoutWithLocationProbe('/movies')
     await user.click(screen.getByTestId('nav-toggle'))
     expect(screen.getByTestId('nav-drawer')).toBeInTheDocument()
-    await user.click(screen.getByTestId('rail-dashboard'))
+    await user.click(screen.getByTestId('rail-discover'))
     expect(screen.queryByTestId('nav-drawer')).not.toBeInTheDocument()
     // Read the getter AFTER the navigation: it reflects the settled route.
-    expect(probe.observedLocation).toBe('/dashboard')
+    expect(probe.observedLocation).toBe('/discover')
   })
 
   it('locks body scroll while open and restores it on close', async () => {
