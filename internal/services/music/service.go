@@ -637,6 +637,12 @@ func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.
 	if err != nil {
 		return paging.Page[dom.Artist]{}, err
 	}
+	// Issue #149 Stage A: the wire list endpoint (GET /api/v1/music/artists)
+	// serializes this page — the Cover -> PosterURL mapping belongs here
+	// too, not just on the unpaginated service method (found live in run 5).
+	for i := range all {
+		all[i].PosterURL = all[i].Cover
+	}
 	return paging.Apply(all, q, func(a dom.Artist) (string, bool) {
 		return a.Name, a.Monitored
 	}, nil), nil

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	dom "github.com/brandenk514/mediarr/internal/domains/music"
+	"github.com/brandenk514/mediarr/internal/paging"
 )
 
 // Issue #149 Stage A (music): the artist's persisted Cover Art Archive cover
@@ -65,5 +66,26 @@ func TestGetArtist_KeylessArtworkEmpty(t *testing.T) {
 	}
 	if a.PosterURL != "" || a.BackdropURL != "" {
 		t.Fatalf("keyless artwork = %q/%q, want empty/empty", a.PosterURL, a.BackdropURL)
+	}
+}
+
+// TestListArtistsQuery_MapsCoverToPosterURL pins the #149 poster mapping on
+// the surface the GET /api/v1/music/artists endpoint actually calls (found by
+// the run-5 live :8080 verification: the wire list served "" while the detail
+// served the cover).
+func TestListArtistsQuery_MapsCoverToPosterURL(t *testing.T) {
+	repo := newMemRepo()
+	repo.artists[1] = dom.Artist{ID: 1, Name: "Radiohead", Cover: "https://coverartarchive.org/release-group/a1/poster.jpg"}
+	svc := New(Deps{Repo: repo})
+
+	page, err := svc.ListArtistsQuery(context.Background(), paging.Query{Page: 1, PageSize: 25})
+	if err != nil {
+		t.Fatalf("ListArtistsQuery: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("artists = %d, want 1", len(page.Items))
+	}
+	if got := page.Items[0].PosterURL; got != "https://coverartarchive.org/release-group/a1/poster.jpg" {
+		t.Fatalf("list PosterURL = %q, want the persisted Cover", got)
 	}
 }

@@ -280,6 +280,10 @@ func (s *Service) ListAuthorsQuery(ctx context.Context, q paging.Query) (paging.
 	if err != nil {
 		return paging.Page[dom.Author]{}, err
 	}
+	// Issue #149 Stage A: the wire list endpoint (GET /api/v1/books/authors)
+	// serializes this page — the ISBN cover mapping belongs here too, not
+	// just on the unpaginated service method (found live in run 5).
+	s.applyAuthorArtwork(ctx, all)
 	return paging.Apply(all, q, func(a dom.Author) (string, bool) {
 		return a.Name, a.Monitored
 	}, nil), nil

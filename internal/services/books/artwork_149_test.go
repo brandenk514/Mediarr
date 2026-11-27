@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/brandenk514/mediarr/internal/paging"
+
 	dom "github.com/brandenk514/mediarr/internal/domains/books"
 )
 
@@ -116,5 +118,33 @@ func TestListBooks_PosterFromFirstEditionISBN(t *testing.T) {
 	}
 	if got := byName["Artless Title"].PosterURL; got != "" {
 		t.Fatalf("artless book PosterURL = %q, want \"\"", got)
+	}
+}
+
+// TestListAuthorsQuery_PosterFromFirstEditionISBN pins the #149 list-poster
+// behavior on the surface the GET /api/v1/books/authors endpoint actually
+// calls (found by the run-5 live :8080 verification: the wire list served ""
+// while the detail served the cover).
+func TestListAuthorsQuery_PosterFromFirstEditionISBN(t *testing.T) {
+	repo := newMemRepo()
+	repo.authors[1] = dom.Author{ID: 1, Name: "Ursula K. Le Guin"}
+	t1, err := repo.CreateTitle(context.Background(), dom.Title{AuthorID: 1, Name: "The Dispossessed"})
+	if err != nil {
+		t.Fatalf("CreateTitle: %v", err)
+	}
+	if _, err := repo.CreateEdition(context.Background(), dom.Edition{TitleID: t1, Format: "epub", ISBN: "9780441478125"}); err != nil {
+		t.Fatalf("CreateEdition: %v", err)
+	}
+	svc := New(Deps{Repo: repo})
+
+	page, err := svc.ListAuthorsQuery(context.Background(), paging.Query{Page: 1, PageSize: 25})
+	if err != nil {
+		t.Fatalf("ListAuthorsQuery: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("authors = %d, want 1", len(page.Items))
+	}
+	if got := page.Items[0].PosterURL; got != "https://covers.openlibrary.org/b/isbn/9780441478125-L.jpg" {
+		t.Fatalf("list PosterURL = %q, want the OpenLibrary ISBN cover", got)
 	}
 }
