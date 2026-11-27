@@ -433,6 +433,7 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 		if enrich && s.deps.Enricher != nil {
 			preID, preName := view.CollectionID, collectionNameOf(view.CollectionName)
 			preRelease := view.ReleaseDate
+			prePoster, preBackdrop := view.PosterURL, view.BackdropURL
 			_ = s.deps.Enricher.EnrichMovie(ctx, &view) // best effort
 			// Radarr R3: persist the collection the provider reported so
 			// the collections page can group without a live TMDB call.
@@ -445,6 +446,12 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 			// the movie calendar works without a live TMDB call.
 			if view.ReleaseDate != "" && view.ReleaseDate != preRelease {
 				_ = s.deps.Repo.SetMovieReleaseDate(ctx, view.ID, view.ReleaseDate)
+			}
+			// Issue #149 Stage A: persist the upstream artwork URLs so
+			// list reads serve PosterURL without a per-row provider call.
+			// Only write when the provider reported something new.
+			if view.PosterURL != prePoster || view.BackdropURL != preBackdrop {
+				_ = s.deps.Repo.SetMovieArtwork(ctx, view.ID, view.PosterURL, view.BackdropURL)
 			}
 		}
 		w := wantByMovie[m.ID]

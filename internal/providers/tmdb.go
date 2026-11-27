@@ -163,6 +163,8 @@ func (t *TMDB) GetMovieDetail(ctx context.Context, tmdbID string) (*MovieDetail,
 		OriginalLanguage    string  `json:"original_language"`
 		VoteAverage         float64 `json:"vote_average"`
 		ReleaseDate         string  `json:"release_date"`
+		PosterPath          string  `json:"poster_path"`
+		BackdropPath        string  `json:"backdrop_path"`
 		BelongsToCollection struct {
 			ID   int    `json:"id"`
 			Name string `json:"name"`
@@ -206,6 +208,8 @@ func (t *TMDB) GetMovieDetail(ctx context.Context, tmdbID string) (*MovieDetail,
 		VoteAverage:      resp.VoteAverage,
 		ReleaseDate:      resp.ReleaseDate,
 		CollectionName:   resp.BelongsToCollection.Name,
+		PosterPath:       resp.PosterPath,
+		BackdropPath:     resp.BackdropPath,
 	}
 	if resp.BelongsToCollection.ID > 0 {
 		d.CollectionID = strconv.Itoa(resp.BelongsToCollection.ID)

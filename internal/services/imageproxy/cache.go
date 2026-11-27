@@ -58,7 +58,7 @@ func parseEntryName(name string) (maxAge, expireAtMs int64, ext string) {
 // (ordered by mtime, the fork's loadCacheIndex behavior).
 func newDiskCache(dir string, maxSize int64) *diskCache {
 	c := &diskCache{dir: dir, maxSize: maxSize, sizes: map[string]int64{}}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return c
 	}
 	type seed struct {
@@ -139,10 +139,10 @@ func (c *diskCache) put(key string, data []byte, maxAge int, ext string) []strin
 		_ = os.RemoveAll(keyDir)
 		c.dropLocked(key)
 	}
-	if err := os.MkdirAll(keyDir, 0o755); err != nil {
+	if err := os.MkdirAll(keyDir, 0o750); err != nil {
 		return nil
 	}
-	if err := os.WriteFile(filepath.Join(keyDir, entryName(int64(maxAge), expireAtMs, ext)), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(keyDir, entryName(int64(maxAge), expireAtMs, ext)), data, 0o600); err != nil {
 		return nil
 	}
 	size := int64(len(data)) + entryOverhead

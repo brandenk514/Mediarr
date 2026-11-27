@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	caldomain "github.com/brandenk514/mediarr/internal/domains/calendar"
@@ -108,13 +107,15 @@ func (r *MovieRepo) GetMovie(ctx context.Context, id int64) (*movies.Movie, erro
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, title, year, quality_profile, monitored, added_at,
 		       tags, root_folder, minimum_availability,
-		       collection_id, collection_name, release_date
+		       collection_id, collection_name, release_date,
+		       poster_url, backdrop_url
 		FROM movies WHERE id = $1`, id)
 	m := &movies.Movie{}
 	var collectionName sql.NullString
 	err := row.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
 		&m.Tags, &m.RootFolder, &m.MinimumAvailability,
-		&m.CollectionID, &collectionName, &m.ReleaseDate)
+		&m.CollectionID, &collectionName, &m.ReleaseDate,
+		&m.PosterURL, &m.BackdropURL)
 	if err == sql.ErrNoRows {
 		return nil, movies.ErrMovieNotFound
 	}
@@ -132,7 +133,8 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, title, year, quality_profile, monitored, added_at,
 		       tags, root_folder, minimum_availability,
-		       collection_id, collection_name, release_date
+		       collection_id, collection_name, release_date,
+		       poster_url, backdrop_url
 		FROM movies ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("movies: list: %w", err)
@@ -144,7 +146,8 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 		var collectionName sql.NullString
 		if err := rows.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
 			&m.Tags, &m.RootFolder, &m.MinimumAvailability,
-			&m.CollectionID, &collectionName, &m.ReleaseDate); err != nil {
+			&m.CollectionID, &collectionName, &m.ReleaseDate,
+			&m.PosterURL, &m.BackdropURL); err != nil {
 			return nil, fmt.Errorf("movies: scan: %w", err)
 		}
 		if collectionName.Valid && collectionName.String != "" {
@@ -521,10 +524,22 @@ func (r *MovieRepo) SetMovieReleaseDate(ctx context.Context, id int64, releaseDa
 	return nil
 }
 
-// SetMovieArtwork persists the upstream poster/backdrop URLs (issue #149
-// Stage A). RED-phase stub: the columns arrive with migration 0034.
+// SetMovieArtwork persists the upstream poster/backdrop URLs the enricher
+// reported (issue #149 Stage A), so list reads serve PosterURL without a
+// per-row provider call. The columns are NOT NULL with '' defaults
+// (migration 0034), so "unknown" is stored as ''/''.
 func (r *MovieRepo) SetMovieArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error {
-	return errors.New("movies: set artwork: not implemented")
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE movies
+		SET poster_url = $2, backdrop_url = $3
+		WHERE id = $1`, id, posterURL, backdropURL)
+	if err != nil {
+		return fmt.Errorf("movies: set artwork: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return movies.ErrMovieNotFound
+	}
+	return nil
 }
 
 // MovieRows returns the movies the R4 movie calendar renders over: every

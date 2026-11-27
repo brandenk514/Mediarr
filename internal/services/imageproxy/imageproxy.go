@@ -249,7 +249,7 @@ func extOfPath(imagePath string) string {
 		return ""
 	}
 	for _, r := range ext {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
 			return ""
 		}
 	}

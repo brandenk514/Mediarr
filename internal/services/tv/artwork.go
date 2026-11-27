@@ -21,5 +21,7 @@ type Artworker interface {
 // (issue #149). Nil-safe and failure-tolerant: a nil provider, a keyless
 // state, or any upstream error leaves the fields as-is ("" — the R3
 // keyless convention: artwork never fails the read).
+//
+//nolint:unused // scaffolding for the #149 fields population run (WO#40 A1): wired into the series read path there; kept so the RED scaffold's provider surface stays reviewable
 func enrichSeriesArtwork(ctx context.Context, a Artworker, s *dom.Series) {
 }

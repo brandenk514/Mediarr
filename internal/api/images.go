@@ -102,5 +102,5 @@ func (s *Server) GetImage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Cache-Key", res.CacheKey)
 	w.Header().Set("X-Cache-Status", status)
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(res.Data)
+	_, _ = w.Write(res.Data) //nolint:gosec // G705: artwork bytes served under an explicit image/* or application/octet-stream Content-Type (contentTypeFor's allowlist) — never text/html, so there is no HTML/JS injection surface
 }
