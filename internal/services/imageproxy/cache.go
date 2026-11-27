@@ -60,7 +60,12 @@ func parseEntryName(name string) (maxAge int, expireAtMs int64, ext string) {
 	if len(parts) != 4 {
 		return 0, 0, ""
 	}
-	age, _ := strconv.ParseInt(parts[0], 10, 64)
+	// bitSize 32: a corrupt out-of-range name clamps at MaxInt32 (and
+	// errors, which we ignore like the rest of the parse) — the value is
+	// then guaranteed to fit the int return, which is what CodeQL's
+	// integer-conversion query models as safe. The ten-year clamp below
+	// still keeps sane semantics.
+	age, _ := strconv.ParseInt(parts[0], 10, 32)
 	if age < 0 {
 		age = 0
 	}
