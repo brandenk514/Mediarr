@@ -8,7 +8,7 @@ import "testing"
 // it so the later int64 -> int conversion cannot truncate.
 func TestParseEntryName_ClampsCorruptMaxAge(t *testing.T) {
 	maxAge, expireAtMs, ext := parseEntryName("9223372036854775807.1234567890.jpg.png")
-	if maxAge != maxCacheMaxAgeSeconds {
+	if maxAge != int(maxCacheMaxAgeSeconds) {
 		t.Fatalf("corrupt maxAge = %d, want the clamp %d", maxAge, maxCacheMaxAgeSeconds)
 	}
 	if expireAtMs != 1234567890 {

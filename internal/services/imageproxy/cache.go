@@ -51,22 +51,24 @@ func entryName(maxAge, expireAtMs int64, ext string) string {
 const maxCacheMaxAgeSeconds int64 = 315_360_000
 
 // parseEntryName splits a cache entry filename into its recorded
-// max-age (seconds, clamped to maxCacheMaxAgeSeconds), expiry (Unix
+// max-age (seconds, clamped to [0, maxCacheMaxAgeSeconds] before the
+// narrowing conversion — the filename lives on shared disk, so a
+// corrupt or hostile value must not overflow int), expiry (Unix
 // milliseconds), and extension. A malformed name yields zero values.
-func parseEntryName(name string) (maxAge, expireAtMs int64, ext string) {
+func parseEntryName(name string) (maxAge int, expireAtMs int64, ext string) {
 	parts := strings.SplitN(name, ".", 4)
 	if len(parts) != 4 {
 		return 0, 0, ""
 	}
-	maxAge, _ = strconv.ParseInt(parts[0], 10, 64)
-	if maxAge < 0 {
-		maxAge = 0
+	age, _ := strconv.ParseInt(parts[0], 10, 64)
+	if age < 0 {
+		age = 0
 	}
-	if maxAge > maxCacheMaxAgeSeconds {
-		maxAge = maxCacheMaxAgeSeconds
+	if age > maxCacheMaxAgeSeconds {
+		age = maxCacheMaxAgeSeconds
 	}
 	expireAtMs, _ = strconv.ParseInt(parts[1], 10, 64)
-	return maxAge, expireAtMs, parts[3]
+	return int(age), expireAtMs, parts[3]
 }
 
 // newDiskCache builds the cache rooted at dir (created when missing) with
@@ -136,7 +138,7 @@ func (c *diskCache) get(key string) (data []byte, ext string, maxAge int, hit bo
 		c.dropLocked(key)
 		return nil, "", 0, false
 	}
-	return b, entryExt, int(entryMaxAge), true
+	return b, entryExt, entryMaxAge, true
 }
 
 // put writes the image under key and records its size (file size +
