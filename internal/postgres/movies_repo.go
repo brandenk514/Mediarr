@@ -526,8 +526,8 @@ func (r *MovieRepo) SetMovieReleaseDate(ctx context.Context, id int64, releaseDa
 
 // SetMovieArtwork persists the upstream poster/backdrop URLs the enricher
 // reported (issue #149 Stage A), so list reads serve PosterURL without a
-// per-row provider call. The columns are NOT NULL with '' defaults
-// (migration 0034), so "unknown" is stored as ''/''.
+// per-row provider call. The columns are NOT NULL with ” defaults
+// (migration 0034), so "unknown" is stored as ”/”.
 func (r *MovieRepo) SetMovieArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error {
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE movies
