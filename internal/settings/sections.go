@@ -121,6 +121,10 @@ func DefaultGeneral() GeneralSettings {
 		HTTPProxy:      "",
 		LogLevel:       "info",
 		Analytics:      false,
+		// Issue #149: the image-proxy cache defaults ON (the nil-doc and
+		// absent-field paths in the API layer already treated it that way;
+		// materialized defaults must agree).
+		CacheImages: true,
 	}
 }
 
