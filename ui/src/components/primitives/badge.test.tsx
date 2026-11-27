@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { colorTones, toneNames } from '../../lib/tone-map'
-import { Badge, BadgeGroup } from './badge'
+import { Badge, BadgeGroup, type BadgeTone } from './badge'
 
 // hexToRgb normalizes the Seerr palette pairs (hex) into the rgb() form the
 // computed style resolves to, so the duotone assertions check the actual
@@ -50,7 +50,7 @@ describe('Badge', () => {
   })
 
   it('applies the semantic tone classes for all six semantic tones', () => {
-    const semantic: Array<[string, string[]]> = [
+    const semantic: Array<[BadgeTone, string[]]> = [
       ['neutral', ['bg-surface-raised', 'text-text-muted']],
       ['accent', ['text-accent', 'bg-accent/15']],
       ['info', ['text-sky-400', 'bg-sky-500/15']],
@@ -67,7 +67,7 @@ describe('Badge', () => {
         ))}
       </BadgeGroup>,
     )
-    semantic.forEach(([tone, classes], i) => {
+    semantic.forEach(([, classes], i) => {
       const el = screen.getByTestId(`sem-${i}`)
       for (const c of classes) expect(el).toHaveClass(c)
     })

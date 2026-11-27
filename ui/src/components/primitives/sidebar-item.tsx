@@ -1,8 +1,10 @@
-// SidebarItem — design-system primitive (issue #115).
+// SidebarItem — design-system primitive (issue #115; active state retune:
+// issue #147).
 //
 // One navigation row for the unified shell's sidebar (#116): optional icon,
-// label, an active state (aria-current + rail-active fill), and a trailing
-// badge slot (e.g. a queue count) that the page fills with a Badge.
+// label, an active state (aria-current + solid accent pill, visibly
+// brighter than the muted idle row), and a trailing badge slot (e.g. a
+// queue count) that the page fills with a Badge.
 //
 // It is a plain button: the shell decides routing (the legacy rail in
 // pages/Layout.tsx keeps its own markup until the shell lands).
@@ -31,8 +33,10 @@ export function SidebarItem({
   className,
   testId,
 }: SidebarItemProps) {
+  // Active = solid accent pill (indigo-600, #147): visibly brighter than
+  // the muted idle row; idle stays dimmed text/icon with a hover fill.
   const stateClasses = active
-    ? 'bg-rail-active text-text'
+    ? 'bg-accent text-white'
     : 'text-text-muted hover:bg-rail-hover hover:text-text'
   return (
     <button
