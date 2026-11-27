@@ -142,6 +142,25 @@ func TMDBBackdropURL(path string) string {
 	return tmdbBackdropBase + path
 }
 
+// GetSeriesArtwork fetches one series' poster/backdrop image paths by TMDB
+// id (issue #149): the raw /tv/{id} payload's poster_path / backdrop_path.
+// An unset API key returns ErrNotConfigured; other upstream failures
+// propagate (the caller degrades to "" — artwork never fails the read).
+func (t *TMDB) GetSeriesArtwork(ctx context.Context, tmdbID string) (*SeriesArtwork, error) {
+	if t.AuthHeader == "" {
+		return nil, ErrNotConfigured
+	}
+	t.Base = t.baseURL()
+	var resp struct {
+		PosterPath   string `json:"poster_path"`
+		BackdropPath string `json:"backdrop_path"`
+	}
+	if err := t.getJSON(ctx, "/tv/"+tmdbID, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &SeriesArtwork{PosterPath: resp.PosterPath, BackdropPath: resp.BackdropPath}, nil
+}
+
 // GetMovieDetail fetches the TMDB detail for a movie by TMDB id, including
 // credits, release dates (for the US certification) and genres via
 // append_to_response. An unset API key returns ErrNotConfigured; callers on

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"testing"
 	"time"
 
@@ -346,6 +347,37 @@ func (r *kindsBooksRepo) ListAuthors(_ context.Context) ([]booksdom.Author, erro
 	out := make([]booksdom.Author, 0, len(r.authors))
 	for _, a := range r.authors {
 		out = append(out, a)
+	}
+	return out, nil
+}
+
+// AuthorFirstISBNs returns each author's first title's first ISBN'd edition
+// (issue #149): title id order, then edition id order within the title.
+func (r *kindsBooksRepo) AuthorFirstISBNs(_ context.Context) (map[int64]string, error) {
+	titleIDs := make([]int64, 0, len(r.titles))
+	for id := range r.titles {
+		titleIDs = append(titleIDs, id)
+	}
+	sort.Slice(titleIDs, func(i, j int) bool { return titleIDs[i] < titleIDs[j] })
+	out := map[int64]string{}
+	for _, tid := range titleIDs {
+		t := r.titles[tid]
+		if _, done := out[t.AuthorID]; done {
+			continue
+		}
+		edIDs := make([]int64, 0, len(r.editions))
+		for eid, e := range r.editions {
+			if e.TitleID == tid {
+				edIDs = append(edIDs, eid)
+			}
+		}
+		sort.Slice(edIDs, func(i, j int) bool { return edIDs[i] < edIDs[j] })
+		for _, eid := range edIDs {
+			if isbn := r.editions[eid].ISBN; isbn != "" {
+				out[t.AuthorID] = isbn
+				break
+			}
+		}
 	}
 	return out, nil
 }

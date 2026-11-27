@@ -538,6 +538,9 @@ func run(logSvc *system.LogService) error {
 		DefaultProfile: "HD-1080p",
 		Events:         events,
 		Metrics:        m,
+		// Issue #149: the keyed TMDB adapter fills the series' artwork
+		// wire fields on the detail read; nil (no key) leaves them "".
+		Artwork: tmdbClient,
 	})
 	srv.SetTV(&api.TVDeps{Svc: tvSvc, RootFolders: rfSvc})
 	logger.Info("tv pipeline ready",

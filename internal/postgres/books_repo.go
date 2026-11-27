@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -109,9 +108,31 @@ func (r *BooksRepo) ListAuthors(ctx context.Context) ([]books.Author, error) {
 
 // AuthorFirstISBNs returns each author's first title's first ISBN'd edition
 // (issue #149: the covers.openlibrary.org ISBN cover is the author poster).
-// RED-phase stub.
+// One query over all authors; the map misses an author whose titles have no
+// ISBN'd edition.
 func (r *BooksRepo) AuthorFirstISBNs(ctx context.Context) (map[int64]string, error) {
-	return nil, errors.New("books: author first isbns: not implemented")
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT t.author_id, e.isbn
+		FROM book_titles t
+		JOIN book_editions e ON e.title_id = t.id
+		WHERE e.isbn IS NOT NULL AND e.isbn <> ''
+		ORDER BY t.id, e.id`)
+	if err != nil {
+		return nil, fmt.Errorf("books: author first isbns: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[int64]string{}
+	for rows.Next() {
+		var authorID int64
+		var isbn string
+		if err := rows.Scan(&authorID, &isbn); err != nil {
+			return nil, fmt.Errorf("books: scan author first isbn: %w", err)
+		}
+		if _, ok := out[authorID]; !ok {
+			out[authorID] = isbn
+		}
+	}
+	return out, rows.Err()
 }
 
 // SetAuthorMonitored toggles an author's monitored flag.

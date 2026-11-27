@@ -264,7 +264,12 @@ func (s *Service) AddEdition(ctx context.Context, titleID int64, format, languag
 
 // ListAuthors returns all authors (used by GET /api/v1/books).
 func (s *Service) ListAuthors(ctx context.Context) ([]dom.Author, error) {
-	return s.deps.Repo.ListAuthors(ctx)
+	authors, err := s.deps.Repo.ListAuthors(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.applyAuthorArtwork(ctx, authors)
+	return authors, nil
 }
 
 // ListAuthorsQuery returns a server-side filtered and paginated page of
@@ -282,7 +287,30 @@ func (s *Service) ListAuthorsQuery(ctx context.Context, q paging.Query) (paging.
 
 // GetAuthor loads an author (used by GET /api/v1/books/{id}).
 func (s *Service) GetAuthor(ctx context.Context, id int64) (*dom.Author, error) {
-	return s.deps.Repo.GetAuthor(ctx, id)
+	a, err := s.deps.Repo.GetAuthor(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	one := []dom.Author{*a}
+	s.applyAuthorArtwork(ctx, one)
+	return &one[0], nil
+}
+
+// applyAuthorArtwork maps each author's first title's first ISBN'd edition
+// to the documented covers.openlibrary.org large-cover URL (issue #149:
+// OpenLibrary covers are the author poster; the backdrop stays "" — books
+// have no landscape art). Best-effort: a repo failure or a missing ISBN
+// leaves the field "" — artwork never fails the read.
+func (s *Service) applyAuthorArtwork(ctx context.Context, authors []dom.Author) {
+	isbns, err := s.deps.Repo.AuthorFirstISBNs(ctx)
+	if err != nil {
+		return
+	}
+	for i := range authors {
+		if isbn := isbns[authors[i].ID]; isbn != "" {
+			authors[i].PosterURL = providers.OLISBNCoverURL(isbn)
+		}
+	}
 }
 
 // BooksLookup is the combined books lookup (Readarr B2, extended by MT1):

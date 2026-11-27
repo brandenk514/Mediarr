@@ -3209,6 +3209,10 @@ export interface components {
             Tags: string[];
             /** Format: date-time */
             AddedAt: string;
+            /** @description Upstream TMDB poster URL, w342 size (issue #149 Stage A; persisted by the artwork enrichment so list reads carry it without a per-row provider call). "" when keyless or no art — never an error. The same-origin /api/v1/images route proxies these bytes; this field is the upstream URL, NOT a proxy URL. */
+            PosterURL?: string;
+            /** @description Upstream TMDB backdrop URL, w1280 size (issue #149 Stage A). Detail-only: "" on list items and when keyless or no art. */
+            BackdropURL?: string;
         };
         AddSeriesRequest: {
             title: string;
@@ -3493,6 +3497,10 @@ export interface components {
             TotalSize?: number;
             /** Format: date-time */
             AddedAt: string;
+            /** @description The artist's Cover Art Archive front cover (the persisted L4 Cover field; issue #149 Stage A) surfaced as the poster URL. "" when keyless or no art — never an error. */
+            PosterURL?: string;
+            /** @description Always "" (issue #149 Stage A) — music has no landscape art. */
+            BackdropURL?: string;
         };
         AddArtistRequest: {
             name: string;
@@ -3770,6 +3778,10 @@ export interface components {
             Tags?: string[];
             /** Format: date-time */
             AddedAt: string;
+            /** @description The covers.openlibrary.org large-cover URL of the author's first title's first ISBN'd edition (OpenLibrary covers, issue #149 Stage A; keyless scheme). "" when there is no ISBN'd edition — never an error. */
+            PosterURL?: string;
+            /** @description Always "" (issue #149 Stage A) — books have no landscape art. */
+            BackdropURL?: string;
         };
         AddAuthorRequest: {
             name: string;

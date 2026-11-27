@@ -14,6 +14,14 @@ The Go handlers and the UI types are both downstream of it.
   (`ID`, `Title`, `Monitored`, `AddedAt`) — the domain structs carry no
   json tags, so the spec must mirror the bare names. Do **not** "fix"
   these to camelCase.
+- **Artwork fields** (issue #149): `PosterURL` / `BackdropURL` on the
+  movie, series, artist, and author documents are **upstream provider
+  URLs** (the TMDB CDN for movies/series, the Cover Art Archive for
+  artists, covers.openlibrary.org for authors) — `""` when keyless or
+  artless, never an error. The camelCase `posterUrl` spelling exists only
+  on the API-only Discover Item document (#118); library items keep the
+  bare Go names above. The public `/api/v1/images` proxy serves these
+  same bytes same-origin; the URL fields themselves never point at it.
 - **API-only documents** (list envelopes, request bodies, indexers,
   settings) use snake_case tags (`items`, `page_size`, `release_title`).
 - **Nullability is a contract, not an accident:** `Page.items` and the
