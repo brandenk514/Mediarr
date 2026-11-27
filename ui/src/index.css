@@ -2094,7 +2094,7 @@ button.danger:hover {
 .chip.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #06251f;
+  color: #fff;
   font-weight: 600;
 }
 
