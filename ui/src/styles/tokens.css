@@ -1,51 +1,66 @@
 /* =========================================================================
-   Design tokens — mediarr design system (issue #115, epic #114).
+   Design tokens — mediarr design system (issue #115, epic #114; palette
+   retune: issue #147, v0.5.0 UI foundation).
 
    This file is the single source of truth for the UI's visual language.
    It is imported by ui/src/index.css, which loads Tailwind v4; every
-   `--color-*` / `--text-*` / `--font-*` variable below becomes a Tailwind
-   utility (bg-surface, text-text-muted, text-sm, font-sans, ...).
+   `--color-*` / `--text-*` / `--font-*` variable in @theme below becomes
+   a Tailwind utility (bg-surface, text-text-muted, text-sm, font-sans, ...).
 
    The legacy `:root` aliases in index.css (--bg, --panel, --dim, --ok, ...)
    resolve to these tokens, so existing pages keep working while the unified
    shell (#116) and later views (#117–#123) move to the token utilities.
 
-   Palette: dark-first (the app ships no light theme; see issue #115).
-   Values are the Sonarr-parity palette from the P1 build, re-exposed under
-   semantic names.
+   Palette: dark-first (the app ships no light theme; see issue #115),
+   retuned in issue #147 to the deterministic Seerr source palette — the
+   near-black-navy Tailwind gray scale for surfaces/text/lines, indigo for
+   the accent, and the Seerr status hues. All token NAMES and utility
+   mappings are unchanged, so downstream pages pick up the new values with
+   zero edits. Source citations (seerr fork @ 9399fe5a, MIT (c) 2020 sct):
+   - src/styles/globals.css: body bg-gray-900 (#111827); .sidebar
+     background linear-gradient(180deg, rgba(31, 41, 55, 1) 0%, #131928 100%)
+     (exposed below as --color-rail-scrim for issue #148); gray-700/600
+     lines and hover levels throughout the component CSS.
+   - src/components/Discover/constants.ts: the 14 colorTones [dark, light]
+     pairs and genreColorMap, mirrored by the --tone-* custom properties
+     below and by ui/src/lib/tone-map.ts.
+   - tailwind.config.js: fontFamily.sans = ['Inter Variable', ...default].
+     We keep the P1 --font-sans (Inter leading the stack, system fallbacks)
+     and the P1 scale/weights: same family the fork ships, no font
+     dependency change in #147.
    ========================================================================= */
 
 @theme {
-  /* ---- color: surfaces (dark-first) ---- */
-  --color-bg: #0f1216; /* page background (charcoal) */
-  --color-content: #12161d; /* content pane (charcoal, slightly lighter) */
-  --color-surface: #1b2129; /* panels, cards */
-  --color-surface-raised: #222a34; /* raised panels, hover rows, popovers */
-  --color-rail: #141920; /* left rail (slate) */
-  --color-rail-hover: #1b222c; /* rail item hover */
-  --color-rail-active: #212b36; /* rail item active row */
-  --color-topbar: #115e59; /* top bar (Sonarr teal, deep) */
-  --color-topbar-hover: #0f524d; /* top bar hover */
+  /* ---- color: surfaces (dark-first, Seerr near-black-navy family) ---- */
+  --color-bg: #111827; /* page background (gray-900; Seerr body) */
+  --color-content: #1f2937; /* content pane (gray-800) */
+  --color-surface: #1f2937; /* panels, cards (gray-800; bordered like the fork, not a distinct fill) */
+  --color-surface-raised: #374151; /* raised panels, hover rows, popovers (gray-700) */
+  --color-rail: #1f2937; /* left rail (gray-800; Seerr .sidebar base) */
+  --color-rail-hover: #374151; /* rail item hover (gray-700) */
+  --color-rail-active: #4b5563; /* legacy rail active row (gray-600); the new SidebarItem active state is the accent pill (bg-accent) */
+  --color-topbar: #1f2937; /* top bar (gray-800, neutral chrome; zero consumers since #147 — legacy layout retires in #148) */
+  --color-topbar-hover: #374151; /* top bar hover (gray-700) */
 
   /* ---- color: text (semantic) ---- */
-  --color-text: #e6e8ee; /* primary text */
-  --color-text-muted: #8b91a0; /* secondary / muted text */
+  --color-text: #e5e7eb; /* primary text (gray-200) */
+  --color-text-muted: #9ca3af; /* secondary / muted text (gray-400) */
 
   /* ---- color: lines (semantic) ---- */
-  --color-border: #2a313c; /* default border color */
+  --color-border: #4b5563; /* default border color (gray-600) */
 
-  /* ---- color: accent (brand) ---- */
-  --color-accent: #14b8a6; /* teal accent: actions, active states, focus */
-  --color-accent-hover: #0d9488; /* accent hover */
+  /* ---- color: accent (Seerr indigo) ---- */
+  --color-accent: #4f46e5; /* indigo-600: actions, active states, focus (primary) */
+  --color-accent-hover: #6366f1; /* indigo-500: accent hover / bright */
 
-  /* ---- color: status (semantic) ---- */
-  --color-success: #3fb950; /* ok, complete, live, downloaded */
-  --color-warning: #e08214; /* queued, downloading, warning */
-  --color-error: #f85149; /* failed, missing, error */
+  /* ---- color: status (Seerr status hues) ---- */
+  --color-success: #22c55e; /* green-500: ok, complete, live, downloaded */
+  --color-warning: #eab308; /* yellow-500: queued, downloading, warning */
+  --color-error: #ef4444; /* red-500: failed, missing, error */
 
   /* ---- color: light card footers (poster grids) ---- */
-  --color-foot: #e9edf2;
-  --color-foot-text: #2b313b;
+  --color-foot: #f3f4f6; /* gray-100 */
+  --color-foot-text: #374151; /* gray-700 */
 
   /* ---- typography: families ---- */
   --font-sans: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -80,4 +95,50 @@
      (p-1 = 0.25rem, m-2 = 0.5rem, gap-3 = 0.75rem, ...). The canonical
      scale used by the primitives is 4 / 8 / 12 / 16 / 20 / 24 / 32 / 48px. */
   --spacing: 0.25rem;
+}
+
+/* =========================================================================
+   Issue #147 additions (plain custom properties, outside @theme, so they
+   always ship verbatim for issue #148 / #151 without depending on utility
+   usage).
+
+   --color-rail-scrim: the Seerr sidebar scrim gradient, recorded for the
+   shell work in issue #148 (use as `background: var(--color-rail-scrim)`).
+
+   --tone-<name>-dark / --tone-<name>-light: the 14 Seerr duotone pairs,
+   values verbatim from seerr/src/components/Discover/constants.ts @
+   9399fe5a (MIT (c) 2020 sct) — the [dark, light] pairs the fork uses for
+   TMDB duotone backdrops and genre pills. TS twin: ui/src/lib/tone-map.ts.
+   ========================================================================= */
+:root {
+  --color-rail-scrim: linear-gradient(180deg, rgba(31, 41, 55, 1) 0%, #131928 100%);
+
+  --tone-red-dark: #991B1B;
+  --tone-red-light: #FCA5A5;
+  --tone-darkred-dark: #1F2937;
+  --tone-darkred-light: #F87171;
+  --tone-blue-dark: #032541;
+  --tone-blue-light: #01b4e4;
+  --tone-lightblue-dark: #1F2937;
+  --tone-lightblue-light: #60A5FA;
+  --tone-darkblue-dark: #1F2937;
+  --tone-darkblue-light: #2864d2;
+  --tone-orange-dark: #92400E;
+  --tone-orange-light: #FCD34D;
+  --tone-lightgreen-dark: #065F46;
+  --tone-lightgreen-light: #6EE7B7;
+  --tone-green-dark: #087d29;
+  --tone-green-light: #21cb51;
+  --tone-purple-dark: #5B21B6;
+  --tone-purple-light: #C4B5FD;
+  --tone-yellow-dark: #777e0d;
+  --tone-yellow-light: #e4ed55;
+  --tone-darkorange-dark: #552c01;
+  --tone-darkorange-light: #d47c1d;
+  --tone-black-dark: #1F2937;
+  --tone-black-light: #D1D5DB;
+  --tone-pink-dark: #9D174D;
+  --tone-pink-light: #F9A8D4;
+  --tone-darkpurple-dark: #480c8b;
+  --tone-darkpurple-light: #a96bef;
 }

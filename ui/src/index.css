@@ -87,8 +87,11 @@
   --rail: var(--color-rail);
   --rail-2: var(--color-rail-hover);
   --rail-active: var(--color-rail-active);
-  --topbar: var(--color-topbar);
-  --topbar-2: var(--color-topbar-hover);
+  /* #147: the legacy top bar re-aliases to the neutral dark chrome so
+     --color-topbar / --color-topbar-hover have zero consumers (the legacy
+     layout retires in #148; token definitions stay in tokens.css). */
+  --topbar: var(--color-content);
+  --topbar-2: var(--color-rail-hover);
   --text: var(--color-text);
   --dim: var(--color-text-muted);
   --accent: var(--color-accent);
@@ -2091,7 +2094,7 @@ button.danger:hover {
 .chip.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #06251f;
+  color: #fff;
   font-weight: 600;
 }
 

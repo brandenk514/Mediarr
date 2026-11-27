@@ -35,7 +35,7 @@ describe('SidebarItem', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 
-  it('marks the active row with aria-current and the rail-active classes', () => {
+  it('marks the active row with aria-current and an accent pill, distinctly from the idle row', () => {
     render(
       <div>
         <SidebarItem testId="nav-active" label="Library" active onClick={vi.fn()} />
@@ -45,10 +45,25 @@ describe('SidebarItem', () => {
     const active = screen.getByTestId('nav-active')
     const idle = screen.getByTestId('nav-idle')
     expect(active).toHaveAttribute('aria-current', 'page')
-    expect(active).toHaveClass('bg-rail-active', 'text-text')
+    // Active is an accent pill: solid accent fill + light text, so it reads
+    // visibly brighter than the muted idle row (issue #147).
+    expect(active).toHaveClass('bg-accent', 'text-white')
     expect(idle).not.toHaveAttribute('aria-current')
-    expect(idle).toHaveClass('text-text-muted')
-    expect(idle).not.toHaveClass('bg-rail-active')
+    // Idle stays muted: dimmed text/icon with a hover fill.
+    expect(idle).toHaveClass('text-text-muted', 'hover:bg-rail-hover')
+    // Distinct class sets: each state's signature classes are absent from
+    // the other state, so active and idle can never render the same.
+    const activeClasses = new Set(active.className.split(/\s+/))
+    const idleClasses = new Set(idle.className.split(/\s+/))
+    for (const c of ['bg-accent', 'text-white']) {
+      expect(idleClasses.has(c)).toBe(false)
+    }
+    expect(activeClasses.has('text-text-muted')).toBe(false)
+    expect(activeClasses.has('hover:bg-rail-hover')).toBe(false)
+    const activeOnly = [...activeClasses].filter((c) => !idleClasses.has(c))
+    const idleOnly = [...idleClasses].filter((c) => !activeClasses.has(c))
+    expect(activeOnly.length).toBeGreaterThan(0)
+    expect(idleOnly.length).toBeGreaterThan(0)
   })
 
   it('derives the accessible name from the label and uses it as the title', () => {
