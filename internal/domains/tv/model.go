@@ -140,6 +140,11 @@ type Repo interface {
 	ListSeries(ctx context.Context) ([]Series, error)
 	SetSeriesMonitored(ctx context.Context, id int64, monitored bool) error
 	UpdateSeries(ctx context.Context, id int64, p SeriesPatch) error
+	// SetSeriesArtwork persists the upstream poster/backdrop URLs the
+	// artwork enrichment reported (issue #149), so list reads serve
+	// PosterURL without a per-row provider call. Best-effort: a failure
+	// must never fail the read that triggered it. ''/'' = keyless/no art.
+	SetSeriesArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error
 
 	// Episodes
 	CreateEpisode(ctx context.Context, e Episode) (int64, error)

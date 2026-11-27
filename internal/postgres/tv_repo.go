@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -86,6 +87,13 @@ func (r *TVRepo) ListSeries(ctx context.Context) ([]tv.Series, error) {
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// SetSeriesArtwork persists the upstream poster/backdrop URLs the artwork
+// enrichment reported (issue #149). RED-phase stub: the columns arrive with
+// migration 0035.
+func (r *TVRepo) SetSeriesArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error {
+	return errors.New("tv: set artwork: not implemented")
 }
 
 // SetSeriesMonitored toggles a series' monitored flag.

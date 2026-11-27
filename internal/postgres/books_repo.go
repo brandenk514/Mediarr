@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -104,6 +105,13 @@ func (r *BooksRepo) ListAuthors(ctx context.Context) ([]books.Author, error) {
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// AuthorFirstISBNs returns each author's first title's first ISBN'd edition
+// (issue #149: the covers.openlibrary.org ISBN cover is the author poster).
+// RED-phase stub.
+func (r *BooksRepo) AuthorFirstISBNs(ctx context.Context) (map[int64]string, error) {
+	return nil, errors.New("books: author first isbns: not implemented")
 }
 
 // SetAuthorMonitored toggles an author's monitored flag.

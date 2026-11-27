@@ -121,6 +121,32 @@ func (r *memRepo) UpdateAuthor(ctx context.Context, a dom.Author) error {
 	return nil
 }
 
+// AuthorFirstISBNs returns each author's first title's first ISBN'd edition
+// (issue #149): title id order, then edition id order within the title.
+func (r *memRepo) AuthorFirstISBNs(ctx context.Context) (map[int64]string, error) {
+	titleIDs := make([]int64, 0, len(r.titles))
+	for id := range r.titles {
+		titleIDs = append(titleIDs, id)
+	}
+	sort.Slice(titleIDs, func(i, j int) bool { return titleIDs[i] < titleIDs[j] })
+	out := map[int64]string{}
+	for _, tid := range titleIDs {
+		t := r.titles[tid]
+		if _, done := out[t.AuthorID]; done {
+			continue
+		}
+		eds := append([]dom.Edition{}, r.editions[tid]...)
+		sort.Slice(eds, func(i, j int) bool { return eds[i].ID < eds[j].ID })
+		for _, e := range eds {
+			if e.ISBN != "" {
+				out[t.AuthorID] = e.ISBN
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
 func (r *memRepo) CreateTitle(ctx context.Context, t dom.Title) (int64, error) {
 	for _, v := range r.titles {
 		if v.AuthorID == t.AuthorID && v.Name == t.Name {

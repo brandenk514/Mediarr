@@ -208,6 +208,11 @@ type Repo interface {
 	GetAuthor(ctx context.Context, id int64) (*Author, error)
 	ListAuthors(ctx context.Context) ([]Author, error)
 	SetAuthorMonitored(ctx context.Context, id int64, monitored bool) error
+	// AuthorFirstISBNs returns each author's first title's first ISBN'd
+	// edition (issue #149: the OpenLibrary covers.openlibrary.org ISBN
+	// cover is the author poster). One query over all authors; map is
+	// empty (or misses an id) when the author has no ISBN'd edition.
+	AuthorFirstISBNs(ctx context.Context) (map[int64]string, error)
 	// UpdateAuthor writes the author's B2 editable fields (the full merged
 	// author; the service passes current values plus the edits).
 	UpdateAuthor(ctx context.Context, a Author) error
