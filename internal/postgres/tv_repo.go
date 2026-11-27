@@ -50,12 +50,13 @@ func (r *TVRepo) CreateSeries(ctx context.Context, s tv.Series) (int64, error) {
 func (r *TVRepo) GetSeries(ctx context.Context, id int64) (*tv.Series, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, tvdb_id, tmdb_id, title, year, quality_profile, monitored,
-		       series_type, season_folder, tags, added_at
+		       series_type, season_folder, tags, added_at,
+		       poster_url, backdrop_url
 		FROM tv_series WHERE id = $1`, id)
 	s := &tv.Series{}
 	err := row.Scan(&s.ID, &s.TVDBID, &s.TMDBID, &s.Title, &s.Year,
 		&s.QualityProfile, &s.Monitored, &s.SeriesType, &s.SeasonFolder,
-		&s.Tags, &s.AddedAt)
+		&s.Tags, &s.AddedAt, &s.PosterURL, &s.BackdropURL)
 	if err == sql.ErrNoRows {
 		return nil, tv.ErrSeriesNotFound
 	}
@@ -69,7 +70,8 @@ func (r *TVRepo) GetSeries(ctx context.Context, id int64) (*tv.Series, error) {
 func (r *TVRepo) ListSeries(ctx context.Context) ([]tv.Series, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, tvdb_id, tmdb_id, title, year, quality_profile, monitored,
-		       series_type, season_folder, tags, added_at
+		       series_type, season_folder, tags, added_at,
+		       poster_url, backdrop_url
 		FROM tv_series ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("tv: list series: %w", err)
@@ -80,12 +82,30 @@ func (r *TVRepo) ListSeries(ctx context.Context) ([]tv.Series, error) {
 		var s tv.Series
 		if err := rows.Scan(&s.ID, &s.TVDBID, &s.TMDBID, &s.Title, &s.Year,
 			&s.QualityProfile, &s.Monitored, &s.SeriesType, &s.SeasonFolder,
-			&s.Tags, &s.AddedAt); err != nil {
+			&s.Tags, &s.AddedAt, &s.PosterURL, &s.BackdropURL); err != nil {
 			return nil, fmt.Errorf("tv: scan series: %w", err)
 		}
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// SetSeriesArtwork persists the upstream poster/backdrop URLs the artwork
+// enrichment reported (issue #149 Stage A), so list reads serve PosterURL
+// without a per-row provider call. The columns are NOT NULL with ” defaults
+// (migration 0035), so "unknown" is stored as ”/”.
+func (r *TVRepo) SetSeriesArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE tv_series
+		SET poster_url = $2, backdrop_url = $3
+		WHERE id = $1`, id, posterURL, backdropURL)
+	if err != nil {
+		return fmt.Errorf("tv: set artwork: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return tv.ErrSeriesNotFound
+	}
+	return nil
 }
 
 // SetSeriesMonitored toggles a series' monitored flag.

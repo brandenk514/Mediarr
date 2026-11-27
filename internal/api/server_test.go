@@ -274,6 +274,12 @@ func (stubBooksRepo) GetAuthor(context.Context, int64) (*booksdom.Author, error)
 func (stubBooksRepo) ListAuthors(context.Context) ([]booksdom.Author, error) {
 	panic("stubBooksRepo.ListAuthors should not be called")
 }
+func (stubBooksRepo) AuthorFirstISBNs(context.Context) (map[int64]string, error) {
+	panic("stubBooksRepo.AuthorFirstISBNs should not be called")
+}
+func (stubBooksRepo) TitleFirstISBNs(context.Context) (map[int64]string, error) {
+	panic("stubBooksRepo.TitleFirstISBNs should not be called")
+}
 func (stubBooksRepo) SetAuthorMonitored(context.Context, int64, bool) error {
 	panic("stubBooksRepo.SetAuthorMonitored should not be called")
 }

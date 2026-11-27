@@ -228,6 +228,19 @@ func newMemTVRepo() *memTVRepo {
 	return &memTVRepo{series: map[int64]tvdom.Series{}, nextID: 1}
 }
 
+// SetSeriesArtwork satisfies the #149 persistence surface (the add-flow
+// tests do not exercise it).
+func (r *memTVRepo) SetSeriesArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error {
+	s, ok := r.series[id]
+	if !ok {
+		return tvdom.ErrSeriesNotFound
+	}
+	s.PosterURL = posterURL
+	s.BackdropURL = backdropURL
+	r.series[id] = s
+	return nil
+}
+
 func (r *memTVRepo) CreateSeries(ctx context.Context, s tvdom.Series) (int64, error) {
 	id := r.nextID
 	r.nextID++

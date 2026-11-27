@@ -616,7 +616,17 @@ func (s *Service) AddTrack(ctx context.Context, albumID int64, disc, number int,
 
 // ListArtists returns all artists (used by GET /api/v1/music).
 func (s *Service) ListArtists(ctx context.Context) ([]dom.Artist, error) {
-	return s.deps.Repo.ListArtists(ctx)
+	artists, err := s.deps.Repo.ListArtists(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Issue #149 Stage A: the persisted L4 Cover (the Cover Art Archive
+	// front cover) surfaces as PosterURL; the backdrop stays "" (music
+	// has no landscape art). Cover-less artists degrade to "".
+	for i := range artists {
+		artists[i].PosterURL = artists[i].Cover
+	}
+	return artists, nil
 }
 
 // ListArtistsQuery returns a server-side filtered and paginated page of
@@ -627,6 +637,12 @@ func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.
 	if err != nil {
 		return paging.Page[dom.Artist]{}, err
 	}
+	// Issue #149 Stage A: the wire list endpoint (GET /api/v1/music/artists)
+	// serializes this page — the Cover -> PosterURL mapping belongs here
+	// too, not just on the unpaginated service method (found live in run 5).
+	for i := range all {
+		all[i].PosterURL = all[i].Cover
+	}
 	return paging.Apply(all, q, func(a dom.Artist) (string, bool) {
 		return a.Name, a.Monitored
 	}, nil), nil
@@ -634,7 +650,13 @@ func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.
 
 // GetArtist loads an artist (used by GET /api/v1/music/{id}).
 func (s *Service) GetArtist(ctx context.Context, id int64) (*dom.Artist, error) {
-	return s.deps.Repo.GetArtist(ctx, id)
+	a, err := s.deps.Repo.GetArtist(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// Issue #149 Stage A: same Cover -> PosterURL mapping as the list.
+	a.PosterURL = a.Cover
+	return a, nil
 }
 
 // ListAlbums returns an artist's known albums (used by

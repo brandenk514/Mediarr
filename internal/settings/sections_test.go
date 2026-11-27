@@ -354,3 +354,14 @@ func TestL3_Decode_MergesMusicDefaults(t *testing.T) {
 		t.Errorf("ui L3 fields not merged on read: %+v", ui)
 	}
 }
+
+// TestDefaultGeneral_CacheImagesOn reproduces the live bug from the #149
+// run-5 proxy verification: the image-proxy cache toggle is documented and
+// gated as "default ON", but DefaultGeneral() left it zero (false), so any
+// path that materializes the defaults (e.g. GET /api/v1/settings/general
+// persisting the section) silently flipped the proxy's cache OFF.
+func TestDefaultGeneral_CacheImagesOn(t *testing.T) {
+	if !DefaultGeneral().CacheImages {
+		t.Fatal("DefaultGeneral().CacheImages = false, want true (issue #149: the cache_images default is ON)")
+	}
+}

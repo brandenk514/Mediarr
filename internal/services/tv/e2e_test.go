@@ -79,6 +79,17 @@ func (r *memRepo) ListSeries(ctx context.Context) ([]dom.Series, error) {
 	return out, nil
 }
 
+func (r *memRepo) SetSeriesArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error {
+	s, ok := r.series[id]
+	if !ok {
+		return dom.ErrSeriesNotFound
+	}
+	s.PosterURL = posterURL
+	s.BackdropURL = backdropURL
+	r.series[id] = s
+	return nil
+}
+
 func (r *memRepo) SetSeriesMonitored(ctx context.Context, id int64, monitored bool) error {
 	s, ok := r.series[id]
 	if !ok {

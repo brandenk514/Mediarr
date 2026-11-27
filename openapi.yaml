@@ -83,6 +83,77 @@ tags:
   - name: system
     description: System area (P6) — Status (structured health, disk space, about), Tasks (worker inventory), Backup (config export/import), Updates (changelog), Events (history source), Log Files (SSE stream), and the Sonarr drop-in migration.
 paths:
+  /api/v1/images/{type}/{size}/{path}:
+    get:
+      tags: [ops]
+      summary: Same-origin artwork proxy.
+      operationId: getImage
+      security: []
+      description: |
+        Streams artwork bytes from one of two allowlisted upstream image
+        hosts (TMDB's image CDN, TheTVDB's artwork CDN). PUBLIC (no auth,
+        like /version): the login backdrop consumes it pre-auth; safety
+        comes from the upstream allowlist, the per-segment path
+        whitelist, the per-host rate limit, and the on-disk cache cap.
+
+        `{path}` is a multi-segment wildcard (the route matches every
+        remaining path segment). Segments must be `[\w.-]+` or the duotone
+        filter form `w<size>_filter(duotone,<hex6>,<hex6>)`; '.'/'..'
+        segments, a leading '//' or any '://' are rejected.
+
+        The general settings' `cache_images` toggle (default ON) gates the
+        whole route: disabled → 404. Responses carry `X-Cache-Key` and
+        `X-Cache-Status: MISS|HIT`.
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [tmdb, tvdb]
+          description: The upstream image host.
+        - name: size
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The size segment, e.g. `w342` or a duotone filter segment.
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The remaining artwork path segments (multi-segment wildcard).
+      responses:
+        "200":
+          description: The artwork bytes, passed through unmodified (no re-encode, no resize).
+          headers:
+            X-Cache-Key:
+              description: sha256 cache key of the entry.
+              schema:
+                type: string
+            X-Cache-Status:
+              description: MISS when fetched from upstream, HIT when served from the on-disk cache.
+              schema:
+                type: string
+                enum: [MISS, HIT]
+            Cache-Control:
+              description: "`public, max-age=<ttl>` — the upstream max-age, default 86400."
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Non-whitelisted path segment or unknown {type}.
+        "403":
+          description: The joined path starts with '//' or contains '://'.
+        "404":
+          description: Upstream image not found, or cache_images disabled.
+        "502":
+          description: Upstream fetch failed or answered non-2xx.
   /healthz:
     get:
       tags: [ops]
@@ -4903,6 +4974,19 @@ components:
             Provider release date, "YYYY-MM-DD" (persisted by the enricher,
             Radarr R4); "" when unknown (keyless dev). Feeds the movie
             calendar and the "unreleased" status.
+        PosterURL:
+          type: string
+          description: >-
+            Upstream TMDB poster URL, w342 size (issue #149 Stage A;
+            persisted by the enricher so list reads carry it without a
+            per-row provider call). "" when keyless or no art — never an
+            error. The same-origin /api/v1/images route (Stage B) proxies
+            these bytes; this field is the upstream URL, NOT a proxy URL.
+        BackdropURL:
+          type: string
+          description: >-
+            Upstream TMDB backdrop URL, w1280 size (issue #149 Stage A).
+            Detail-only: "" on list items and when keyless or no art.
         Overview:
           type: string
           nullable: true
@@ -5276,6 +5360,19 @@ components:
         AddedAt:
           type: string
           format: date-time
+        PosterURL:
+          type: string
+          description: >-
+            Upstream TMDB poster URL, w342 size (issue #149 Stage A;
+            persisted by the artwork enrichment so list reads carry it
+            without a per-row provider call). "" when keyless or no art —
+            never an error. The same-origin /api/v1/images route proxies
+            these bytes; this field is the upstream URL, NOT a proxy URL.
+        BackdropURL:
+          type: string
+          description: >-
+            Upstream TMDB backdrop URL, w1280 size (issue #149 Stage A).
+            Detail-only: "" on list items and when keyless or no art.
     AddSeriesRequest:
       type: object
       required: [title]
@@ -5693,6 +5790,16 @@ components:
         AddedAt:
           type: string
           format: date-time
+        PosterURL:
+          type: string
+          description: >-
+            The artist's Cover Art Archive front cover (the persisted L4
+            Cover field; issue #149 Stage A) surfaced as the poster URL.
+            "" when keyless or no art — never an error.
+        BackdropURL:
+          type: string
+          description: >-
+            Always "" (issue #149 Stage A) — music has no landscape art.
     AddArtistRequest:
       type: object
       required: [name]
@@ -6109,6 +6216,17 @@ components:
         AddedAt:
           type: string
           format: date-time
+        PosterURL:
+          type: string
+          description: >-
+            The covers.openlibrary.org large-cover URL of the author's
+            first title's first ISBN'd edition (OpenLibrary covers,
+            issue #149 Stage A; keyless scheme). "" when there is no
+            ISBN'd edition — never an error.
+        BackdropURL:
+          type: string
+          description: >-
+            Always "" (issue #149 Stage A) — books have no landscape art.
     AddAuthorRequest:
       type: object
       required: [name]
@@ -6437,6 +6555,13 @@ components:
         Format:
           type: string
           description: The book's resolvable quality — the newest imported file's format, else the newest edition's format, empty = unknown (Readarr B4 bookshelves rollup).
+        PosterURL:
+          type: string
+          description: >-
+            The covers.openlibrary.org large-cover URL of the book's
+            first ISBN'd edition (OpenLibrary covers, issue #149 Stage
+            A; keyless scheme). "" when there is no ISBN'd edition —
+            never an error.
     BookFile:
       type: object
       description: An imported e-book file and its media info (Readarr B1).

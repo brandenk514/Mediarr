@@ -103,6 +103,20 @@ type Deps struct {
 	// supplements, it fills the empty gap). Nil or not-configured =
 	// leg disabled (skip, no error, no 503 — the lookup is unchanged).
 	GoogleBooks GoogleBooksSearcher
+	// Artwork, when non-nil, fills the author's PosterURL wire field
+	// (issue #149) with the cover of the author's first title (Open
+	// Library covers; Google Books is the keyed secondary). Nil (tests,
+	// no provider) leaves the field "" (R3 keyless convention).
+	Artwork AuthorArtworker
+}
+
+// AuthorArtworker is the narrow provider surface the author artwork
+// enrichment needs (issue #149). *providers.OpenLibrary (with the Google
+// Books fallback) satisfies it in production; tests use a fake.
+type AuthorArtworker interface {
+	// AuthorTitleCover resolves the cover URL for a title under an author
+	// name. "" when no cover is known; an error never fails the read.
+	AuthorTitleCover(ctx context.Context, author, title string) (string, error)
 }
 
 // ErrSearcherNotConfigured is returned by BooksLookup when no metadata
@@ -250,7 +264,12 @@ func (s *Service) AddEdition(ctx context.Context, titleID int64, format, languag
 
 // ListAuthors returns all authors (used by GET /api/v1/books).
 func (s *Service) ListAuthors(ctx context.Context) ([]dom.Author, error) {
-	return s.deps.Repo.ListAuthors(ctx)
+	authors, err := s.deps.Repo.ListAuthors(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.applyAuthorArtwork(ctx, authors)
+	return authors, nil
 }
 
 // ListAuthorsQuery returns a server-side filtered and paginated page of
@@ -261,6 +280,10 @@ func (s *Service) ListAuthorsQuery(ctx context.Context, q paging.Query) (paging.
 	if err != nil {
 		return paging.Page[dom.Author]{}, err
 	}
+	// Issue #149 Stage A: the wire list endpoint (GET /api/v1/books/authors)
+	// serializes this page — the ISBN cover mapping belongs here too, not
+	// just on the unpaginated service method (found live in run 5).
+	s.applyAuthorArtwork(ctx, all)
 	return paging.Apply(all, q, func(a dom.Author) (string, bool) {
 		return a.Name, a.Monitored
 	}, nil), nil
@@ -268,7 +291,30 @@ func (s *Service) ListAuthorsQuery(ctx context.Context, q paging.Query) (paging.
 
 // GetAuthor loads an author (used by GET /api/v1/books/{id}).
 func (s *Service) GetAuthor(ctx context.Context, id int64) (*dom.Author, error) {
-	return s.deps.Repo.GetAuthor(ctx, id)
+	a, err := s.deps.Repo.GetAuthor(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	one := []dom.Author{*a}
+	s.applyAuthorArtwork(ctx, one)
+	return &one[0], nil
+}
+
+// applyAuthorArtwork maps each author's first title's first ISBN'd edition
+// to the documented covers.openlibrary.org large-cover URL (issue #149:
+// OpenLibrary covers are the author poster; the backdrop stays "" — books
+// have no landscape art). Best-effort: a repo failure or a missing ISBN
+// leaves the field "" — artwork never fails the read.
+func (s *Service) applyAuthorArtwork(ctx context.Context, authors []dom.Author) {
+	isbns, err := s.deps.Repo.AuthorFirstISBNs(ctx)
+	if err != nil {
+		return
+	}
+	for i := range authors {
+		if isbn := isbns[authors[i].ID]; isbn != "" {
+			authors[i].PosterURL = providers.OLISBNCoverURL(isbn)
+		}
+	}
 }
 
 // BooksLookup is the combined books lookup (Readarr B2, extended by MT1):
@@ -456,9 +502,33 @@ func (s *Service) GetAuthorHistory(ctx context.Context, authorID int64, limit in
 }
 
 // ListBooks returns every book across all authors (the flat Books index) with
-// each book's author name, sorted by author name then title name.
+// each book's author name, sorted by author name then title name. Each book's
+// PosterURL (issue #149) is the covers.openlibrary.org ISBN cover of its first
+// ISBN'd edition (the documented keyless scheme); best-effort — a repo
+// failure or a missing ISBN leaves the field "" (R3).
 func (s *Service) ListBooks(ctx context.Context) ([]dom.Book, error) {
-	return s.deps.Repo.ListBooks(ctx)
+	books, err := s.deps.Repo.ListBooks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.applyBookArtwork(ctx, books)
+	return books, nil
+}
+
+// applyBookArtwork maps each book's first ISBN'd edition to the documented
+// covers.openlibrary.org large-cover URL (issue #149). Best-effort: a repo
+// failure or a missing ISBN leaves the field "" — artwork never fails the
+// read.
+func (s *Service) applyBookArtwork(ctx context.Context, books []dom.Book) {
+	isbns, err := s.deps.Repo.TitleFirstISBNs(ctx)
+	if err != nil {
+		return
+	}
+	for i := range books {
+		if isbn := isbns[books[i].ID]; isbn != "" {
+			books[i].PosterURL = providers.OLISBNCoverURL(isbn)
+		}
+	}
 }
 
 // GetBookFiles returns a title's imported e-book files with their media info

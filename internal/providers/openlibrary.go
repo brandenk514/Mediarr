@@ -101,6 +101,17 @@ func olCoverURL(coverI int) string {
 	return fmt.Sprintf("https://covers.openlibrary.org/b/id/%d-M.jpg", coverI)
 }
 
+// OLISBNCoverURL builds the documented covers.openlibrary.org large-cover
+// URL for an ISBN (issue #149: the books author poster; keyless scheme).
+// "" in, "" out.
+func OLISBNCoverURL(isbn string) string {
+	isbn = strings.TrimSpace(isbn)
+	if isbn == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://covers.openlibrary.org/b/isbn/%s-L.jpg", isbn)
+}
+
 // SearchAuthors resolves an author name to distinct candidate authors (name
 // only — Open Library has no stable author id in search results).
 func (o *OpenLibrary) SearchAuthors(ctx context.Context, q string) ([]Result, error) {

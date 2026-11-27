@@ -91,6 +91,15 @@ func (e *TMDBEnricher) apply(m *dom.Movie, d *providers.MovieDetail) {
 	if d.Certification != "" {
 		m.Certification = &d.Certification
 	}
+	// Issue #149 Stage A: upstream artwork URLs (the w342 poster /
+	// w1280 backdrop sizes on the TMDB CDN), never proxy URLs. Empty
+	// provider paths stay empty (keyless/no-art degradation).
+	if d.PosterPath != "" {
+		m.PosterURL = providers.TMDBPosterURL(d.PosterPath)
+	}
+	if d.BackdropPath != "" {
+		m.BackdropURL = providers.TMDBBackdropURL(d.BackdropPath)
+	}
 	if d.VoteAverage > 0 {
 		pct := d.VoteAverage * 10 // TMDB 0-10 -> 0-100, Radarr-style
 		m.Scores = &dom.MovieScores{TmdbPct: &pct}

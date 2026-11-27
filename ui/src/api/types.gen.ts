@@ -4,6 +4,39 @@
  */
 
 export interface paths {
+    "/api/v1/images/{type}/{size}/{path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Same-origin artwork proxy.
+         * @description Streams artwork bytes from one of two allowlisted upstream image
+         *     hosts (TMDB's image CDN, TheTVDB's artwork CDN). PUBLIC (no auth,
+         *     like /version): the login backdrop consumes it pre-auth; safety
+         *     comes from the upstream allowlist, the per-segment path
+         *     whitelist, the per-host rate limit, and the on-disk cache cap.
+         *
+         *     `{path}` is a multi-segment wildcard (the route matches every
+         *     remaining path segment). Segments must be `[\w.-]+` or the duotone
+         *     filter form `w<size>_filter(duotone,<hex6>,<hex6>)`; '.'/'..'
+         *     segments, a leading '//' or any '://' are rejected.
+         *
+         *     The general settings' `cache_images` toggle (default ON) gates the
+         *     whole route: disabled → 404. Responses carry `X-Cache-Key` and
+         *     `X-Cache-Status: MISS|HIT`.
+         */
+        get: operations["getImage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/healthz": {
         parameters: {
             query?: never;
@@ -2928,6 +2961,10 @@ export interface components {
             CollectionID?: string | null;
             /** @description Provider release date, "YYYY-MM-DD" (persisted by the enricher, Radarr R4); "" when unknown (keyless dev). Feeds the movie calendar and the "unreleased" status. */
             ReleaseDate?: string;
+            /** @description Upstream TMDB poster URL, w342 size (issue #149 Stage A; persisted by the enricher so list reads carry it without a per-row provider call). "" when keyless or no art — never an error. The same-origin /api/v1/images route (Stage B) proxies these bytes; this field is the upstream URL, NOT a proxy URL. */
+            PosterURL?: string;
+            /** @description Upstream TMDB backdrop URL, w1280 size (issue #149 Stage A). Detail-only: "" on list items and when keyless or no art. */
+            BackdropURL?: string;
             /** @description Plot overview; null when unknown. */
             Overview?: string | null;
             Scores?: components["schemas"]["MovieScores"];
@@ -3172,6 +3209,10 @@ export interface components {
             Tags: string[];
             /** Format: date-time */
             AddedAt: string;
+            /** @description Upstream TMDB poster URL, w342 size (issue #149 Stage A; persisted by the artwork enrichment so list reads carry it without a per-row provider call). "" when keyless or no art — never an error. The same-origin /api/v1/images route proxies these bytes; this field is the upstream URL, NOT a proxy URL. */
+            PosterURL?: string;
+            /** @description Upstream TMDB backdrop URL, w1280 size (issue #149 Stage A). Detail-only: "" on list items and when keyless or no art. */
+            BackdropURL?: string;
         };
         AddSeriesRequest: {
             title: string;
@@ -3456,6 +3497,10 @@ export interface components {
             TotalSize?: number;
             /** Format: date-time */
             AddedAt: string;
+            /** @description The artist's Cover Art Archive front cover (the persisted L4 Cover field; issue #149 Stage A) surfaced as the poster URL. "" when keyless or no art — never an error. */
+            PosterURL?: string;
+            /** @description Always "" (issue #149 Stage A) — music has no landscape art. */
+            BackdropURL?: string;
         };
         AddArtistRequest: {
             name: string;
@@ -3733,6 +3778,10 @@ export interface components {
             Tags?: string[];
             /** Format: date-time */
             AddedAt: string;
+            /** @description The covers.openlibrary.org large-cover URL of the author's first title's first ISBN'd edition (OpenLibrary covers, issue #149 Stage A; keyless scheme). "" when there is no ISBN'd edition — never an error. */
+            PosterURL?: string;
+            /** @description Always "" (issue #149 Stage A) — books have no landscape art. */
+            BackdropURL?: string;
         };
         AddAuthorRequest: {
             name: string;
@@ -3947,6 +3996,8 @@ export interface components {
             HasFile: boolean;
             /** @description The book's resolvable quality — the newest imported file's format, else the newest edition's format, empty = unknown (Readarr B4 bookshelves rollup). */
             Format: string;
+            /** @description The covers.openlibrary.org large-cover URL of the book's first ISBN'd edition (OpenLibrary covers, issue #149 Stage A; keyless scheme). "" when there is no ISBN'd edition — never an error. */
+            PosterURL?: string;
         };
         /** @description An imported e-book file and its media info (Readarr B1). */
         BookFile: {
@@ -6058,6 +6109,67 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The upstream image host. */
+                type: "tmdb" | "tvdb";
+                /** @description The size segment, e.g. `w342` or a duotone filter segment. */
+                size: string;
+                /** @description The remaining artwork path segments (multi-segment wildcard). */
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The artwork bytes, passed through unmodified (no re-encode, no resize). */
+            200: {
+                headers: {
+                    /** @description sha256 cache key of the entry. */
+                    "X-Cache-Key"?: string;
+                    /** @description MISS when fetched from upstream, HIT when served from the on-disk cache. */
+                    "X-Cache-Status"?: "MISS" | "HIT";
+                    /** @description `public, max-age=<ttl>` — the upstream max-age, default 86400. */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Non-whitelisted path segment or unknown {type}. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The joined path starts with '//' or contains '://'. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Upstream image not found, or cache_images disabled. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Upstream fetch failed or answered non-2xx. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getLiveness: {
         parameters: {
             query?: never;

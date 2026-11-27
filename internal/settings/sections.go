@@ -98,6 +98,12 @@ type GeneralSettings struct {
 	HTTPProxy      string `json:"http_proxy"`
 	LogLevel       string `json:"log_level"`
 	Analytics      bool   `json:"analytics"`
+	// CacheImages is the image-proxy cache toggle (issue #149, the
+	// Seerr main.cacheImages equivalent): true (the default) serves
+	// /api/v1/images/... from the on-disk cache; false answers 404.
+	// A settings-schema addition, NOT an environment variable (issue
+	// forbids new env vars; orchestrator decision #2, work order #40).
+	CacheImages bool `json:"cache_images"`
 }
 
 // GeneralLogLevels enumerates the valid log_level values (PR4).
@@ -115,6 +121,10 @@ func DefaultGeneral() GeneralSettings {
 		HTTPProxy:      "",
 		LogLevel:       "info",
 		Analytics:      false,
+		// Issue #149: the image-proxy cache defaults ON (the nil-doc and
+		// absent-field paths in the API layer already treated it that way;
+		// materialized defaults must agree).
+		CacheImages: true,
 	}
 }
 

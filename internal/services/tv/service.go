@@ -68,6 +68,11 @@ type Deps struct {
 	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
 	// Nil-safe: the pipeline runs identically without it.
 	Metrics *metrics.Metrics
+	// Artwork, when non-nil, fills the series' PosterURL/BackdropURL wire
+	// fields (issue #149) on the detail read and the paged list. It is the
+	// keyed TMDB adapter in production; nil (no TMDB key) leaves the
+	// fields "" (R3 keyless convention).
+	Artwork Artworker
 }
 
 // Service implements the TV use-cases.
@@ -193,7 +198,23 @@ func (s *Service) ListSeriesQuery(ctx context.Context, q paging.Query) (paging.P
 
 // GetSeries loads a series (used by GET /api/v1/tv/{id}).
 func (s *Service) GetSeries(ctx context.Context, id int64) (*dom.Series, error) {
-	return s.deps.Repo.GetSeries(ctx, id)
+	series, err := s.deps.Repo.GetSeries(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// Issue #149 Stage A: fill the artwork wire fields on the detail read
+	// and persist what the provider reported so list reads serve
+	// PosterURL without a per-row provider call. Nil Artwork (keyless)
+	// leaves the persisted/empty values as-is; a persistence failure never
+	// fails the read.
+	if s.deps.Artwork != nil {
+		prePoster, preBackdrop := series.PosterURL, series.BackdropURL
+		enrichSeriesArtwork(ctx, s.deps.Artwork, series)
+		if series.PosterURL != prePoster || series.BackdropURL != preBackdrop {
+			_ = s.deps.Repo.SetSeriesArtwork(ctx, series.ID, series.PosterURL, series.BackdropURL)
+		}
+	}
+	return series, nil
 }
 
 // ListEpisodes returns a series' known episodes (used by

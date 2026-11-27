@@ -30,6 +30,14 @@ type Author struct {
 	RootFolder      string   // root folder path for the author's files; "" = server default
 	Tags            []string // free-form tag labels; empty = none
 	AddedAt         time.Time
+	// Artwork URLs (issue #149): the cover of the author's first title
+	// (Open Library / Google Books) as the poster field (backdrop stays
+	// "" — books have no landscape art), serialized with bare Go field
+	// names like the rest of this struct (docs/openapi.md convention;
+	// owner decision 2026-11-27). The camelCase posterUrl spelling lives
+	// only on the Discover Item document (#118, API-only).
+	PosterURL   string
+	BackdropURL string
 }
 
 // Title is a book title (a logical book, e.g. "The Dispossessed") within an
@@ -103,6 +111,10 @@ type Book struct {
 	AuthorName string
 	HasFile    bool
 	Format     string
+	// PosterURL (issue #149): the covers.openlibrary.org ISBN cover of the
+	// book's first ISBN'd edition — serialized with the bare Go field name
+	// like the rest of this struct (docs/openapi.md convention).
+	PosterURL string
 }
 
 // SeriesBook is a book in a series, with its author's name (the series read
@@ -200,6 +212,16 @@ type Repo interface {
 	GetAuthor(ctx context.Context, id int64) (*Author, error)
 	ListAuthors(ctx context.Context) ([]Author, error)
 	SetAuthorMonitored(ctx context.Context, id int64, monitored bool) error
+	// AuthorFirstISBNs returns each author's first title's first ISBN'd
+	// edition (issue #149: the OpenLibrary covers.openlibrary.org ISBN
+	// cover is the author poster). One query over all authors; map is
+	// empty (or misses an id) when the author has no ISBN'd edition.
+	AuthorFirstISBNs(ctx context.Context) (map[int64]string, error)
+	// TitleFirstISBNs returns each title's first ISBN'd edition (issue
+	// #149: the OpenLibrary covers.openlibrary.org ISBN cover is the
+	// ListBooks poster). One query over all titles; the map misses a
+	// title that has no ISBN'd edition.
+	TitleFirstISBNs(ctx context.Context) (map[int64]string, error)
 	// UpdateAuthor writes the author's B2 editable fields (the full merged
 	// author; the service passes current values plus the edits).
 	UpdateAuthor(ctx context.Context, a Author) error

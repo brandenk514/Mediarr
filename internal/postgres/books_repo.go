@@ -106,6 +106,61 @@ func (r *BooksRepo) ListAuthors(ctx context.Context) ([]books.Author, error) {
 	return out, rows.Err()
 }
 
+// AuthorFirstISBNs returns each author's first title's first ISBN'd edition
+// (issue #149: the covers.openlibrary.org ISBN cover is the author poster).
+// One query over all authors; the map misses an author whose titles have no
+// ISBN'd edition.
+func (r *BooksRepo) AuthorFirstISBNs(ctx context.Context) (map[int64]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT t.author_id, e.isbn
+		FROM book_titles t
+		JOIN book_editions e ON e.title_id = t.id
+		WHERE e.isbn IS NOT NULL AND e.isbn <> ''
+		ORDER BY t.id, e.id`)
+	if err != nil {
+		return nil, fmt.Errorf("books: author first isbns: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[int64]string{}
+	for rows.Next() {
+		var authorID int64
+		var isbn string
+		if err := rows.Scan(&authorID, &isbn); err != nil {
+			return nil, fmt.Errorf("books: scan author first isbn: %w", err)
+		}
+		if _, ok := out[authorID]; !ok {
+			out[authorID] = isbn
+		}
+	}
+	return out, rows.Err()
+}
+
+// TitleFirstISBNs returns each title's first ISBN'd edition (issue #149:
+// the covers.openlibrary.org ISBN cover is the ListBooks poster).
+func (r *BooksRepo) TitleFirstISBNs(ctx context.Context) (map[int64]string, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT e.title_id, e.isbn
+		FROM book_editions e
+		WHERE e.isbn IS NOT NULL AND e.isbn <> ''
+		ORDER BY e.title_id, e.id`)
+	if err != nil {
+		return nil, fmt.Errorf("books: title first isbns: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[int64]string{}
+	for rows.Next() {
+		var titleID int64
+		var isbn string
+		if err := rows.Scan(&titleID, &isbn); err != nil {
+			return nil, fmt.Errorf("books: scan title first isbn: %w", err)
+		}
+		if _, ok := out[titleID]; !ok {
+			out[titleID] = isbn
+		}
+	}
+	return out, rows.Err()
+}
+
 // SetAuthorMonitored toggles an author's monitored flag.
 func (r *BooksRepo) SetAuthorMonitored(ctx context.Context, id int64, monitored bool) error {
 	res, err := r.db.ExecContext(ctx, `
