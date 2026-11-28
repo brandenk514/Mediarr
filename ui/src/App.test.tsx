@@ -28,8 +28,21 @@ vi.mock('./api/client', () => {
       login: vi.fn(),
       me: vi.fn(),
       logout: vi.fn(),
-      listSeries: vi.fn(),
+      listSeries: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 25 }),
       listMovies: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 25 }),
+      // #151: the cinematic Discover row set also reads the dashboard (KPI
+      // + recent activity) and the artist / book lists (Recently Added +
+      // Watchlist rows).
+      getDashboard: vi.fn().mockResolvedValue({
+        libraries: [],
+        totals: { libraries: 0, wants: 0, queue: 0 },
+        recent_history: [],
+        recent_queue: [],
+        indexers: [],
+        generated_at: '2026-11-27T00:00:00Z',
+      }),
+      listArtists: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 25 }),
+      listBooks: vi.fn().mockResolvedValue([]),
       getMovieStats: vi.fn().mockResolvedValue(null),
       getSystemHealth: vi.fn(),
       // #118: the unified Discover page (the new default landing).
