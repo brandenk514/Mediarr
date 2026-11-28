@@ -30,17 +30,19 @@ test('add a movie through the form and see it in the grid', async ({ page }) => 
 
   await expect(page).toHaveURL(/\/movies$/)
   await expect(page.getByTestId('movies-grid')).toBeVisible()
-  // Local dev databases accumulate probe movies across runs, and the grid is
-  // paginated (25/page): with the default title sort the freshest probe can
-  // sit on page 2. Sort newest-added first so the new movie leads the grid
-  // regardless of database state (CI runs against a fresh database).
+  // Local dev databases accumulate probe movies across runs, and the grid
+  // loads 25 at a time: with the default title sort the freshest probe can
+  // sit past the first batch. The #150 sort control is a field dropdown
+  // plus an independent direction toggle — pick "Added" as the field, then
+  // flip the direction, so the new movie leads the grid regardless of
+  // database state (CI runs against a fresh database).
   await page.getByTestId('movies-sort-btn').click()
-  await page.getByTestId('movies-sort-opt-added-desc').click()
-  // Grid cards carry the title in their tooltip (the R1 grid design shows the
-  // status ribbon + monitored/quality footer, not the title text), so assert
-  // on the title attribute of the new movie's poster cell.
+  await page.getByTestId('movies-sort-opt-added').click()
+  await page.getByTestId('movies-sort-dir').click()
+  // The #150 grid cell carries the title in its title attribute (and as
+  // visible text), so assert on it to find the new movie's card.
   await expect(
-    page.getByTestId('movies-grid').locator(`.poster-cell[title="${title}"]`),
+    page.getByTestId('movies-grid').locator(`[title="${title}"]`),
   ).toBeVisible()
 })
 
@@ -66,7 +68,7 @@ test('open a movie from the grid into its detail page', async ({ page }) => {
   const grid = page.getByTestId('movies-grid')
   // Wait for the list to resolve (grid or the empty state) before deciding
   // whether this database has anything to open.
-  await expect(grid.or(page.getByText('No movies'))).toBeVisible()
+  await expect(grid.or(page.getByText('No results'))).toBeVisible()
   if (!(await grid.count())) return // no movies in this database — nothing to open
   const firstCard = page.locator('[data-testid^="movie-card-"]').first()
   await firstCard.click()

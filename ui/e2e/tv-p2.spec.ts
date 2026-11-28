@@ -32,30 +32,29 @@ async function seedSeries(page: Page, title: string, year: number): Promise<numb
   return body.id
 }
 
-test('series page renders the P2 grid: toolbar, posters, A–Z, view toggle', async ({ page }) => {
+test('series page renders the P2 grid: toolbar, posters, view toggle', async ({ page }) => {
   await page.goto('/tv')
   const a = await seedSeries(page, 'Alpha E2E Show', 2020)
   const z = await seedSeries(page, 'The Zeta E2E Show', 2001)
   await signIn(page)
   await expect(page).toHaveURL(/\/tv$/)
 
-  // Page head + toolbar (icon-over-label groups, left and right).
+  // Page head + toolbar (icon-over-label groups, left and right). The sort
+  // cluster and the filter button moved to the heading (#150): tv-sort is
+  // the heading's sort-field menu, tv-filter-btn opens the slide-over
+  // drawer.
   await expect(page.getByTestId('tv-title')).toHaveText('Series')
-  for (const id of ['tv-update-all', 'tv-rss-sync', 'tv-select-series', 'tv-test-parsing', 'tv-options', 'tv-sort', 'tv-filter']) {
+  for (const id of ['tv-update-all', 'tv-rss-sync', 'tv-select-series', 'tv-test-parsing', 'tv-options', 'tv-sort', 'tv-filter-btn']) {
     await expect(page.getByTestId(id)).toBeVisible()
   }
 
-  // Grid with the two seeded cards: monitored + quality footer lines.
+  // Grid with the two seeded cards: the #150 PosterCard shows the title,
+  // the quality in its meta line, and a badge only for unmonitored items
+  // (ribbonFor: a monitored series with no status renders no badge).
   const cardA = page.getByTestId(`series-card-${a}`)
   await expect(cardA).toBeVisible()
-  await expect(cardA).toContainText('Monitored')
   await expect(cardA).toContainText('HD-1080p')
   await expect(page.getByTestId(`series-card-${z}`)).toBeVisible()
-
-  // A–Z: A (Alpha) and Z ("The Zeta…" skips the article).
-  const az = page.getByTestId('tv-az')
-  await expect(az.getByRole('button', { name: 'Jump to A' })).toBeEnabled()
-  await expect(az.getByRole('button', { name: 'Jump to Z' })).toBeEnabled()
 
   // View toggle: list view shows the (P1) expandable rows.
   await page.getByTestId('tv-view-list').click()

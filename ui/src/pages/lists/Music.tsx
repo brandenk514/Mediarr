@@ -1,65 +1,107 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { client } from '../../api/client'
-import type { ListQuery, MusicLibrarySummary, PageArtist } from '../../api/types'
+import type { Artist, ListQuery, MusicLibrarySummary, PageArtist } from '../../api/types'
 import { AddButton } from '../../components/addflow'
+import {
+  FacetSelect,
+  FacetText,
+  FilterDrawer,
+  InfiniteSentinel,
+  SortCluster,
+  toneFor,
+  usePersistentView,
+} from '../../components/gridcontrols'
 import {
   DEFAULT_PAGE_SIZE,
   MonitoredToggle,
   Pagination,
   usePagedList,
+  type MonitoredFilter,
 } from '../../components/list'
-import { MUSIC_RIBBON_LEGEND, deriveMusicRibbon, humanBytes } from '../../components/music'
-import { MusicGrid, fromArtist } from '../../components/musicgrid'
 import {
-  EmptyState,
-  Menu,
-  Toolbar,
-  TbButton,
-  ViewToggle,
-  type ViewMode,
-} from '../../components/ui'
+  FALLBACK_PROFILE_LABEL,
+  MUSIC_RIBBON_LEGEND,
+  deriveMusicRibbon,
+  humanBytes,
+} from '../../components/music'
+import { PosterCard } from '../../components/primitives/poster-card'
+import { firstLetter } from '../../components/poster'
+import { EmptyState, Toolbar, TbButton, ViewToggle } from '../../components/ui'
 
-// MusicPage is the Lidarr L1 artists library: a 6-up square-cover card grid
-// with the five-state status ribbon (Downloading / Continuing / Ended /
-// Missing Tracks ×2), a red corner fold on unmonitored (flagged) artists,
-// the library footer legend, and the library summary status bar (Artist ·
-// Inactive · Continuing · Monitored · Unmonitored · Tracks · Files · Total
-// File Size from GET /music/library/summary). The toolbar follows Lidarr's
-// order: Update All, RSS Sync | Select Artists | Options | View · Sort ·
-// Filter — buttons without a backend behind them are disabled stubs with a
-// "later phase" title (the P7 pattern); Update All re-fetches the library.
-// The A–Z quick jump and the list view carry over from the prior table.
-type SortKey = 'name-asc' | 'name-desc' | 'added-asc' | 'added-desc'
+// MusicPage is the Seerr-style artists library (#150): a dense artwork-led
+// poster grid by default (cover art with an initials stand-in when keyless,
+// the kind pill + the five-state Lidarr ribbon as a badge over the art,
+// hover refresh/edit actions), a heading control cluster — explicit sort
+// direction toggle + sort field dropdown + a filter button that opens a
+// slide-over drawer with "N Active Filter(s)" and Clear Active Filters —
+// and the Lidarr toolbar/library summary carried over. The grid sorts and
+// filters server-side (the sort allowlist rejects unknown values with 400)
+// and scrolls without pagination chrome; the table view stays fully
+// functional behind the persisted view toggle.
+type SortField = 'title' | 'added' | 'rating'
+type SortDir = 'asc' | 'desc'
 
-const SORT_OPTIONS = [
-  { value: 'name-asc', label: 'Name ↑' },
-  { value: 'name-desc', label: 'Name ↓' },
-  { value: 'added-asc', label: 'Added ↑' },
-  { value: 'added-desc', label: 'Added ↓' },
+// The sort dropdown fields (the direction is the separate toggle).
+const SORT_FIELDS = [
+  { value: 'title', label: 'Name' },
+  { value: 'added', label: 'Added' },
+  { value: 'rating', label: 'Rating' },
 ] as const
 
-// statusFilterValue: the toolbar Filter menu's status-group options (the
-// five ribbon states). 'all' / 'monitored' / 'unmonitored' are server-side.
-type FilterValue = 'all' | 'monitored' | 'unmonitored' | 'downloading' | 'continuing' | 'ended' | 'missing-monitored' | 'missing-unmonitored'
-
-function sortArtists(items: PageArtist['items'], key: SortKey): PageArtist['items'] {
-  const dir = key.endsWith('-desc') ? -1 : 1
-  const arr = [...items]
-  arr.sort((a, b) => {
-    let cmp = 0
-    if (key.startsWith('name')) cmp = a.Name.localeCompare(b.Name)
-    else cmp = String(a.AddedAt).localeCompare(String(b.AddedAt))
-    if (cmp === 0) cmp = a.ID - b.ID // stable tiebreak
-    return cmp * dir
-  })
-  return arr
+// The filter-drawer facets (#150). The zero value filters nothing. Music's
+// facet surface is the artist's enriched metadata: the MusicBrainz genre
+// (free text — artists carry an arbitrary genre string) and the release
+// status the Lidarr ribbon already renders.
+interface MusicFacets {
+  genre: string
+  status: string
 }
+
+const EMPTY_FACETS: MusicFacets = { genre: '', status: '' }
+
+// The artist status facet values (the wire's closed status enum).
+const STATUS_OPTIONS = [
+  { value: 'continuing', label: 'Continuing' },
+  { value: 'ended', label: 'Ended' },
+  { value: 'inactive', label: 'Inactive' },
+]
+
+const MONITORED_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'monitored', label: 'Monitored' },
+  { value: 'unmonitored', label: 'Unmonitored' },
+]
 
 export function MusicPage() {
   const navigate = useNavigate()
-  const load = useCallback((q: ListQuery) => client.listArtists(q), [])
+  const [view, setView] = usePersistentView('music')
+  // #150: the sort is field + explicit direction; flipping the direction
+  // never changes the field (and vice versa).
+  const [sortField, setSortField] = useState<SortField>('title')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [facets, setFacets] = useState<MusicFacets>(EMPTY_FACETS)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [summary, setSummary] = useState<MusicLibrarySummary | null>(null)
+  // Per-card refresh results (a real GET /music/artists/{id}) merged over
+  // the page so a refreshed ribbon shows without a full refetch.
+  const [fresh, setFresh] = useState<Record<number, Artist>>({})
+  const [status, setStatus] = useState<string | null>(null)
+
+  const sort = `${sortField}-${sortDir}`
+  // The facet params serialize into the wire query (empty values are
+  // omitted by buildListQuery, so the server treats them as unset).
+  const filters = useMemo<Record<string, string>>(() => ({
+    genre: facets.genre,
+    status: facets.status,
+  }), [facets])
+
+  const load = useCallback(
+    (q: ListQuery) => client.listArtists({ ...q, sort, filters }),
+    [sort, filters],
+  )
   const {
+    items,
     data,
     loading,
     error,
@@ -67,15 +109,11 @@ export function MusicPage() {
     setMonitored,
     page,
     setPage,
-    total,
+    hasMore,
+    loadMore,
     reload,
-  } = usePagedList<PageArtist>(load)
-
-  const [view, setView] = useState<ViewMode>('grid')
-  const [sort, setSort] = useState<SortKey>('name-asc')
-  const [statusFilter, setStatusFilter] = useState<Exclude<FilterValue, 'all' | 'monitored' | 'unmonitored'> | null>(null)
-  const [summary, setSummary] = useState<MusicLibrarySummary | null>(null)
-  const [status, setStatus] = useState<string | null>(null)
+    total,
+  } = usePagedList<PageArtist>(load, { mode: 'append' })
 
   // Library summary for the footer status bar (Lidarr-specific; no Sonarr
   // equivalent). Cosmetic — a failure must not break the grid.
@@ -90,28 +128,17 @@ export function MusicPage() {
     loadSummary()
   }, [loadSummary, data])
 
-  const baseItems = useMemo(() => (data ? data.items : []), [data])
+  // The drawer's active count: every set facet plus the monitored filter.
+  const activeCount = useMemo(() => {
+    let n = monitored === 'all' ? 0 : 1
+    if (facets.genre) n++
+    if (facets.status) n++
+    return n
+  }, [facets, monitored])
 
-  const items = useMemo(() => {
-    const filtered = statusFilter
-      ? baseItems.filter((a) => deriveMusicRibbon(a).state === statusFilter)
-      : baseItems
-    return sortArtists(filtered, sort)
-  }, [baseItems, statusFilter, sort])
-
-  // Live counts for the Filter menu's status-group options (over the
-  // server-filtered page, before the status filter is applied).
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      downloading: 0,
-      continuing: 0,
-      ended: 0,
-      'missing-monitored': 0,
-      'missing-unmonitored': 0,
-    }
-    for (const a of baseItems) counts[deriveMusicRibbon(a).state]++
-    return counts
-  }, [baseItems])
+  const gridItems = useMemo(() => items.map((a) => fresh[a.ID] ?? a), [items, fresh])
+  const listItems = useMemo(() => (data ? data.items : []), [data])
+  const filtered = activeCount > 0
 
   function updateAll() {
     setStatus(`Updated ${total} artists just now`)
@@ -119,11 +146,49 @@ export function MusicPage() {
     loadSummary()
   }
 
+  // Per-card refresh: re-fetch this artist from the API and merge it in
+  // (the ribbon re-derives from the fresh aggregate counts).
+  async function refreshArtist(a: Artist) {
+    setStatus(null)
+    try {
+      const freshArtist = await client.getArtist(a.ID)
+      setFresh((prev) => ({ ...prev, [a.ID]: freshArtist }))
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : `refresh of ${a.Name} failed`)
+    }
+  }
+
+  function clearFilters() {
+    setFacets(EMPTY_FACETS)
+    setMonitored('all')
+  }
+
+  const facet = <K extends keyof MusicFacets>(key: K, value: MusicFacets[K]) =>
+    setFacets((prev) => ({ ...prev, [key]: value }))
+
   return (
     <div className="list-page">
       <div className="dash-head">
         <h2 data-testid="music-title">Artists</h2>
         <div className="dash-head-right">
+          <SortCluster
+            field={sortField}
+            fields={[...SORT_FIELDS]}
+            dir={sortDir}
+            onDir={setSortDir}
+            onField={(f) => setSortField(f as SortField)}
+            testId="music"
+          />
+          <button
+            type="button"
+            className="menu-btn"
+            onClick={() => setDrawerOpen(true)}
+            aria-haspopup="dialog"
+            data-testid="music-filter-btn"
+          >
+            <span aria-hidden>⚲</span>
+            {activeCount} Active Filter{activeCount === 1 ? '' : 's'}
+          </button>
           <AddButton to="/music/add" label="Add artist" testId="music-add" />
         </div>
       </div>
@@ -160,37 +225,6 @@ export function MusicPage() {
               title="More actions land in a later phase"
             />
             <ViewToggle view={view} onChange={setView} testId="music-view" />
-            <Menu
-              label="Sort"
-              icon="↕"
-              options={[...SORT_OPTIONS]}
-              selected={sort}
-              onSelect={(v) => setSort(v as SortKey)}
-              testId="music-sort"
-            />
-            <Menu
-              label="Filter"
-              icon="⚲"
-              options={[
-                { value: 'all', label: 'All' },
-                { value: 'monitored', label: 'Monitored' },
-                { value: 'unmonitored', label: 'Unmonitored' },
-                ...MUSIC_RIBBON_LEGEND.map((l) => ({
-                  value: l.state,
-                  label: `${l.label} (${statusCounts[l.state] ?? 0})`,
-                })),
-              ]}
-              selected={statusFilter ?? monitored}
-              onSelect={(v) => {
-                if (v === 'monitored' || v === 'unmonitored' || v === 'all') {
-                  setStatusFilter(null)
-                  setMonitored(v as 'all' | 'monitored' | 'unmonitored')
-                } else {
-                  setStatusFilter(v as Exclude<FilterValue, 'all' | 'monitored' | 'unmonitored'>)
-                }
-              }}
-              testId="music-filter"
-            />
           </>
         }
       />
@@ -200,6 +234,30 @@ export function MusicPage() {
           {status}
         </p>
       )}
+
+      <FilterDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onClear={clearFilters} activeCount={activeCount}>
+        <FacetSelect
+          label="Monitored"
+          value={monitored}
+          options={MONITORED_OPTIONS}
+          onChange={(v) => setMonitored(v as MonitoredFilter)}
+          testId="music-facet-monitored"
+        />
+        <FacetText
+          label="Genre"
+          value={facets.genre}
+          onChange={(v) => facet('genre', v.trim())}
+          placeholder="Metal"
+          testId="music-facet-genre"
+        />
+        <FacetSelect
+          label="Status"
+          value={facets.status}
+          options={STATUS_OPTIONS}
+          onChange={(v) => facet('status', v)}
+          testId="music-facet-status"
+        />
+      </FilterDrawer>
 
       {error && !data ? (
         <div className="card" data-testid="music-error">
@@ -217,28 +275,70 @@ export function MusicPage() {
                 <p className="dim" data-testid="music-loading">
                   Loading artists…
                 </p>
-              ) : items.length === 0 ? (
+              ) : gridItems.length === 0 ? (
                 <EmptyState
-                  title={statusFilter ? 'No artists in this state' : 'No artists'}
+                  title="No results"
                   message={
-                    statusFilter
-                      ? 'Try a different filter.'
+                    filtered
+                      ? 'Try adjusting or clearing your filters.'
                       : 'Add your first artist to get started.'
                   }
                 >
-                  {!statusFilter && (
+                  {!filtered && (
                     <Link to="/music/add" data-testid="music-empty-add">
                       + Add artist
                     </Link>
                   )}
                 </EmptyState>
               ) : (
-                <MusicGrid
-                  items={items.map(fromArtist)}
-                  gridTestId="music-grid"
-                  azTestId="music-az"
-                  onOpen={(i) => navigate(`/music/${i.id}`)}
-                />
+                <>
+                  <div className="poster-grid" data-testid="music-grid">
+                    {gridItems.map((a) => {
+                      const ribbon = deriveMusicRibbon(a)
+                      return (
+                        <div key={a.ID} data-poster-letter={firstLetter(a.Name)}>
+                          <PosterCard
+                            testId={`artist-card-${a.ID}`}
+                            title={a.Name}
+                            image={a.PosterURL || undefined}
+                            meta={a.QualityProfile || FALLBACK_PROFILE_LABEL}
+                            status={{ label: ribbon.text, tone: toneFor(ribbon.tone) }}
+                            kind={{ label: 'Music' }}
+                            onOpen={() => navigate(`/music/${a.ID}`)}
+                            hoverActions={
+                              <>
+                                <button
+                                  type="button"
+                                  className="icon-btn"
+                                  title="Refresh artist"
+                                  aria-label={`Refresh ${a.Name}`}
+                                  data-testid={`card-refresh-${a.ID}`}
+                                  onClick={() => void refreshArtist(a)}
+                                >
+                                  ⟳
+                                </button>
+                                <button
+                                  type="button"
+                                  className="icon-btn"
+                                  title="Edit artist"
+                                  aria-label={`Edit ${a.Name}`}
+                                  data-testid={`card-edit-${a.ID}`}
+                                  onClick={() => navigate(`/music/${a.ID}`)}
+                                >
+                                  ✎
+                                </button>
+                              </>
+                            }
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {/* #150: no pagination chrome — the sentinel loads the
+                      next server page as the grid's end scrolls in. */}
+                  <InfiniteSentinel onLoadMore={loadMore} disabled={!hasMore} testId="music-sentinel" />
+                  {hasMore && loading && <p className="dim small">Loading more…</p>}
+                </>
               )}
             </>
           )}
@@ -256,12 +356,12 @@ export function MusicPage() {
               </div>
               {loading && !data ? (
                 <p className="dim">Loading artists…</p>
-              ) : items.length === 0 ? (
+              ) : listItems.length === 0 ? (
                 <p className="dim" data-testid="music-empty">
                   No artists match.
                 </p>
               ) : (
-                items.map((a) => (
+                listItems.map((a) => (
                   <div className="lt-row" key={a.ID} data-testid={`artist-${a.ID}`}>
                     <span className="lt-name" title={a.Name}>
                       <Link to={`/music/${a.ID}`} data-testid={`artist-link-${a.ID}`}>
@@ -292,7 +392,9 @@ export function MusicPage() {
             </div>
           )}
 
-          <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} total={total} onPage={setPage} />
+          {view === 'list' && (
+            <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} total={total} onPage={setPage} />
+          )}
 
           {/* Library footer: summary status bar + ribbon legend (Lidarr's
               "library footer"). */}

@@ -227,6 +227,18 @@ func (r *listMoviesRepo) SetMovieArtwork(ctx context.Context, id int64, posterUR
 	return nil
 }
 
+// SetMovieMetadata is the #150 metadata setter; the list tests never
+// exercise the enrich path that calls it.
+func (r *listMoviesRepo) SetMovieMetadata(ctx context.Context, id int64, meta moviesdom.MovieMetadata) error {
+	m, ok := r.movies[id]
+	if !ok {
+		return moviesdom.ErrMovieNotFound
+	}
+	m.Genres = meta.Genres
+	r.movies[id] = m
+	return nil
+}
+
 // newListTestServer returns an authenticated movies server plus a valid bearer
 // token, so the contract tests can hit the real requireAuth-wrapped routes.
 func newListTestServer(t *testing.T, repo moviesdom.Repo) (*Server, string) {
@@ -433,19 +445,12 @@ func TestListMovies_ServerSideSort(t *testing.T) {
 		t.Errorf("year-asc page1 = %d,%d, want 1,2", page2.Items[0].ID, page2.Items[1].ID)
 	}
 
-	// An unknown sort value is ignored (natural order), never a 500.
+	// Issue #150: an unknown sort value is REJECTED with 400, never a
+	// silent natural-order default (this pin replaces the pre-#150
+	// keep-natural-order behavior the test used to assert).
 	rec = getJSON(t, s.Handler(), "/api/v1/movies?sort=banana", token)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("unknown sort status = %d, want 200", rec.Code)
-	}
-	var page3 struct {
-		Items []moviesdom.Movie `json:"items"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&page3); err != nil {
-		t.Fatal(err)
-	}
-	if page3.Items[0].ID != 1 {
-		t.Errorf("unknown sort page1[0] = %d, want 1 (natural order)", page3.Items[0].ID)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown sort status = %d, want 400", rec.Code)
 	}
 }
 

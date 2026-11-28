@@ -99,11 +99,17 @@ func (s *Server) AddSeries(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListSeries handles GET /api/v1/tv. It returns a server-side filtered,
-// paginated envelope (M6 #41): ?q=<search>&monitored=<bool>&page=&page_size=.
+// sorted, paginated envelope (M6 #41): ?q=&monitored=&page=&page_size=
+// &sort=<title|year|added>-<asc|desc>. #150: the sort value is validated
+// against the closed allowlist — an unknown field/direction is a 400.
 func (s *Server) ListSeries(w http.ResponseWriter, r *http.Request) {
 	q := paging.QueryFromURLValues(r.URL.Query())
 	page, err := s.tvDeps.Svc.ListSeriesQuery(r.Context(), q)
 	if err != nil {
+		if errors.Is(err, paging.ErrInvalidSort) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

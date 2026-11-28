@@ -334,11 +334,17 @@ func (s *Server) getBookWorkEditions(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListAuthors handles GET /api/v1/books/authors. It returns a server-side
-// filtered, paginated envelope (M6 #41): ?q=<search>&monitored=<bool>&page=&page_size=.
+// filtered, sorted, paginated envelope (M6 #41): ?q=&monitored=&page=
+// &page_size=&sort=<title|added>-<asc|desc>. #150: the sort value is
+// validated against the closed allowlist — unknown is a 400.
 func (s *Server) ListAuthors(w http.ResponseWriter, r *http.Request) {
 	q := paging.QueryFromURLValues(r.URL.Query())
 	page, err := s.booksDeps.Svc.ListAuthorsQuery(r.Context(), q)
 	if err != nil {
+		if errors.Is(err, paging.ErrInvalidSort) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

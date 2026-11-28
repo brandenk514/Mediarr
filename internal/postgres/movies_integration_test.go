@@ -195,3 +195,79 @@ func TestMovieRepo_QueueAndHistory(t *testing.T) {
 		t.Fatalf("history len = %d, want 2", len(h))
 	}
 }
+
+func TestMovieRepo_MetadataRoundTrip(t *testing.T) {
+	// Issue #150: the persisted provider metadata (genres, runtime,
+	// original language, certification, TMDB score) must survive the
+	// write → list-read round trip, and a movie that never enriched
+	// must read back as zero/unknown (keyless dev).
+	r := startPG(t)
+	ctx := context.Background()
+
+	id, err := r.CreateMovie(ctx, movies.Movie{Title: "Tenet", Year: 2020})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	pct := 76.0
+	if err := r.SetMovieMetadata(ctx, id, movies.MovieMetadata{
+		Genres:           []string{"Action", "Thriller"},
+		Runtime:          150,
+		OriginalLanguage: "en",
+		Certification:    "PG-13",
+		TmdbPct:          pct,
+	}); err != nil {
+		t.Fatalf("set metadata: %v", err)
+	}
+
+	m, err := r.GetMovie(ctx, id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(m.Genres) != 2 || m.Genres[0] != "Action" {
+		t.Errorf("Genres = %v, want [Action, Thriller]", m.Genres)
+	}
+	if m.Runtime == nil || *m.Runtime != 150 {
+		t.Errorf("Runtime = %v, want 150", m.Runtime)
+	}
+	if m.OriginalLanguage == nil || *m.OriginalLanguage != "en" {
+		t.Errorf("OriginalLanguage = %v, want en", m.OriginalLanguage)
+	}
+	if m.Certification == nil || *m.Certification != "PG-13" {
+		t.Errorf("Certification = %v, want PG-13", m.Certification)
+	}
+	if m.Scores == nil || m.Scores.TmdbPct == nil || *m.Scores.TmdbPct != pct {
+		t.Errorf("TmdbPct = %v, want %v", m.Scores, pct)
+	}
+
+	// The list read (the grid's data path) serves the same metadata.
+	all, err := r.ListMovies(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("list len = %d, want 1", len(all))
+	}
+	if len(all[0].Genres) != 2 || all[0].Runtime == nil || *all[0].Runtime != 150 {
+		t.Errorf("list metadata = %+v, want persisted genres + runtime 150", all[0])
+	}
+
+	// A movie that never enriched reads back zero/unknown, never NULL.
+	id2, err := r.CreateMovie(ctx, movies.Movie{Title: "Primer", Year: 2004})
+	if err != nil {
+		t.Fatalf("create 2: %v", err)
+	}
+	m2, err := r.GetMovie(ctx, id2)
+	if err != nil {
+		t.Fatalf("get 2: %v", err)
+	}
+	if len(m2.Genres) != 0 || m2.Runtime != nil || m2.OriginalLanguage != nil ||
+		m2.Certification != nil || m2.Scores != nil {
+		t.Errorf("unenriched metadata = %+v, want all unknown", m2)
+	}
+
+	// Unknown id → ErrMovieNotFound (the setter contract).
+	if err := r.SetMovieMetadata(ctx, 9999, movies.MovieMetadata{}); err != movies.ErrMovieNotFound {
+		t.Errorf("set metadata missing: err = %v, want ErrMovieNotFound", err)
+	}
+}

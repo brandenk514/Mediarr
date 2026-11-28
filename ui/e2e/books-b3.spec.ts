@@ -186,7 +186,7 @@ test('the edit-author modal carries a live metadata-profile select (B3)', async 
 
     const grid = page.getByTestId('books-authors-grid')
     await expect(grid).toBeVisible()
-    const cards = grid.locator('.poster-cell')
+    const cards = grid.locator('[data-testid^="author-card-"]')
     if (!(await cards.count())) {
       test.skip(true, 'no authors in the library to open')
       return

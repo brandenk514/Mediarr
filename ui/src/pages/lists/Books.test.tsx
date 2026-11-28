@@ -1,18 +1,20 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { client } from '../../api/client'
 import type { Author, Book, PageAuthor } from '../../api/types'
 import { BooksPage } from './Books'
 import { AuthorDetailPage } from '../books/AuthorDetail'
 
-// Readarr B1 books library: a dual-view page. The Authors tab (home) is the
-// server-paginated author grid/table; the Books tab is the flat index of
-// every book across all authors. A–Z jump, the grid/list toggle, and the
-// filter menu come from the shared P1 shell (same contracts as the TV page:
-// `{kind}-card-{id}` grid cells, `{menu}-btn`/`{menu}-opt-{value}` filter
-// options, `aria-label`-only A–Z letter buttons). All data is faked.
+// Readarr B1 books library, re-cast for #150: a dual-view page. The Authors
+// tab (home) is the server-paginated author poster grid (real PosterURL art
+// with an initials stand-in, kind pill, hover edit) or table, with a heading
+// sort cluster (server-side sort) and a slide-over drawer (monitored). The
+// Books tab is the flat index of every book across all authors: its shelf
+// filters (monitored / missing / recent) are client-side and live in the
+// same drawer; the grid renders the whole filtered index (no pagination
+// chrome), the table keeps page slicing. All data is faked.
 vi.mock('../../api/client', () => ({
   client: {
     listAuthors: vi.fn(),
@@ -81,13 +83,13 @@ function pageOf(items: typeof AUTHORS): PageAuthor {
   return { items, total: items.length, page: 1, page_size: 25 }
 }
 
-function renderWithProbe() {
+function renderWithProbe(entry = '/books') {
   function Probe() {
     const location = useLocation()
     return <div data-testid="probe-location">{location.pathname}</div>
   }
   return render(
-    <MemoryRouter initialEntries={['/books']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/books" element={<BooksPage />} />
         <Route
@@ -110,22 +112,86 @@ function renderWithProbe() {
   )
 }
 
-describe('BooksPage (Readarr B1 dual view)', () => {
-  it('shows the Authors grid as the home view', async () => {
+beforeEach(() => {
+  // The per-kind view toggles persist to localStorage; a leak from a
+  // list-view test would put later tests in the table view and hide the grid.
+  localStorage.clear()
+  vi.mocked(client.listAuthors).mockReset()
+  vi.mocked(client.listBooks).mockReset()
+  vi.mocked(client.setAuthorMonitored).mockReset()
+  vi.mocked(client.setTitleMonitored).mockReset()
+})
+
+describe('BooksPage (Readarr B1 dual view, #150 grids)', () => {
+  it('shows the Authors poster grid as the home view', async () => {
     vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
     renderWithProbe()
 
     expect(screen.getByTestId('books-tab-authors')).toHaveAttribute('aria-pressed', 'true')
     const grid = await screen.findByTestId('books-authors-grid')
-    // Card names live in the cell title attribute (poster-grid design, as in TV).
+    // Card names live in the cell title attribute (poster-grid design).
     expect(within(grid).getByTestId('author-card-1')).toHaveAttribute('title', 'Ursula K. Le Guin')
     expect(within(grid).getByTestId('author-card-2')).toHaveAttribute('title', 'K. William Wilson')
-    // The A–Z quick-jump renders with the authors.
-    const az = screen.getByTestId('books-authors-az')
-    expect(within(az).getByLabelText('Jump to U')).toBeInTheDocument()
-    expect(within(az).getByLabelText('Jump to K')).toBeInTheDocument()
+    // The kind pill marks the kind.
+    expect(within(grid).getByTestId('author-card-1')).toHaveTextContent('Author')
     // The flat index is not loaded on the Authors tab.
     expect(vi.mocked(client.listBooks)).not.toHaveBeenCalled()
+  })
+
+  it('sorts the authors server-side (default added-desc) and toggles the direction', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    const user = userEvent.setup()
+    renderWithProbe()
+    await screen.findByTestId('books-authors-grid')
+
+    // Default sort: added descending (a just-added author leads the grid).
+    expect(client.listAuthors).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sort: 'added-desc', page: 1 }),
+    )
+
+    // Flipping the direction keeps the field (added) and sends added-asc.
+    await user.click(screen.getByTestId('books-authors-sort-dir'))
+    await vi.waitFor(() =>
+      expect(client.listAuthors).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: 'added-asc', page: 1 }),
+      ),
+    )
+
+    // Picking a new field keeps the direction (asc) and sends title-asc.
+    await user.click(screen.getByTestId('books-authors-sort-btn'))
+    await user.click(screen.getByTestId('books-authors-sort-opt-title'))
+    await vi.waitFor(() =>
+      expect(client.listAuthors).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: 'title-asc', page: 1 }),
+      ),
+    )
+  })
+
+  it('filters the authors server-side through the drawer monitored facet', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    const user = userEvent.setup()
+    renderWithProbe()
+    await screen.findByTestId('books-authors-grid')
+
+    await user.click(screen.getByTestId('books-filter-btn'))
+    expect(screen.getByTestId('filter-drawer-count')).toHaveTextContent('0 Active Filters')
+    await user.selectOptions(screen.getByTestId('books-facet-monitored'), 'unmonitored')
+
+    await vi.waitFor(() => {
+      const calls = vi.mocked(client.listAuthors).mock.calls
+      const last = calls[calls.length - 1]?.[0]
+      expect(last).toMatchObject({ monitored: false, page: 1 })
+    })
+    expect(screen.getByTestId('books-filter-btn')).toHaveTextContent('1 Active Filter')
+
+    await user.click(screen.getByTestId('filter-drawer-clear'))
+    await vi.waitFor(() => {
+      const calls = vi.mocked(client.listAuthors).mock.calls
+      const last = calls[calls.length - 1]?.[0]
+      expect(last).toBeDefined()
+      expect(last?.monitored).toBeUndefined()
+    })
+    expect(screen.getByTestId('books-filter-btn')).toHaveTextContent('0 Active Filters')
   })
 
   it('switches to the flat Books index and shows every book with its author', async () => {
@@ -137,20 +203,17 @@ describe('BooksPage (Readarr B1 dual view)', () => {
     await user.click(screen.getByTestId('books-tab-books'))
 
     const grid = await screen.findByTestId('books-grid')
-    expect(within(grid).getByTestId('book-card-1')).toBeInTheDocument()
-    expect(within(grid).getByTestId('book-card-2')).toBeInTheDocument()
-    // Titles live in the card title attribute; each card's footer shows its
-    // author name (the flat index is every book of every author).
+    // Titles live in the card title attribute; each card's meta line shows
+    // its author name (the flat index is every book of every author).
     expect(within(grid).getByTestId('book-card-1')).toHaveAttribute('title', 'The Dispossessed')
     expect(within(grid).getByTestId('book-card-2')).toHaveAttribute('title', 'The Memory Police')
-    expect(screen.getAllByText('Ursula K. Le Guin').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('K. William Wilson').length).toBeGreaterThan(0)
-    // "The Dispossessed" jumps under D (leading article skipped, Sonarr-style).
-    const az = screen.getByTestId('books-az')
-    expect(within(az).getByLabelText('Jump to D')).toBeInTheDocument()
+    expect(within(grid).getByTestId('book-card-1')).toHaveTextContent('Ursula K. Le Guin')
+    expect(within(grid).getByTestId('book-card-2')).toHaveTextContent('K. William Wilson')
+    // The kind pill marks the kind.
+    expect(within(grid).getByTestId('book-card-1')).toHaveTextContent('Book')
   })
 
-  it('filters the flat Books index to monitored books', async () => {
+  it('filters the flat Books index to monitored books through the drawer', async () => {
     vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
     vi.mocked(client.listBooks).mockResolvedValue(BOOKS)
     const user = userEvent.setup()
@@ -158,7 +221,7 @@ describe('BooksPage (Readarr B1 dual view)', () => {
 
     await user.click(screen.getByTestId('books-tab-books'))
     await user.click(screen.getByTestId('books-index-filter-btn'))
-    await user.click(screen.getByTestId('books-index-filter-opt-monitored'))
+    await user.selectOptions(screen.getByTestId('books-index-facet-monitored'), 'monitored')
 
     const grid = await screen.findByTestId('books-grid')
     expect(within(grid).getByTestId('book-card-1')).toBeInTheDocument()
@@ -173,11 +236,40 @@ describe('BooksPage (Readarr B1 dual view)', () => {
 
     await user.click(screen.getByTestId('books-tab-books'))
     await user.click(screen.getByTestId('books-index-filter-btn'))
-    await user.click(screen.getByTestId('books-index-filter-opt-unmonitored'))
+    await user.selectOptions(screen.getByTestId('books-index-facet-monitored'), 'unmonitored')
     // K. William Wilson's book is the only unmonitored one.
     const grid = await screen.findByTestId('books-grid')
     expect(within(grid).getByTestId('book-card-2')).toBeInTheDocument()
     expect(within(grid).queryByTestId('book-card-1')).not.toBeInTheDocument()
+  })
+
+  it('pre-sets the missing shelf from the Bookshelves click-through URL', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    vi.mocked(client.listBooks).mockResolvedValue(BOOKS)
+    const user = userEvent.setup()
+    renderWithProbe('/books?tab=books&missing=1')
+
+    // The grid shows only the book without a file (the Readarr B4 "missing"
+    // shelf) and the drawer pre-checks the shelf facet.
+    const grid = await screen.findByTestId('books-grid')
+    expect(within(grid).getByTestId('book-card-2')).toBeInTheDocument()
+    expect(within(grid).queryByTestId('book-card-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('books-index-filter-btn')).toHaveTextContent('1 Active Filter')
+
+    await user.click(screen.getByTestId('books-index-filter-btn'))
+    expect(screen.getByTestId('books-index-facet-shelves-opt-missing')).toBeChecked()
+  })
+
+  it('shows a Missing badge on book cards without a file', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    vi.mocked(client.listBooks).mockResolvedValue(BOOKS)
+    const user = userEvent.setup()
+    renderWithProbe()
+
+    await user.click(screen.getByTestId('books-tab-books'))
+    const grid = await screen.findByTestId('books-grid')
+    expect(within(grid).getByTestId('book-card-2')).toHaveTextContent('Missing')
+    expect(within(grid).getByTestId('book-card-1').querySelector('.badge')).toBeNull()
   })
 
   it('shows the flat index empty state when there are no books', async () => {
@@ -188,7 +280,8 @@ describe('BooksPage (Readarr B1 dual view)', () => {
 
     await user.click(screen.getByTestId('books-tab-books'))
 
-    expect(await screen.findByText('No books')).toBeInTheDocument()
+    expect(await screen.findByText('No results')).toBeInTheDocument()
+    expect(screen.getByText('Add a book to get started.')).toBeInTheDocument()
     expect(screen.getByTestId('books-index-empty-add')).toBeInTheDocument()
   })
 
@@ -206,6 +299,26 @@ describe('BooksPage (Readarr B1 dual view)', () => {
     expect(screen.queryByTestId('books-authors-grid')).not.toBeInTheDocument()
   })
 
+  it('the flat index list view slices rows and keeps per-book monitoring', async () => {
+    vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
+    vi.mocked(client.listBooks).mockResolvedValue(BOOKS)
+    vi.mocked(client.setTitleMonitored).mockResolvedValue({ id: 2, monitored: true })
+    const user = userEvent.setup()
+    renderWithProbe()
+
+    await user.click(screen.getByTestId('books-tab-books'))
+    await user.click(screen.getByTestId('books-index-view-list'))
+
+    const table = await screen.findByTestId('books-index-table')
+    expect(within(table).getByTestId('book-1')).toHaveTextContent('The Dispossessed')
+    expect(within(table).getByTestId('book-2')).toHaveTextContent('The Memory Police')
+    expect(within(table).getByTestId('book-quality-2')).toHaveTextContent('—')
+    expect(within(table).getByTestId('book-status-2')).toHaveTextContent('Missing')
+
+    await user.click(within(table).getByTestId('book-mon-2'))
+    expect(client.setTitleMonitored).toHaveBeenCalledWith(2, true)
+  })
+
   it('navigates to the author detail from an author card', async () => {
     vi.mocked(client.listAuthors).mockResolvedValue(pageOf(AUTHORS))
     const user = userEvent.setup()
@@ -213,7 +326,9 @@ describe('BooksPage (Readarr B1 dual view)', () => {
 
     const grid = await screen.findByTestId('books-authors-grid')
     const card = within(grid).getByTestId('author-card-1')
-    await user.click(within(card).getByRole('button'))
+    // The card cell now carries two buttons (open + hover edit); use the
+    // explicit open control.
+    await user.click(within(card).getByTestId('author-card-1-open'))
 
     expect(screen.getByTestId('probe-location')).toHaveTextContent('/books/1')
   })
@@ -241,7 +356,9 @@ describe('AuthorDetailPage (Readarr B2 Edit Author modal)', () => {
     renderWithProbe()
     const grid = await screen.findByTestId('books-authors-grid')
     const card = within(grid).getByTestId('author-card-1')
-    await user.click(within(card).getByRole('button'))
+    // The card cell now carries two buttons (open + hover edit); use the
+    // explicit open control.
+    await user.click(within(card).getByTestId('author-card-1-open'))
     await user.click(await screen.findByTestId('author-detail-edit'))
     await screen.findByTestId('edit-modal')
   }

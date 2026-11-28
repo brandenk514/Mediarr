@@ -23,6 +23,9 @@ export interface PosterCardProps {
   meta?: string
   /** Status badge rendered over the top-left of the art. */
   status?: { label: string; tone: BadgeTone }
+  /** Kind badge rendered over the bottom-left of the art (#150: the
+   * per-kind grids show the kind pill alongside the status badge). */
+  kind?: { label: string; tone?: BadgeTone }
   onOpen?: () => void
   /** Actions shown over the art on hover / focus. */
   hoverActions?: ReactNode
@@ -43,6 +46,7 @@ export function PosterCard({
   image,
   meta,
   status,
+  kind,
   onOpen,
   hoverActions,
   className,
@@ -74,6 +78,11 @@ export function PosterCard({
           {status && (
             <span className="absolute left-1.5 top-1.5">
               <Badge tone={status.tone}>{status.label}</Badge>
+            </span>
+          )}
+          {kind && (
+            <span className="absolute bottom-1.5 left-1.5">
+              <Badge tone={kind.tone ?? 'neutral'}>{kind.label}</Badge>
             </span>
           )}
         </span>

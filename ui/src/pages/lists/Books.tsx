@@ -5,57 +5,77 @@ import type { Book, ListQuery, PageAuthor } from '../../api/types'
 import { isRecentlyAdded } from '../books/Bookshelves'
 import { AddButton } from '../../components/addflow'
 import {
+  FacetCheckboxGroup,
+  FacetSelect,
+  FilterDrawer,
+  InfiniteSentinel,
+  SortCluster,
+  usePersistentView,
+} from '../../components/gridcontrols'
+import {
   DEFAULT_PAGE_SIZE,
   MonitoredToggle,
   Pagination,
   usePagedList,
+  type MonitoredFilter,
 } from '../../components/list'
-import { PosterGrid, type PosterItem } from '../../components/poster'
-import {
-  EmptyState,
-  Menu,
-  Toolbar,
-  TbButton,
-  ViewToggle,
-  type ViewMode,
-} from '../../components/ui'
+import { PosterCard } from '../../components/primitives/poster-card'
+import { firstLetter } from '../../components/poster'
+import { EmptyState, Toolbar, TbButton, ViewToggle } from '../../components/ui'
 
-// BooksPage is the Readarr B1 books library: a dual-view library.
+// BooksPage is the Readarr-parity books library, re-cast for #150.
 //
 //  - The **Authors** tab (the home view) is the server-side filtered,
-//    paginated author list, rendered as a poster grid (with the A–Z
-//    quick-jump) or a table. An author card opens the author detail page.
+//    paginated author list, rendered as a dense poster grid (real PosterURL
+//    art with an initials stand-in, the kind pill, hover edit action) or a
+//    table. The grid sorts and filters server-side and scrolls without
+//    pagination chrome; the default sort is added-descending so a just-added
+//    author leads the grid. An author card opens the author detail page.
 //  - The **Books** tab is the flat Books index — every book across all
-//    authors — rendered as a poster grid (card = title, footer = author)
-//    or a table (title + author + quality + status + monitor toggle).
+//    authors. The index endpoint returns the whole set (bounded by the
+//    authors' titles) sorted by author then title, so its shelf filters
+//    (monitored / missing / recent) are client-side; they live in the same
+//    slide-over drawer as the server-side facets on the other tabs. The
+//    grid shows the whole filtered index (no pagination chrome); the table
+//    keeps page slicing.
 //
-// Readarr B4: the index tab also hosts the bookshelves shelf filters
-// (Missing = no files, Recent = added in the last 30 days) and reads its
-// initial state from the URL (?tab=books&monitored=…&missing=1&recent=1) so
-// a Bookshelves shelf click lands on the matching filtered view.
-//
-// The P7 toolbar (Update All / RSS Sync / Select / Options + Filter menu)
-// and the shared ViewToggle carry over; "Select" carries the Author/Book
-// Editor mass-edit affordance (disabled until the mass-edit backend lands).
-const FILTER_OPTIONS = [
+// The P7 toolbar (Update All / RSS Sync / Select / Options + view toggle)
+// carries over per tab; buttons without a backend are disabled stubs with a
+// "later phase" title. The Readarr B4 Bookshelves click-through (?tab=books
+// &monitored=…&missing=1&recent=1) lands on the matching drawer facets.
+const MONITORED_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'monitored', label: 'Monitored' },
   { value: 'unmonitored', label: 'Unmonitored' },
-  // Readarr B4 shelf filters (the Bookshelves page mirrors these).
-  { value: 'missing', label: 'Missing' },
-  { value: 'recent', label: 'Recent' },
-] as const
+]
 
-type FilterValue = (typeof FILTER_OPTIONS)[number]['value']
+// The index tab's shelf facets (client-side — the flat index endpoint takes
+// no query params). 'missing' / 'recent' mirror the Bookshelves shelves.
+type ShelfFacet = 'missing' | 'recent'
+
+type FilterValue = 'all' | 'monitored' | 'unmonitored' | 'missing' | 'recent'
 
 // initialFilterFromParams maps the Bookshelves click-through query params to
-// the index tab's filter (missing/recent win over monitored; absent = all).
-function initialFilterFromParams(params: URLSearchParams): FilterValue {
-  if (params.get('missing') === '1') return 'missing'
-  if (params.get('recent') === '1') return 'recent'
-  if (params.get('monitored') === 'monitored') return 'monitored'
-  if (params.get('monitored') === 'unmonitored') return 'unmonitored'
-  return 'all'
+// the index tab's facets (missing/recent win over monitored; absent = all).
+function initialShelfFromParams(params: URLSearchParams): {
+  monitored: MonitoredFilter
+  shelves: ShelfFacet[]
+} {
+  const shelves: ShelfFacet[] = []
+  if (params.get('missing') === '1') shelves.push('missing')
+  if (params.get('recent') === '1') shelves.push('recent')
+  if (shelves.length > 0) return { monitored: 'all', shelves }
+  if (params.get('monitored') === 'monitored') return { monitored: 'monitored', shelves }
+  if (params.get('monitored') === 'unmonitored') return { monitored: 'unmonitored', shelves }
+  return { monitored: 'all', shelves }
+}
+
+// indexFilterFromShelf reduces the drawer state back to a single effective
+// filter for the client-side book predicate (missing/recent win over
+// monitored, matching the legacy menu's behaviour).
+function indexFilterFromShelf(monitored: MonitoredFilter, shelves: ShelfFacet[]): FilterValue {
+  if (shelves.length > 0) return shelves[0]
+  return monitored
 }
 
 export function BooksPage() {
@@ -63,7 +83,7 @@ export function BooksPage() {
   const [tab, setTab] = useState<'authors' | 'books'>(
     searchParams.get('tab') === 'books' ? 'books' : 'authors',
   )
-  const initialFilter = initialFilterFromParams(searchParams)
+  const initialShelf = initialShelfFromParams(searchParams)
 
   return (
     <div className="list-page">
@@ -104,18 +124,40 @@ export function BooksPage() {
       {tab === 'authors' ? (
         <AuthorsView key="authors" />
       ) : (
-        <BooksIndexView key="books" initialFilter={initialFilter} />
+        <BooksIndexView key="books" initialShelf={initialShelf} />
       )}
     </div>
   )
 }
 
-// AuthorsView is the home view: the server-paginated author library in
-// poster-grid or table form.
+// ---- Authors tab (server-paginated author library) ----
+
+type AuthorSortField = 'title' | 'added'
+type AuthorSortDir = 'asc' | 'desc'
+
+// The sort dropdown fields (the direction is the separate toggle). Default
+// is added-descending: a just-added author leads the grid (the e2e probe
+// relies on the freshest author being visible on the first page).
+const AUTHOR_SORT_FIELDS = [
+  { value: 'added', label: 'Added' },
+  { value: 'title', label: 'Name' },
+] as const
+
 function AuthorsView() {
   const navigate = useNavigate()
-  const load = useCallback((q: ListQuery) => client.listAuthors(q), [])
+  const [view, setView] = usePersistentView('books-authors')
+  const [sortField, setSortField] = useState<AuthorSortField>('added')
+  const [sortDir, setSortDir] = useState<AuthorSortDir>('desc')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [status, setStatus] = useState<string | null>(null)
+
+  const sort = `${sortField}-${sortDir}`
+  const load = useCallback(
+    (q: ListQuery) => client.listAuthors({ ...q, sort, filters: {} }),
+    [sort],
+  )
   const {
+    items,
     data,
     loading,
     error,
@@ -123,24 +165,25 @@ function AuthorsView() {
     setMonitored,
     page,
     setPage,
-    total,
+    hasMore,
+    loadMore,
     reload,
-  } = usePagedList<PageAuthor>(load)
+    total,
+  } = usePagedList<PageAuthor>(load, { mode: 'append' })
 
-  const [view, setView] = useState<ViewMode>('grid')
-  const [status, setStatus] = useState<string | null>(null)
+  const activeCount = monitored === 'all' ? 0 : 1
 
-  const items = useMemo(() => (data ? data.items : []), [data])
-
-  const gridItems: PosterItem[] = items.map((a) => ({
-    id: a.ID,
-    name: a.Name,
-    monitored: a.Monitored,
-  }))
+  const gridItems = useMemo(() => items, [items])
+  const listItems = useMemo(() => (data ? data.items : []), [data])
+  const filtered = activeCount > 0
 
   function updateAll() {
     setStatus(`Updated ${total} authors just now`)
     reload()
+  }
+
+  function clearFilters() {
+    setMonitored('all')
   }
 
   return (
@@ -176,15 +219,25 @@ function AuthorsView() {
               disabled
               title="More actions land in a later phase"
             />
-            <ViewToggle view={view} onChange={setView} testId="books-view" />
-            <Menu
-              label="Filter"
-              icon="⚲"
-              options={[...FILTER_OPTIONS]}
-              selected={monitored}
-              onSelect={(v) => setMonitored(v as 'all' | 'monitored' | 'unmonitored')}
-              testId="books-filter"
+            <SortCluster
+              field={sortField}
+              fields={[...AUTHOR_SORT_FIELDS]}
+              dir={sortDir}
+              onDir={setSortDir}
+              onField={(f) => setSortField(f as AuthorSortField)}
+              testId="books-authors"
             />
+            <button
+              type="button"
+              className="menu-btn"
+              onClick={() => setDrawerOpen(true)}
+              aria-haspopup="dialog"
+              data-testid="books-filter-btn"
+            >
+              <span aria-hidden>⚲</span>
+              {activeCount} Active Filter{activeCount === 1 ? '' : 's'}
+            </button>
+            <ViewToggle view={view} onChange={setView} testId="books-view" />
           </>
         }
       />
@@ -194,6 +247,16 @@ function AuthorsView() {
           {status}
         </p>
       )}
+
+      <FilterDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onClear={clearFilters} activeCount={activeCount}>
+        <FacetSelect
+          label="Monitored"
+          value={monitored}
+          options={MONITORED_OPTIONS}
+          onChange={(v) => setMonitored(v as MonitoredFilter)}
+          testId="books-facet-monitored"
+        />
+      </FilterDrawer>
 
       {error && !data ? (
         <div className="card" data-testid="books-error">
@@ -209,23 +272,53 @@ function AuthorsView() {
             <>
               {loading && !data ? (
                 <p className="dim">Loading authors…</p>
-              ) : items.length === 0 ? (
+              ) : gridItems.length === 0 ? (
                 <EmptyState
-                  title="No authors"
-                  message="Add your first author to get started."
+                  title="No results"
+                  message={
+                    filtered
+                      ? 'Try adjusting or clearing your filters.'
+                      : 'Add your first author to get started.'
+                  }
                 >
-                  <Link to="/books/add" data-testid="books-empty-add">
-                    + Add book
-                  </Link>
+                  {!filtered && (
+                    <Link to="/books/add" data-testid="books-empty-add">
+                      + Add book
+                    </Link>
+                  )}
                 </EmptyState>
               ) : (
-                <PosterGrid
-                  items={gridItems}
-                  testIdPrefix="author"
-                  gridTestId="books-authors-grid"
-                  azTestId="books-authors-az"
-                  onOpen={(i) => navigate(`/books/${i.id}`)}
-                />
+                <>
+                  <div className="poster-grid" data-testid="books-authors-grid">
+                    {gridItems.map((a) => (
+                      <div key={a.ID} data-poster-letter={firstLetter(a.Name)}>
+                        <PosterCard
+                          testId={`author-card-${a.ID}`}
+                          title={a.Name}
+                          image={a.PosterURL || undefined}
+                          kind={{ label: 'Author' }}
+                          onOpen={() => navigate(`/books/${a.ID}`)}
+                          hoverActions={
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              title="Edit author"
+                              aria-label={`Edit ${a.Name}`}
+                              data-testid={`card-edit-${a.ID}`}
+                              onClick={() => navigate(`/books/${a.ID}`)}
+                            >
+                              ✎
+                            </button>
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {/* #150: no pagination chrome — the sentinel loads the
+                      next server page as the grid's end scrolls in. */}
+                  <InfiniteSentinel onLoadMore={loadMore} disabled={!hasMore} testId="books-authors-sentinel" />
+                  {hasMore && loading && <p className="dim small">Loading more…</p>}
+                </>
               )}
             </>
           )}
@@ -238,12 +331,12 @@ function AuthorsView() {
               </div>
               {loading && !data ? (
                 <p className="dim">Loading authors…</p>
-              ) : items.length === 0 ? (
+              ) : listItems.length === 0 ? (
                 <p className="dim" data-testid="books-empty">
                   No authors match.
                 </p>
               ) : (
-                items.map((a) => (
+                listItems.map((a) => (
                   <div className="lt-row" key={a.ID} data-testid={`author-${a.ID}`}>
                     <span className="lt-name" title={a.Name}>
                       <Link to={`/books/${a.ID}`} data-testid={`author-link-${a.ID}`}>
@@ -265,24 +358,30 @@ function AuthorsView() {
             </div>
           )}
 
-          <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} total={total} onPage={setPage} />
+          {view === 'list' && (
+            <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} total={total} onPage={setPage} />
+          )}
         </>
       )}
     </>
   )
 }
 
-// BooksIndexView is the flat Books index: every book across all authors,
-// client-filtered (monitored / missing / recent) and paginated (the endpoint
-// returns the whole index; the library is bounded by the authors' titles).
-// initialFilter is the Readarr B4 shelf-filter preset (from the URL).
-function BooksIndexView({ initialFilter }: { initialFilter: FilterValue }) {
+// ---- Books index tab (flat, client-filtered) ----
+
+function BooksIndexView({
+  initialShelf,
+}: {
+  initialShelf: { monitored: MonitoredFilter; shelves: ShelfFacet[] }
+}) {
   const navigate = useNavigate()
   const [books, setBooks] = useState<Book[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<FilterValue>(initialFilter)
-  const [view, setView] = useState<ViewMode>('grid')
+  const [view, setView] = usePersistentView('books-index')
+  const [monitored, setMonitored] = useState<MonitoredFilter>(initialShelf.monitored)
+  const [shelves, setShelves] = useState<ShelfFacet[]>(initialShelf.shelves)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState<string | null>(null)
 
@@ -300,9 +399,15 @@ function BooksIndexView({ initialFilter }: { initialFilter: FilterValue }) {
     load()
   }, [load])
 
+  // The drawer's active count: every set facet.
+  const activeCount = (monitored === 'all' ? 0 : 1) + shelves.length
+  const filtered = activeCount > 0
+
+  // Client-side shelf predicate (the flat index endpoint takes no query
+  // params). missing/recent win over monitored, matching the legacy menu.
   const all = useMemo(() => books ?? [], [books])
-  const filtered = useMemo(() => {
-    switch (filter) {
+  const filteredBooks = useMemo(() => {
+    switch (indexFilterFromShelf(monitored, shelves)) {
       case 'monitored':
         return all.filter((b) => b.Monitored)
       case 'unmonitored':
@@ -316,26 +421,33 @@ function BooksIndexView({ initialFilter }: { initialFilter: FilterValue }) {
       default:
         return all
     }
-  }, [all, filter])
+  }, [all, monitored, shelves])
 
-  const total = filtered.length
+  const total = filteredBooks.length
   const pageCount = Math.max(1, Math.ceil(total / DEFAULT_PAGE_SIZE))
   const clampedPage = Math.min(page, pageCount)
+  // The table slices; the grid renders the whole filtered index (the set is
+  // bounded by the authors' titles, and #150 drops pagination chrome from
+  // the grid).
   const rows = useMemo(
-    () => filtered.slice((clampedPage - 1) * DEFAULT_PAGE_SIZE, clampedPage * DEFAULT_PAGE_SIZE),
-    [filtered, clampedPage],
+    () => filteredBooks.slice((clampedPage - 1) * DEFAULT_PAGE_SIZE, clampedPage * DEFAULT_PAGE_SIZE),
+    [filteredBooks, clampedPage],
   )
-
-  const gridItems: PosterItem[] = rows.map((b) => ({
-    id: b.ID,
-    name: b.Name,
-    monitored: b.Monitored,
-    quality: b.AuthorName,
-  }))
 
   function updateAll() {
     setStatus(`Updated ${total} books just now`)
     load()
+  }
+
+  function clearFilters() {
+    setMonitored('all')
+    setShelves([])
+    setPage(1)
+  }
+
+  function selectShelves(next: ShelfFacet[]) {
+    setShelves(next)
+    setPage(1)
   }
 
   return (
@@ -376,18 +488,17 @@ function BooksIndexView({ initialFilter }: { initialFilter: FilterValue }) {
               disabled
               title="More actions land in a later phase"
             />
+            <button
+              type="button"
+              className="menu-btn"
+              onClick={() => setDrawerOpen(true)}
+              aria-haspopup="dialog"
+              data-testid="books-index-filter-btn"
+            >
+              <span aria-hidden>⚲</span>
+              {activeCount} Active Filter{activeCount === 1 ? '' : 's'}
+            </button>
             <ViewToggle view={view} onChange={setView} testId="books-index-view" />
-            <Menu
-              label="Filter"
-              icon="⚲"
-              options={[...FILTER_OPTIONS]}
-              selected={filter}
-              onSelect={(v) => {
-                setFilter(v as FilterValue)
-                setPage(1)
-              }}
-              testId="books-index-filter"
-            />
           </>
         }
       />
@@ -397,6 +508,29 @@ function BooksIndexView({ initialFilter }: { initialFilter: FilterValue }) {
           {status}
         </p>
       )}
+
+      <FilterDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onClear={clearFilters} activeCount={activeCount}>
+        <FacetSelect
+          label="Monitored"
+          value={monitored}
+          options={MONITORED_OPTIONS}
+          onChange={(v) => {
+            setMonitored(v as MonitoredFilter)
+            setPage(1)
+          }}
+          testId="books-index-facet-monitored"
+        />
+        <FacetCheckboxGroup
+          label="Bookshelves"
+          options={[
+            { value: 'missing', label: 'Missing' },
+            { value: 'recent', label: 'Recent (30 days)' },
+          ]}
+          values={shelves}
+          onToggle={(values) => selectShelves(values as ShelfFacet[])}
+          testId="books-index-facet-shelves"
+        />
+      </FilterDrawer>
 
       {error && !books ? (
         <div className="card" data-testid="books-index-error">
@@ -412,30 +546,51 @@ function BooksIndexView({ initialFilter }: { initialFilter: FilterValue }) {
             <>
               {loading && !books ? (
                 <p className="dim">Loading books…</p>
-              ) : rows.length === 0 ? (
+              ) : filteredBooks.length === 0 ? (
                 <EmptyState
-                  title="No books"
-                  message={filter === 'all' ? 'Add a book to get started.' : 'No books with this filter.'}
+                  title="No results"
+                  message={
+                    filtered
+                      ? 'Try adjusting or clearing your filters.'
+                      : 'Add a book to get started.'
+                  }
                 >
-                  {filter === 'all' && (
+                  {!filtered && (
                     <Link to="/books/add" data-testid="books-index-empty-add">
                       + Add book
                     </Link>
                   )}
                 </EmptyState>
               ) : (
-                <PosterGrid
-                  items={gridItems}
-                  testIdPrefix="book"
-                  gridTestId="books-grid"
-                  azTestId="books-az"
-                  onOpen={(i) => {
-                    // A flat book opens its author's detail (the book lives in
-                    // that author's accordion).
-                    const b = rows.find((x) => x.ID === i.id)
-                    navigate(`/books/${b?.AuthorID ?? i.id}`)
-                  }}
-                />
+                <>
+                  <div className="poster-grid" data-testid="books-grid">
+                    {filteredBooks.map((b) => (
+                      <div key={b.ID} data-poster-letter={firstLetter(b.Name)}>
+                        <PosterCard
+                          testId={`book-card-${b.ID}`}
+                          title={b.Name}
+                          image={b.PosterURL || undefined}
+                          meta={b.AuthorName}
+                          status={b.HasFile ? undefined : { label: 'Missing', tone: 'error' }}
+                          kind={{ label: 'Book' }}
+                          onOpen={() => navigate(`/books/${b.AuthorID}`)}
+                          hoverActions={
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              title="Edit book"
+                              aria-label={`Edit ${b.Name}`}
+                              data-testid={`card-edit-${b.ID}`}
+                              onClick={() => navigate(`/books/${b.AuthorID}`)}
+                            >
+                              ✎
+                            </button>
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </>
           )}
@@ -491,12 +646,14 @@ function BooksIndexView({ initialFilter }: { initialFilter: FilterValue }) {
             </div>
           )}
 
-          <Pagination
-            page={clampedPage}
-            pageSize={DEFAULT_PAGE_SIZE}
-            total={total}
-            onPage={setPage}
-          />
+          {view === 'list' && (
+            <Pagination
+              page={clampedPage}
+              pageSize={DEFAULT_PAGE_SIZE}
+              total={total}
+              onPage={setPage}
+            />
+          )}
         </>
       )}
     </>

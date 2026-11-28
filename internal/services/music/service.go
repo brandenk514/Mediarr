@@ -632,7 +632,32 @@ func (s *Service) ListArtists(ctx context.Context) ([]dom.Artist, error) {
 // ListArtistsQuery returns a server-side filtered and paginated page of
 // artists (M6 #41). The music list view expands an artist to its albums and
 // tracks lazily; the page envelope applies to the artist level.
-func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Artist], error) {
+// ArtistFilters is the #150 filter-drawer facet set for the artists
+// list endpoint: the persisted Lidarr artist fields. The zero value
+// filters nothing.
+type ArtistFilters struct {
+	// Genre is the artist genre (case-insensitive).
+	Genre string
+	// Status is the artist status (continuing / ended / inactive).
+	Status string
+}
+
+// IsZero reports whether no facet is set (the drawer was never opened).
+func (f ArtistFilters) IsZero() bool {
+	return f.Genre == "" && f.Status == ""
+}
+
+func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query, filters ...ArtistFilters) (paging.Page[dom.Artist], error) {
+	// #150: the sort value is validated against the artists allowlist
+	// server-side; unknown field/direction is an error the API maps to
+	// 400.
+	if err := paging.ValidateSort(q.Sort, ArtistSortFields); err != nil {
+		return paging.Page[dom.Artist]{}, err
+	}
+	var f ArtistFilters
+	if len(filters) > 0 {
+		f = filters[0]
+	}
 	all, err := s.deps.Repo.ListArtists(ctx)
 	if err != nil {
 		return paging.Page[dom.Artist]{}, err
@@ -643,9 +668,75 @@ func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.
 	for i := range all {
 		all[i].PosterURL = all[i].Cover
 	}
+	// #150: the facet set filters the full list server-side BEFORE paging.
+	if !f.IsZero() {
+		filtered := make([]dom.Artist, 0, len(all))
+		for _, a := range all {
+			if f.Genre != "" && !strings.EqualFold(a.Genre, f.Genre) {
+				continue
+			}
+			if f.Status != "" && a.Status != f.Status {
+				continue
+			}
+			filtered = append(filtered, a)
+		}
+		all = filtered
+	}
 	return paging.Apply(all, q, func(a dom.Artist) (string, bool) {
 		return a.Name, a.Monitored
-	}, nil), nil
+	}, artistSortCmp(q.Sort)), nil
+}
+
+// ArtistSortFields is the closed server-side allowlist behind the artists
+// ?sort= param (#150): the persisted Lidarr artist fields.
+var ArtistSortFields = []string{"title", "added", "rating"}
+
+// artistSortCmp is the total-order comparator behind the artists ?sort=
+// param (#150); nil keeps the natural (repo) order. Rating 0 (unknown)
+// orders below every known value, so a descending sort sinks unrated
+// artists to the end.
+func artistSortCmp(sort string) func(a, b dom.Artist) int {
+	parts := strings.SplitN(sort, "-", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	field, dir := parts[0], parts[1]
+	switch field {
+	case "title", "added", "rating":
+	default:
+		return nil
+	}
+	desc := dir == "desc"
+	return func(a, b dom.Artist) int {
+		var c int
+		var af, bf float64
+		switch field {
+		case "title":
+			c = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		case "added":
+			c = a.AddedAt.Compare(b.AddedAt)
+		case "rating":
+			af, bf = a.Rating, b.Rating
+			switch {
+			case af < bf:
+				c = -1
+			case af > bf:
+				c = 1
+			}
+		}
+		if c == 0 {
+			switch {
+			case a.ID < b.ID:
+				c = -1
+			case a.ID > b.ID:
+				c = 1
+			}
+		}
+		if desc {
+			c = -c
+		}
+		return c
+	}
 }
 
 // GetArtist loads an artist (used by GET /api/v1/music/{id}).

@@ -28,19 +28,23 @@ type memRepo struct {
 	nextEdition int64
 	files       []dom.MovieFile
 	nextFile    int64
+	// metadataWrites counts SetMovieMetadata calls per movie (the
+	// issue #150 metadata persistence tests).
+	metadataWrites map[int64]int
 }
 
 func newMemRepo() *memRepo {
 	return &memRepo{
-		movies:      map[int64]dom.Movie{},
-		wanted:      map[int64]dom.Wanted{},
-		queue:       map[int64]dom.QueueEntry{},
-		nextMovie:   1,
-		nextQueue:   1,
-		nextHist:    1,
-		editions:    map[int64]dom.Edition{},
-		nextEdition: 1,
-		nextFile:    1,
+		movies:         map[int64]dom.Movie{},
+		wanted:         map[int64]dom.Wanted{},
+		queue:          map[int64]dom.QueueEntry{},
+		nextMovie:      1,
+		nextQueue:      1,
+		nextHist:       1,
+		editions:       map[int64]dom.Edition{},
+		nextEdition:    1,
+		nextFile:       1,
+		metadataWrites: map[int64]int{},
 	}
 }
 
@@ -318,6 +322,35 @@ func (r *memRepo) SetMovieArtwork(ctx context.Context, id int64, posterURL, back
 	}
 	m.PosterURL = posterURL
 	m.BackdropURL = backdropURL
+	r.movies[id] = m
+	return nil
+}
+
+func (r *memRepo) SetMovieMetadata(ctx context.Context, id int64, meta dom.MovieMetadata) error {
+	m, ok := r.movies[id]
+	if !ok {
+		return dom.ErrMovieNotFound
+	}
+	if r.metadataWrites == nil {
+		r.metadataWrites = map[int64]int{}
+	}
+	r.metadataWrites[id]++
+	m.Genres = meta.Genres
+	if meta.Runtime > 0 {
+		rt := meta.Runtime
+		m.Runtime = &rt
+	}
+	if meta.OriginalLanguage != "" {
+		lang := meta.OriginalLanguage
+		m.OriginalLanguage = &lang
+	}
+	if meta.Certification != "" {
+		cert := meta.Certification
+		m.Certification = &cert
+	}
+	if meta.TmdbPct > 0 {
+		m.Scores = &dom.MovieScores{TmdbPct: &meta.TmdbPct}
+	}
 	r.movies[id] = m
 	return nil
 }

@@ -14,8 +14,8 @@ import { E2E_PASSWORD, E2E_USER, signIn } from './login'
 // MusicBrainz and the R2 e2e treats live TMDB.
 //
 // Authors are listed by id (insertion order), so an author created by THIS
-// run is the last card on the last page of the paginated Authors grid — the
-// spec walks there with the pagination control, and additionally verifies
+// run is the last card in the append-mode Authors grid — the spec scrolls
+// until the sentinel has appended every page, and additionally verifies
 // through the API with a separately logged-in request context (the
 // music-l2 ensureProbeArtist pattern).
 
@@ -53,14 +53,22 @@ async function searchBooks(page: Page, term: string): Promise<boolean> {
   return rowsVisible
 }
 
-// The authors grid is paginated 25/page, ordered by id — the freshest
-// author is the last card on the last page. Click Next until it disables.
-async function jumpToLastAuthorsPage(page: Page): Promise<void> {
-  const next = page.getByTestId('page-next')
-  if (!(await next.count())) return
-  for (let i = 0; i < 50 && !(await next.isDisabled()); i++) {
-    await next.click()
-    await page.waitForLoadState('networkidle')
+// The authors grid is append-mode (issue #150): it loads 25 authors per
+// request, id-ordered, and appends the next page as its sentinel scrolls
+// into view. Scroll until the card count settles so the freshest author —
+// the last card — is in the DOM.
+async function loadAllAuthorsPages(page: Page): Promise<void> {
+  const grid = page.getByTestId('books-authors-grid')
+  if (!(await grid.count())) return
+  let lastCount = -1
+  for (let i = 0; i < 100; i++) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    await page.waitForTimeout(400)
+    // The prefix also matches each card's open button and hover overlay —
+    // the count is 3x the card count, but only its stability matters here.
+    const count = await grid.locator('[data-testid^="author-card-"]').count()
+    if (i > 0 && count === lastCount) break
+    lastCount = count
   }
 }
 
@@ -184,7 +192,8 @@ test('add an author with policy, tags, and start search; it lands in the library
   expect(addResponse.status()).toBeLessThan(300)
 
   // It is in the library: the API sees it, and the Authors grid does too —
-  // the grid is ordered by id, so it is the last card on the last page.
+  // the grid is ordered by id, so it is the last card (append mode: scroll
+  // the sentinel until every page is in the DOM).
   const token = await apiToken(request)
   const authors = (await (
     await request.get(`/api/v1/books/authors?q=${encodeURIComponent(PROBE_AUTHOR)}`, {
@@ -194,10 +203,10 @@ test('add an author with policy, tags, and start search; it lands in the library
   expect(authors.items.map((a) => a.Name)).toContain(PROBE_AUTHOR)
 
   await expect(page.getByTestId('books-authors-grid')).toBeVisible()
-  await jumpToLastAuthorsPage(page)
+  await loadAllAuthorsPages(page)
   const card = page
     .getByTestId('books-authors-grid')
-    .locator(`.poster-cell[title="${PROBE_AUTHOR}"]`)
+    .locator(`[title="${PROBE_AUTHOR}"]`)
   await expect(card).toBeVisible()
   await card.click()
   await expect(page).toHaveURL(/\/books\/\d+$/)

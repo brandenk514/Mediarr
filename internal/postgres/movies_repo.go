@@ -108,14 +108,21 @@ func (r *MovieRepo) GetMovie(ctx context.Context, id int64) (*movies.Movie, erro
 		SELECT id, title, year, quality_profile, monitored, added_at,
 		       tags, root_folder, minimum_availability,
 		       collection_id, collection_name, release_date,
-		       poster_url, backdrop_url
+		       poster_url, backdrop_url,
+		       genres, runtime, original_language, certification, tmdb_pct
 		FROM movies WHERE id = $1`, id)
 	m := &movies.Movie{}
 	var collectionName sql.NullString
+	// #150 metadata columns: scanned into zero-is-unknown locals, then
+	// lifted onto the pointer-typed enrichment fields.
+	var runtime int
+	var origLang, cert string
+	var tmdbPct float64
 	err := row.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
 		&m.Tags, &m.RootFolder, &m.MinimumAvailability,
 		&m.CollectionID, &collectionName, &m.ReleaseDate,
-		&m.PosterURL, &m.BackdropURL)
+		&m.PosterURL, &m.BackdropURL,
+		&m.Genres, &runtime, &origLang, &cert, &tmdbPct)
 	if err == sql.ErrNoRows {
 		return nil, movies.ErrMovieNotFound
 	}
@@ -125,6 +132,7 @@ func (r *MovieRepo) GetMovie(ctx context.Context, id int64) (*movies.Movie, erro
 	if collectionName.Valid && collectionName.String != "" {
 		m.CollectionName = &collectionName.String
 	}
+	applyMetadata(m, runtime, origLang, cert, tmdbPct)
 	return m, nil
 }
 
@@ -134,7 +142,8 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 		SELECT id, title, year, quality_profile, monitored, added_at,
 		       tags, root_folder, minimum_availability,
 		       collection_id, collection_name, release_date,
-		       poster_url, backdrop_url
+		       poster_url, backdrop_url,
+		       genres, runtime, original_language, certification, tmdb_pct
 		FROM movies ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("movies: list: %w", err)
@@ -144,18 +153,40 @@ func (r *MovieRepo) ListMovies(ctx context.Context) ([]movies.Movie, error) {
 	for rows.Next() {
 		var m movies.Movie
 		var collectionName sql.NullString
+		var runtime int
+		var origLang, cert string
+		var tmdbPct float64
 		if err := rows.Scan(&m.ID, &m.Title, &m.Year, &m.QualityProfile, &m.Monitored, &m.AddedAt,
 			&m.Tags, &m.RootFolder, &m.MinimumAvailability,
 			&m.CollectionID, &collectionName, &m.ReleaseDate,
-			&m.PosterURL, &m.BackdropURL); err != nil {
+			&m.PosterURL, &m.BackdropURL,
+			&m.Genres, &runtime, &origLang, &cert, &tmdbPct); err != nil {
 			return nil, fmt.Errorf("movies: scan: %w", err)
 		}
 		if collectionName.Valid && collectionName.String != "" {
 			m.CollectionName = &collectionName.String
 		}
+		applyMetadata(&m, runtime, origLang, cert, tmdbPct)
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// applyMetadata lifts the scanned zero-is-unknown #150 metadata columns
+// onto the pointer-typed enrichment fields of the movie.
+func applyMetadata(m *movies.Movie, runtime int, origLang, cert string, tmdbPct float64) {
+	if runtime > 0 {
+		m.Runtime = &runtime
+	}
+	if origLang != "" {
+		m.OriginalLanguage = &origLang
+	}
+	if cert != "" {
+		m.Certification = &cert
+	}
+	if tmdbPct > 0 {
+		m.Scores = &movies.MovieScores{TmdbPct: &tmdbPct}
+	}
 }
 
 // SetMovieMonitored toggles a movie's monitored flag.
@@ -535,6 +566,28 @@ func (r *MovieRepo) SetMovieArtwork(ctx context.Context, id int64, posterURL, ba
 		WHERE id = $1`, id, posterURL, backdropURL)
 	if err != nil {
 		return fmt.Errorf("movies: set artwork: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return movies.ErrMovieNotFound
+	}
+	return nil
+}
+
+// SetMovieMetadata persists the provider metadata the enricher reported
+// (issue #150: genres, runtime, original language, certification, TMDB
+// score), so the list endpoint filters and sorts on it without a per-row
+// provider call. The columns are NOT NULL with empty/zero defaults
+// (migration 0036), so "unknown" is stored as the zero value.
+func (r *MovieRepo) SetMovieMetadata(ctx context.Context, id int64, meta movies.MovieMetadata) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE movies
+		SET genres = $2, runtime = $3, original_language = $4,
+		    certification = $5, tmdb_pct = $6
+		WHERE id = $1`,
+		id, meta.Genres, meta.Runtime, meta.OriginalLanguage,
+		meta.Certification, meta.TmdbPct)
+	if err != nil {
+		return fmt.Errorf("movies: set metadata: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return movies.ErrMovieNotFound

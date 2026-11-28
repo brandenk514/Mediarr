@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -203,10 +204,64 @@ func (s *Service) ListMovies(ctx context.Context) ([]dom.Movie, error) {
 // ?sort= is set the filtered set is ordered before paging, so a sort surfaces
 // rows beyond page 1 of the natural order. No provider enrichment here — that
 // is detail-only, to keep the grid cheap without a TMDB key.
-func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Movie], error) {
+// ListFilters is the #150 filter-drawer facet set for the movies list
+// endpoint, parsed from query params by the API layer. The zero value
+// filters nothing. Unknown (keyless) metadata never matches a set facet
+// — filtering is never an error.
+type ListFilters struct {
+	// Genres matches ANY of the listed genres (case-insensitive; the
+	// drawer's multi-select ORs).
+	Genres []string
+	// Language is the original language ISO code.
+	Language string
+	// RuntimeMin/RuntimeMax bound the runtime in minutes (nil = open).
+	RuntimeMin *int
+	RuntimeMax *int
+	// ScoreMin/ScoreMax bound the TMDB user score 0-100 (nil = open).
+	ScoreMin *float64
+	ScoreMax *float64
+	// Certification is the content rating (e.g. "PG-13").
+	Certification string
+	// ReleaseFrom/ReleaseTo bound the release date "YYYY-MM-DD"
+	// (lexicographic; "" = open).
+	ReleaseFrom string
+	ReleaseTo   string
+	// Status is the derived Radarr status chip value
+	// (e.g. "downloaded:monitored").
+	Status string
+}
+
+// IsZero reports whether no facet is set (the drawer was never opened).
+func (f ListFilters) IsZero() bool {
+	return len(f.Genres) == 0 && f.Language == "" && f.RuntimeMin == nil && f.RuntimeMax == nil &&
+		f.ScoreMin == nil && f.ScoreMax == nil && f.Certification == "" &&
+		f.ReleaseFrom == "" && f.ReleaseTo == "" && f.Status == ""
+}
+
+func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query, filters ...ListFilters) (paging.Page[dom.Movie], error) {
+	// #150: the sort value is validated against the movies allowlist
+	// server-side; unknown field/direction is an error the API maps to
+	// 400, never a silent default.
+	if err := paging.ValidateSort(q.Sort, MovieSortFields); err != nil {
+		return paging.Page[dom.Movie]{}, err
+	}
+	var f ListFilters
+	if len(filters) > 0 {
+		f = filters[0]
+	}
 	all, err := s.deps.Repo.ListMovies(ctx)
 	if err != nil {
 		return paging.Page[dom.Movie]{}, err
+	}
+	// #150: the facet set filters the full list server-side BEFORE
+	// paging, so the grid's totals and pages reflect the drawer. The
+	// status facet needs the derived status, which is computed from the
+	// wanted/queue rows here (the same inputs buildViews derives from).
+	if !f.IsZero() {
+		all, err = s.applyMovieFilters(ctx, all, f)
+		if err != nil {
+			return paging.Page[dom.Movie]{}, err
+		}
 	}
 	page := paging.Apply(all, q, func(m dom.Movie) (string, bool) {
 		return m.Title, m.Monitored
@@ -219,13 +274,117 @@ func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.P
 	return page, nil
 }
 
+// applyMovieFilters narrows the list to the movies matching every set
+// facet (#150). The status facet derives each movie's status from the
+// wanted/queue rows — the same derivation buildViews applies, computed
+// here so the filter runs before paging.
+func (s *Service) applyMovieFilters(ctx context.Context, all []dom.Movie, f ListFilters) ([]dom.Movie, error) {
+	needStatus := f.Status != ""
+	var wantByMovie map[int64]*dom.Wanted
+	var activeQueue map[int64]bool
+	if needStatus {
+		wantedRows, err := s.deps.Repo.ListWanted(ctx)
+		if err != nil {
+			return nil, err
+		}
+		wantByMovie = make(map[int64]*dom.Wanted, len(wantedRows))
+		for i := range wantedRows {
+			wantByMovie[wantedRows[i].MovieID] = &wantedRows[i]
+		}
+		queueRows, err := s.deps.Repo.ListQueue(ctx)
+		if err != nil {
+			return nil, err
+		}
+		activeQueue = map[int64]bool{}
+		for _, q := range queueRows {
+			if q.State == dom.QueueQueued || q.State == dom.QueueDownloading {
+				activeQueue[q.MovieID] = true
+			}
+		}
+	}
+	now := time.Now()
+	out := make([]dom.Movie, 0, len(all))
+	for _, m := range all {
+		if !movieMatchesFilters(m, f, wantByMovie[m.ID] != nil && wantByMovie[m.ID].Status == dom.WantedSatisfied,
+			activeQueue[m.ID], now) {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// movieMatchesFilters reports whether one movie matches every set facet.
+func movieMatchesFilters(m dom.Movie, f ListFilters, wantedSatisfied, inQueue bool, now time.Time) bool {
+	if len(f.Genres) > 0 && !genreMatches(m.Genres, f.Genres) {
+		return false
+	}
+	if f.Language != "" && (m.OriginalLanguage == nil || !strings.EqualFold(*m.OriginalLanguage, f.Language)) {
+		return false
+	}
+	if f.RuntimeMin != nil && (m.Runtime == nil || *m.Runtime < *f.RuntimeMin) {
+		return false
+	}
+	if f.RuntimeMax != nil && (m.Runtime == nil || *m.Runtime > *f.RuntimeMax) {
+		return false
+	}
+	if f.ScoreMin != nil && (m.Scores == nil || m.Scores.TmdbPct == nil || *m.Scores.TmdbPct < *f.ScoreMin) {
+		return false
+	}
+	if f.ScoreMax != nil && (m.Scores == nil || m.Scores.TmdbPct == nil || *m.Scores.TmdbPct > *f.ScoreMax) {
+		return false
+	}
+	if f.Certification != "" && (m.Certification == nil || !strings.EqualFold(*m.Certification, f.Certification)) {
+		return false
+	}
+	if f.ReleaseFrom != "" || f.ReleaseTo != "" {
+		// A bounded release-date range requires a KNOWN date: keyless
+		// rows ("") never match ("" would sort below every from-bound
+		// and past every to-bound).
+		if m.ReleaseDate == "" {
+			return false
+		}
+		if f.ReleaseFrom != "" && m.ReleaseDate < f.ReleaseFrom {
+			return false
+		}
+		if f.ReleaseTo != "" && m.ReleaseDate > f.ReleaseTo {
+			return false
+		}
+	}
+	if f.Status != "" && dom.DeriveMovieStatus(wantedSatisfied, inQueue, m.Monitored, dom.ParseReleaseDate(m.ReleaseDate), now) != dom.MovieStatus(f.Status) {
+		return false
+	}
+	return true
+}
+
+// genreMatches reports whether the movie carries any of the filter
+// genres (case-insensitive).
+func genreMatches(have, want []string) bool {
+	for _, w := range want {
+		for _, h := range have {
+			if strings.EqualFold(h, w) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// MovieSortFields is the closed server-side allowlist behind the movies
+// ?sort= param (#150, the fork's MovieSortOptionsIterable pattern): the
+// Seerr control cluster's Release Date + TMDB Rating on top of the
+// existing title/year/added. Unknown values are rejected with 400, not
+// silently defaulted.
+var MovieSortFields = []string{"title", "year", "added", "release_date", "rating"}
+
 // movieSortCmp builds the total-order comparator behind the ?sort= param
-// (#70). The keys mirror the UI's six grid sort options — title / year /
-// added, each ascending or descending. An empty or unrecognized value returns
-// nil so paging.Apply keeps the natural (insertion) order. Ties break on ID so
-// the ordering is deterministic regardless of the repository's row order; the
-// ID tiebreak is reversed along with the key, matching the previous
-// client-side sort.
+// (#70). The keys mirror the UI's grid sort options — title / year /
+// added, plus the #150 release_date and rating (the persisted provider
+// metadata). An empty or unrecognized value returns nil so paging.Apply
+// keeps the natural (insertion) order (the API rejects unknown values
+// before this point). Ties break on ID so the ordering is deterministic
+// regardless of the repository's row order; the ID tiebreak is reversed
+// along with the key, matching the previous client-side sort.
 func movieSortCmp(sort string) func(a, b dom.Movie) int {
 	parts := strings.SplitN(sort, "-", 2)
 	if len(parts) != 2 {
@@ -233,7 +392,7 @@ func movieSortCmp(sort string) func(a, b dom.Movie) int {
 	}
 	field, dir := parts[0], parts[1]
 	switch field {
-	case "title", "year", "added":
+	case "title", "year", "added", "release_date", "rating":
 	default:
 		return nil
 	}
@@ -247,6 +406,12 @@ func movieSortCmp(sort string) func(a, b dom.Movie) int {
 			c = cmpInt(a.Year, b.Year)
 		case "added":
 			c = cmpTime(a.AddedAt, b.AddedAt)
+		case "release_date":
+			// "YYYY-MM-DD" strings order lexicographically = chronologically;
+			// "" (unknown, keyless) sorts first ascending / last descending.
+			c = strings.Compare(a.ReleaseDate, b.ReleaseDate)
+		case "rating":
+			c = cmpFloatPtr(tmdbPctOf(a), tmdbPctOf(b))
 		}
 		if c == 0 {
 			c = cmpInt64(a.ID, b.ID)
@@ -256,6 +421,15 @@ func movieSortCmp(sort string) func(a, b dom.Movie) int {
 		}
 		return c
 	}
+}
+
+// tmdbPctOf extracts the persisted TMDB user score (0-100); nil when the
+// movie never enriched (keyless dev).
+func tmdbPctOf(m dom.Movie) *float64 {
+	if m.Scores == nil {
+		return nil
+	}
+	return m.Scores.TmdbPct
 }
 
 func cmpInt(a, b int) int {
@@ -285,6 +459,27 @@ func cmpTime(a, b time.Time) int {
 	case a.Before(b):
 		return -1
 	case a.After(b):
+		return 1
+	default:
+		return 0
+	}
+}
+
+// cmpFloatPtr compares two optional floats; nil (unknown) orders below
+// every known value, so an ascending sort lists unknowns first and a
+// descending sort sinks them to the end (the Seerr browse default).
+func cmpFloatPtr(a, b *float64) int {
+	var av, bv float64
+	if a != nil {
+		av = *a
+	}
+	if b != nil {
+		bv = *b
+	}
+	switch {
+	case av < bv:
+		return -1
+	case av > bv:
 		return 1
 	default:
 		return 0
@@ -434,6 +629,7 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 			preID, preName := view.CollectionID, collectionNameOf(view.CollectionName)
 			preRelease := view.ReleaseDate
 			prePoster, preBackdrop := view.PosterURL, view.BackdropURL
+			preMeta := movieMetadataOf(view)
 			_ = s.deps.Enricher.EnrichMovie(ctx, &view) // best effort
 			// Radarr R3: persist the collection the provider reported so
 			// the collections page can group without a live TMDB call.
@@ -453,6 +649,14 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 			if view.PosterURL != prePoster || view.BackdropURL != preBackdrop {
 				_ = s.deps.Repo.SetMovieArtwork(ctx, view.ID, view.PosterURL, view.BackdropURL)
 			}
+			// Issue #150: persist the provider metadata (genres, runtime,
+			// original language, certification, TMDB score) the same way,
+			// so the list endpoint can filter and sort on it. Only write
+			// when the provider reported something new; zero values mean
+			// the provider reported nothing (keyless dev).
+			if postMeta := movieMetadataOf(view); !movieMetadataEqual(preMeta, postMeta) {
+				_ = s.deps.Repo.SetMovieMetadata(ctx, view.ID, postMeta)
+			}
 		}
 		w := wantByMovie[m.ID]
 		view.Status = dom.DeriveMovieStatus(
@@ -465,6 +669,34 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 		out = append(out, view)
 	}
 	return out, nil
+}
+
+// movieMetadataOf snapshots the #150 persisted-metadata fields of a movie
+// (genres, runtime, original language, certification, TMDB score) as the
+// flat zero-is-unknown wire shape the repository stores. The pointer-typed
+// enrichment fields collapse to their zero values when unknown.
+func movieMetadataOf(m dom.Movie) dom.MovieMetadata {
+	meta := dom.MovieMetadata{Genres: m.Genres}
+	if m.Runtime != nil {
+		meta.Runtime = *m.Runtime
+	}
+	if m.OriginalLanguage != nil {
+		meta.OriginalLanguage = *m.OriginalLanguage
+	}
+	if m.Certification != nil {
+		meta.Certification = *m.Certification
+	}
+	if m.Scores != nil && m.Scores.TmdbPct != nil {
+		meta.TmdbPct = *m.Scores.TmdbPct
+	}
+	return meta
+}
+
+// movieMetadataEqual reports whether two metadata snapshots carry the same
+// values — the persist guard that keeps unchanged detail reads from
+// re-writing the metadata row.
+func movieMetadataEqual(a, b dom.MovieMetadata) bool {
+	return reflect.DeepEqual(a, b)
 }
 
 // GetWanted loads a movie's wanted (release) row (used by

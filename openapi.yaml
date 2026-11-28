@@ -257,6 +257,16 @@ paths:
         - $ref: "#/components/parameters/ListPage"
         - $ref: "#/components/parameters/ListPageSize"
         - $ref: "#/components/parameters/MovieListSort"
+        - $ref: "#/components/parameters/MovieListGenre"
+        - $ref: "#/components/parameters/MovieListLang"
+        - $ref: "#/components/parameters/MovieListRuntimeMin"
+        - $ref: "#/components/parameters/MovieListRuntimeMax"
+        - $ref: "#/components/parameters/MovieListScoreMin"
+        - $ref: "#/components/parameters/MovieListScoreMax"
+        - $ref: "#/components/parameters/MovieListCert"
+        - $ref: "#/components/parameters/MovieListFrom"
+        - $ref: "#/components/parameters/MovieListTo"
+        - $ref: "#/components/parameters/MovieListStatus"
       responses:
         "200":
           description: One page of movies.
@@ -264,6 +274,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PageMovie"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -462,6 +474,7 @@ paths:
         - $ref: "#/components/parameters/ListMonitored"
         - $ref: "#/components/parameters/ListPage"
         - $ref: "#/components/parameters/ListPageSize"
+        - $ref: "#/components/parameters/TVListSort"
       responses:
         "200":
           description: One page of series.
@@ -469,6 +482,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PageSeries"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -921,6 +936,9 @@ paths:
         - $ref: "#/components/parameters/ListMonitored"
         - $ref: "#/components/parameters/ListPage"
         - $ref: "#/components/parameters/ListPageSize"
+        - $ref: "#/components/parameters/ArtistListSort"
+        - $ref: "#/components/parameters/MusicListGenre"
+        - $ref: "#/components/parameters/MusicListStatus"
       responses:
         "200":
           description: One page of artists.
@@ -928,6 +946,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PageArtist"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -1395,6 +1415,7 @@ paths:
         - $ref: "#/components/parameters/ListMonitored"
         - $ref: "#/components/parameters/ListPage"
         - $ref: "#/components/parameters/ListPageSize"
+        - $ref: "#/components/parameters/AuthorListSort"
       responses:
         "200":
           description: One page of authors.
@@ -1402,6 +1423,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PageAuthor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -4624,11 +4647,13 @@ components:
       in: query
       required: false
       description: >-
-        Server-side ordering for the Movies grid (#70). One of the six grid
-        sort options — title / year / added, each ascending or descending.
-        Sorting happens before pagination, so a sort surfaces rows that sit
-        beyond page 1 of the natural order. Omit for the natural (insertion)
-        order.
+        Server-side ordering for the Movies grid (#70, #150). One of the
+        grid sort options — title / year / added / release_date / rating,
+        each ascending or descending. Sorting happens before pagination, so
+        a sort surfaces rows that sit beyond page 1 of the natural order.
+        #150: the value is validated against this closed allowlist — an
+        unknown field or direction is a 400, never a silent default.
+        Omit for the natural (insertion) order.
       schema:
         type: string
         enum:
@@ -4638,6 +4663,179 @@ components:
           - year-desc
           - added-asc
           - added-desc
+          - release_date-asc
+          - release_date-desc
+          - rating-asc
+          - rating-desc
+    TVListSort:
+      name: sort
+      in: query
+      required: false
+      description: >-
+        Server-side ordering for the series grid (#150): title / year /
+        added, each ascending or descending, validated against this closed
+        allowlist — an unknown field or direction is a 400. The genre /
+        first-air-date / rating sorts join when the #157 TV metadata
+        enrichment persists them. Omit for the natural order.
+      schema:
+        type: string
+        enum:
+          - title-asc
+          - title-desc
+          - year-asc
+          - year-desc
+          - added-asc
+          - added-desc
+    ArtistListSort:
+      name: sort
+      in: query
+      required: false
+      description: >-
+        Server-side ordering for the artists grid (#150): title / added /
+        rating, each ascending or descending, validated against this
+        closed allowlist — an unknown field or direction is a 400. Omit
+        for the natural order.
+      schema:
+        type: string
+        enum:
+          - title-asc
+          - title-desc
+          - added-asc
+          - added-desc
+          - rating-asc
+          - rating-desc
+    AuthorListSort:
+      name: sort
+      in: query
+      required: false
+      description: >-
+        Server-side ordering for the authors grid (#150): title / added,
+        each ascending or descending, validated against this closed
+        allowlist — an unknown field or direction is a 400. Omit for the
+        natural order.
+      schema:
+        type: string
+        enum:
+          - title-asc
+          - title-desc
+          - added-asc
+          - added-desc
+    MovieListGenre:
+      name: genre
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: match movies carrying ANY of these
+        comma-separated TMDB genres (case-insensitive). Keyless movies
+        (no persisted genres) never match.
+      schema:
+        type: string
+    MovieListLang:
+      name: lang
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the original language ISO code
+        (e.g. "en"). Keyless movies never match.
+      schema:
+        type: string
+    MovieListRuntimeMin:
+      name: runtime_min
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: minimum runtime in minutes (inclusive).
+        A malformed value is a 400.
+      schema:
+        type: integer
+        minimum: 0
+    MovieListRuntimeMax:
+      name: runtime_max
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: maximum runtime in minutes (inclusive).
+        A malformed value is a 400.
+      schema:
+        type: integer
+        minimum: 0
+    MovieListScoreMin:
+      name: score_min
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: minimum TMDB user score 0-100
+        (inclusive). A malformed value is a 400.
+      schema:
+        type: number
+        minimum: 0
+    MovieListScoreMax:
+      name: score_max
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: maximum TMDB user score 0-100
+        (inclusive). A malformed value is a 400.
+      schema:
+        type: number
+        minimum: 0
+    MovieListCert:
+      name: cert
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the content rating / certification
+        (e.g. "PG-13"). Keyless movies never match.
+      schema:
+        type: string
+    MovieListFrom:
+      name: from
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: release-date range start "YYYY-MM-DD"
+        (inclusive). Movies with an unknown release date never match a
+        bounded range. A malformed date is a 400.
+      schema:
+        type: string
+        format: date
+    MovieListTo:
+      name: to
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: release-date range end "YYYY-MM-DD"
+        (inclusive). A malformed date is a 400.
+      schema:
+        type: string
+        format: date
+    MovieListStatus:
+      name: status
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the derived Radarr status chip value
+        (downloaded:monitored, downloaded:unmonitored,
+        missing:monitored, missing:unmonitored, queued, unreleased).
+      schema:
+        type: string
+    MusicListGenre:
+      name: genre
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the artist genre (case-insensitive).
+      schema:
+        type: string
+    MusicListStatus:
+      name: status
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the artist status
+        (continuing / ended / inactive).
+      schema:
+        type: string
     HistoryLimit:
       name: limit
       in: query

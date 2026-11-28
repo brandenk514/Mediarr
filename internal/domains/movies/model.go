@@ -408,4 +408,29 @@ type Repo interface {
 	// PosterURL without a per-row provider call. Best-effort: a failure
 	// must never fail the read that triggered it. ''/'' = keyless/no art.
 	SetMovieArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error
+
+	// SetMovieMetadata persists the provider metadata the enricher
+	// reported (issue #150: genres, runtime, original language,
+	// certification, TMDB score), so the per-kind list endpoint can
+	// filter and sort on them without a per-row provider call.
+	// Best-effort: a failure must never fail the read that triggered
+	// it. Zero values mean the provider reported nothing (keyless dev).
+	SetMovieMetadata(ctx context.Context, id int64, meta MovieMetadata) error
+}
+
+// MovieMetadata is the persisted provider metadata the per-kind grid
+// facets and sorts read (issue #150). It mirrors the enrichment fields
+// the TMDB detail fetch fills on the movie; every field uses the
+// empty/zero-is-unknown convention so keyless dev degrades gracefully.
+type MovieMetadata struct {
+	// Genres are the TMDB genre names; empty = none known.
+	Genres []string
+	// Runtime is the runtime in minutes; 0 = unknown.
+	Runtime int
+	// OriginalLanguage is the ISO language code; "" = unknown.
+	OriginalLanguage string
+	// Certification is the US release rating (e.g. "PG-13"); "" = unknown.
+	Certification string
+	// TmdbPct is the TMDB user score scaled to 0-100; 0 = unknown.
+	TmdbPct float64
 }

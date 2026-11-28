@@ -6,10 +6,13 @@ import { client } from '../../api/client'
 import type { Movie, PageMovie } from '../../api/types'
 import { MoviesPage } from './Movies'
 
-// Radarr R1 movies library: 6-up grid with status ribbons + per-card hover
-// controls (Refresh/Edit), status filter chips, stats bar, and the Radarr
-// toolbar. The P7 list view (Title/Year/Quality/Monitor) and A–Z jump carry
-// over. All data comes from the (faked) API client — no seeded DB.
+// Seerr-style movies library (#150): poster grid by default (art, kind pill,
+// status badge, hover refresh/edit), heading control cluster (explicit sort
+// direction toggle + sort field dropdown + filter button with live active
+// count), a slide-over filter drawer whose facets filter server-side, and
+// the Radarr toolbar/stats bar carried over. The table view stays fully
+// functional behind the persisted view toggle. All data comes from the
+// (faked) API client — no seeded DB.
 vi.mock('../../api/client', () => ({
   client: {
     listMovies: vi.fn(),
@@ -64,7 +67,17 @@ function renderWithProbe() {
   )
 }
 
+// The card cells (not their -open/-actions children) in DOM order.
+function gridCards(grid: Element): HTMLElement[] {
+  return [...grid.querySelectorAll<HTMLElement>('[data-testid]')].filter((el) =>
+    /^movie-card-\d+$/.test(el.dataset.testid ?? ''),
+  )
+}
+
 beforeEach(() => {
+  // The per-kind view toggle persists to localStorage; a leak from the
+  // list-view test would put later tests in the table view and hide the grid.
+  localStorage.clear()
   vi.mocked(client.listMovies).mockReset()
   vi.mocked(client.setMovieMonitored).mockReset()
   vi.mocked(client.getMovie).mockReset()
@@ -83,7 +96,7 @@ afterEach(() => {
 })
 
 describe('MoviesPage', () => {
-  it('renders status ribbons derived from the movie status', async () => {
+  it('renders status badges derived from the movie status', async () => {
     vi.mocked(client.listMovies).mockResolvedValue(
       page([
         movie(1, 'The Big Lebowski', false, 'Lossless', 'missing:unmonitored'),
@@ -94,15 +107,14 @@ describe('MoviesPage', () => {
     renderWithProbe()
 
     expect(await screen.findByTestId('movies-grid')).toBeInTheDocument()
-    // Missing (unmonitored) keeps the legacy "Unmonitored" ribbon; missing
+    // Missing (unmonitored) keeps the legacy "Unmonitored" badge; missing
     // (monitored) shows "Missing"; downloaded shows "Downloaded".
-    expect(screen.getByTestId('ribbon-1')).toHaveTextContent('Unmonitored')
-    expect(screen.getByTestId('ribbon-2')).toHaveTextContent('Missing')
-    expect(screen.getByTestId('ribbon-3')).toHaveTextContent('Downloaded')
-    // Quality profile in the card footer.
-    expect(screen.getByTestId('card-quality-1')).toHaveTextContent('Lossless')
-    // The A–Z quick-jump is present.
-    expect(screen.getByTestId('movies-az')).toBeInTheDocument()
+    expect(screen.getByTestId('movie-card-1')).toHaveTextContent('Unmonitored')
+    expect(screen.getByTestId('movie-card-2')).toHaveTextContent('Missing')
+    expect(screen.getByTestId('movie-card-3')).toHaveTextContent('Downloaded')
+    // The kind pill + quality profile are on the card.
+    expect(screen.getByTestId('movie-card-1')).toHaveTextContent('Movie')
+    expect(screen.getByTestId('movie-card-1')).toHaveTextContent('Lossless')
   })
 
   it('shows the stats bar from the stats endpoint', async () => {
@@ -118,7 +130,7 @@ describe('MoviesPage', () => {
     expect(stats).toBeInTheDocument()
   })
 
-  it('filters the grid client-side with the status chips', async () => {
+  it('filters the grid server-side with the drawer status facet', async () => {
     vi.mocked(client.listMovies).mockResolvedValue(
       page([
         movie(1, 'Alpha', true, 'HD', 'missing:monitored'),
@@ -130,56 +142,76 @@ describe('MoviesPage', () => {
     renderWithProbe()
     await screen.findByTestId('movies-grid')
 
-    await user.click(screen.getByTestId('movies-chip-missing-monitored'))
-    // Only the matching card remains; the chip is toggled active.
-    expect(screen.getByTestId('movie-card-1')).toBeInTheDocument()
-    expect(screen.queryByTestId('movie-card-2')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('movie-card-3')).not.toBeInTheDocument()
-    // The filter is client-side: no extra list request.
-    expect(client.listMovies).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByTestId('movies-filter-btn'))
+    expect(screen.getByTestId('filter-drawer-count')).toHaveTextContent('0 Active Filters')
+    await user.selectOptions(screen.getByTestId('movies-facet-status'), 'missing:monitored')
 
-    // Clicking the chip again clears the filter.
-    await user.click(screen.getByTestId('movies-chip-missing-monitored'))
-    expect(await screen.findByTestId('movie-card-2')).toBeInTheDocument()
+    // The facet is a server-side filter: a new list request carries the
+    // status param (and the current sort), back on page 1.
+    await vi.waitFor(() =>
+      expect(client.listMovies).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          page: 1,
+          sort: 'title-asc',
+          filters: expect.objectContaining({ status: 'missing:monitored' }),
+        }),
+      ),
+    )
+    // The heading button reflects the active count (pluralized).
+    expect(screen.getByTestId('movies-filter-btn')).toHaveTextContent('1 Active Filter')
+
+    // Clear Active Filters resets the facet and refetches unfiltered.
+    await user.click(screen.getByTestId('filter-drawer-clear'))
+    await vi.waitFor(() =>
+      expect(client.listMovies).toHaveBeenLastCalledWith(
+        expect.objectContaining({ filters: expect.objectContaining({ status: '' }) }),
+      ),
+    )
+    expect(screen.getByTestId('movies-filter-btn')).toHaveTextContent('0 Active Filters')
   })
 
-  it('shows a filtered empty state when the chip matches nothing', async () => {
-    vi.mocked(client.listMovies).mockResolvedValue(page([movie(1, 'A', true, 'HD', 'queued')]))
+  it('shows a filtered empty state when the facet matches nothing', async () => {
+    // First request: the unfiltered page. Second request (after the genre
+    // facet): the server has nothing.
+    vi.mocked(client.listMovies)
+      .mockResolvedValueOnce(page([movie(1, 'A', true, 'HD', 'queued')]))
+      .mockResolvedValue(page([]))
     const user = userEvent.setup()
     renderWithProbe()
     await screen.findByTestId('movies-grid')
 
-    await user.click(screen.getByTestId('movies-chip-unreleased'))
-    expect(await screen.findByText('No movies with this status')).toBeInTheDocument()
-    expect(screen.queryByTestId('movies-grid')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('movies-filter-btn'))
+    await user.click(screen.getByTestId('movies-facet-genres-opt-Western'))
+
+    expect(await screen.findByText('No results')).toBeInTheDocument()
+    expect(screen.getByText('Try adjusting or clearing your filters.')).toBeInTheDocument()
+    // A filtered-out list offers no add shortcut (that's for a truly empty
+    // library).
+    expect(screen.queryByTestId('movies-empty-add')).not.toBeInTheDocument()
   })
 
   it('refreshes a single movie through the card hover control', async () => {
     vi.mocked(client.listMovies).mockResolvedValue(
       page([movie(1, 'Inception', true, 'HD', 'missing:monitored')]),
     )
-    vi.mocked(client.getMovie).mockResolvedValue(
-      movie(1, 'Inception', true, 'HD', 'downloaded:monitored'),
-    )
+    vi.mocked(client.getMovie).mockResolvedValue(movie(1, 'Inception', true, 'HD', 'downloaded:monitored'))
     const user = userEvent.setup()
     renderWithProbe()
     await screen.findByTestId('card-refresh-1')
 
     await user.click(screen.getByTestId('card-refresh-1'))
     expect(client.getMovie).toHaveBeenCalledWith(1)
-    // The ribbon reflects the refreshed status.
-    expect(await screen.findByTestId('ribbon-1')).toHaveTextContent('Downloaded')
+    // The badge reflects the refreshed status.
+    await vi.waitFor(() => expect(screen.getByTestId('movie-card-1')).toHaveTextContent('Downloaded'))
   })
 
   it('navigates to the movie detail page when a card is clicked', async () => {
     vi.mocked(client.listMovies).mockResolvedValue(page([movie(3, 'Dune')]))
     const user = userEvent.setup()
-    renderWithProbe()
 
-    await screen.findByTestId('movie-card-3')
-    // The card itself is a button inside the cell.
-    const card = (screen.getByTestId('movie-card-3') as HTMLElement).querySelector('button')!
-    await user.click(card)
+    renderWithProbe()
+    // The card body is a button inside the cell.
+    await user.click(await screen.findByTestId('movie-card-3-open'))
     expect(await screen.findByTestId('probe-location')).toHaveTextContent('/movies/3')
   })
 
@@ -208,47 +240,55 @@ describe('MoviesPage', () => {
     expect(client.listMovies).toHaveBeenCalledTimes(2)
   })
 
-  it('sorts server-side via the sort query param, not client-side (#70)', async () => {
+  it('sorts server-side: the direction toggle flips order without changing the field', async () => {
     // The (mocked) server returns items in its own (natural) order — Alpha
     // before Zulu. With server-side sorting the UI must NOT re-sort the
     // fetched page: it sends the sort to the server and renders whatever
-    // order the server returns. A leftover client-side title-desc sort would
-    // have flipped these two, so the grid order below proves no client sort.
-    vi.mocked(client.listMovies).mockResolvedValue(
-      page([movie(1, 'Alpha'), movie(2, 'Zulu')]),
-    )
+    // order the server returns. A leftover client-side sort would have
+    // flipped these two, so the grid order below proves no client sort.
+    vi.mocked(client.listMovies).mockResolvedValue(page([movie(1, 'Alpha'), movie(2, 'Zulu')]))
     const user = userEvent.setup()
     renderWithProbe()
     await screen.findByTestId('movies-grid')
 
-    await user.click(screen.getByTestId('movies-sort-btn'))
-    await user.click(screen.getByTestId('movies-sort-opt-title-desc'))
+    // Default sort: title ascending.
+    expect(client.listMovies).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sort: 'title-asc', page: 1 }),
+    )
 
-    // Picking a sort is now a server-side request: listMovies is called again
-    // with the sort param and the page reset to 1, so a row that sat beyond
-    // page 1 of the previous ordering can surface (the #70 bug).
+    // Flipping the direction keeps the field (title) and sends title-desc.
+    await user.click(screen.getByTestId('movies-sort-dir'))
     await vi.waitFor(() =>
       expect(client.listMovies).toHaveBeenLastCalledWith(
         expect.objectContaining({ sort: 'title-desc', page: 1 }),
       ),
     )
 
+    // Picking a new field keeps the direction (desc) and sends it server-side.
+    await user.click(screen.getByTestId('movies-sort-btn'))
+    await user.click(screen.getByTestId('movies-sort-opt-release_date'))
+    await vi.waitFor(() =>
+      expect(client.listMovies).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: 'release_date-desc', page: 1 }),
+      ),
+    )
+
     // The grid renders the server's order (Alpha, Zulu) — untouched by the
     // client.
     const grid = await screen.findByTestId('movies-grid')
-    const titles = [...grid.querySelectorAll('.poster-cell')].map((c) => c.getAttribute('title'))
-    expect(titles).toEqual(['Alpha (2021)', 'Zulu (2022)'])
+    const titles = gridCards(grid).map((c) => c.getAttribute('title'))
+    expect(titles).toEqual(['Alpha', 'Zulu'])
   })
 
-  it('filters by monitored through the Filter menu', async () => {
+  it('filters by monitored through the drawer facet', async () => {
     vi.mocked(client.listMovies).mockResolvedValue(page([movie(1, 'A', true), movie(2, 'B', false)]))
     const user = userEvent.setup()
     renderWithProbe()
     await screen.findByTestId('movies-grid')
 
     await user.click(screen.getByTestId('movies-filter-btn'))
-    await user.click(screen.getByTestId('movies-filter-opt-unmonitored'))
-    // 'unmonitored' maps to a server-side monitored=false query.
+    await user.selectOptions(screen.getByTestId('movies-facet-monitored'), 'unmonitored')
+    // 'unmonitored' maps to a server-side monitored=false query, page reset.
     await vi.waitFor(() =>
       expect(client.listMovies).toHaveBeenLastCalledWith(
         expect.objectContaining({ monitored: false, page: 1 }),
@@ -259,7 +299,8 @@ describe('MoviesPage', () => {
   it('shows the empty state with an add shortcut when there are no movies', async () => {
     vi.mocked(client.listMovies).mockResolvedValue(page([]))
     renderWithProbe()
-    expect(await screen.findByText('No movies')).toBeInTheDocument()
+    expect(await screen.findByText('No results')).toBeInTheDocument()
+    expect(screen.getByText('Add your first movie to get started.')).toBeInTheDocument()
     expect(screen.getByTestId('movies-empty-add')).toHaveAttribute('href', '/movies/add')
   })
 
