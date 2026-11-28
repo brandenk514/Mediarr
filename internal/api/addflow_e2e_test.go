@@ -241,6 +241,34 @@ func (r *memTVRepo) SetSeriesArtwork(ctx context.Context, id int64, posterURL, b
 	return nil
 }
 
+// SetSeriesMetadata satisfies the #157 persistence surface (the add-flow
+// tests do not exercise it).
+func (r *memTVRepo) SetSeriesMetadata(ctx context.Context, id int64, meta tvdom.SeriesMetadata) error {
+	s, ok := r.series[id]
+	if !ok {
+		return tvdom.ErrSeriesNotFound
+	}
+	s.Genres = meta.Genres
+	s.Keywords = meta.Keywords
+	if meta.OriginalLanguage != "" {
+		s.OriginalLanguage = &meta.OriginalLanguage
+	}
+	if meta.Status != "" {
+		s.Status = &meta.Status
+	}
+	if meta.Network != "" {
+		s.Network = &meta.Network
+	}
+	s.FirstAirDate = meta.FirstAirDate
+	s.ProductionCountries = meta.ProductionCountries
+	if meta.TmdbPct > 0 {
+		pct := meta.TmdbPct
+		s.Scores = &tvdom.SeriesScores{TmdbPct: &pct}
+	}
+	r.series[id] = s
+	return nil
+}
+
 func (r *memTVRepo) CreateSeries(ctx context.Context, s tvdom.Series) (int64, error) {
 	id := r.nextID
 	r.nextID++

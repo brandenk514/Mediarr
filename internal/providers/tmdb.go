@@ -117,13 +117,6 @@ const (
 	tmdbBackdropBase = "https://image.tmdb.org/t/p/w1280"
 )
 
-// SeriesArtwork is a series' TMDB image paths (issue #149): the raw
-// /movie-style paths ("/abc.jpg") the tv service folds into wire URLs.
-type SeriesArtwork struct {
-	PosterPath   string
-	BackdropPath string
-}
-
 // TMDBPosterURL builds the absolute upstream poster URL from a TMDB image
 // path. "" in, "" out.
 func TMDBPosterURL(path string) string {
@@ -140,25 +133,6 @@ func TMDBBackdropURL(path string) string {
 		return ""
 	}
 	return tmdbBackdropBase + path
-}
-
-// GetSeriesArtwork fetches one series' poster/backdrop image paths by TMDB
-// id (issue #149): the raw /tv/{id} payload's poster_path / backdrop_path.
-// An unset API key returns ErrNotConfigured; other upstream failures
-// propagate (the caller degrades to "" — artwork never fails the read).
-func (t *TMDB) GetSeriesArtwork(ctx context.Context, tmdbID string) (*SeriesArtwork, error) {
-	if t.AuthHeader == "" {
-		return nil, ErrNotConfigured
-	}
-	t.Base = t.baseURL()
-	var resp struct {
-		PosterPath   string `json:"poster_path"`
-		BackdropPath string `json:"backdrop_path"`
-	}
-	if err := t.getJSON(ctx, "/tv/"+tmdbID, nil, &resp); err != nil {
-		return nil, err
-	}
-	return &SeriesArtwork{PosterPath: resp.PosterPath, BackdropPath: resp.BackdropPath}, nil
 }
 
 // GetMovieDetail fetches the TMDB detail for a movie by TMDB id, including
@@ -667,4 +641,171 @@ func (t *TMDB) GetCollectionParts(ctx context.Context, collectionID string) ([]C
 		out = append(out, CollectionPart{ID: strconv.Itoa(p.ID), Title: p.Title, Year: year})
 	}
 	return out, nil
+}
+
+// SeriesDetail is the provider-neutral TV series detail payload used for
+// display enrichment (issue #157). It mirrors MovieDetail: one flat
+// struct the service maps onto the wire, every field empty when TMDB has
+// no data (keyless dev degrades to zero values, never an error).
+type SeriesDetail struct {
+	TmdbID           string
+	Overview         string
+	OriginalLanguage string // ISO code ("en"); "" when unknown
+	VoteAverage      float64
+	VoteCount        int
+	FirstAirDate     string // "YYYY-MM-DD"; "" when unknown
+	Status           string // e.g. "Ended"; "" when unknown
+	Network          string // first network; "" when unknown
+	// External id mappings (issue #157): ids, never ratings — TMDB does
+	// not serve IMDb/Trakt scores, so the UI can link out but cannot
+	// invent a score.
+	ImdbID     string
+	TraktID    string
+	TrailerURL string // top YouTube trailer; "" when the payload has none
+	// Artwork: raw TMDB image paths (the inputs to TMDBPosterURL /
+	// TMDBBackdropURL). "" when TMDB has no art.
+	PosterPath          string
+	BackdropPath        string
+	Genres              []string
+	Keywords            []string
+	ProductionCountries []string
+	// Cast is the full plain-credits cast list (blank-named credits
+	// skipped); Crew the full plain-credits crew (no job filter — #152
+	// renders the whole list behind "View Full Crew").
+	Cast []CastCredit
+	Crew []CrewCredit
+}
+
+// GetSeriesDetail fetches one series' TMDB detail payload by TMDB id
+// (issue #157: overview, genres, keywords, scores, credits, network,
+// first air date, status, language, production countries, trailer,
+// artwork paths). It requests the exact reference append set — the
+// fork's TV_DETAILS_APPEND_TO_RESPONSE (server/api/themoviedb/
+// index.ts:147) — so the response carries aggregate_credits + credits
+// (crew/cast), external_ids (IMDb/Trakt id mapping), keywords (topic
+// tags), videos (trailer), content_ratings, and watch/providers. The
+// streaming-availability data (watch/providers) is deliberately not
+// mapped: issue #157 excludes "Currently Streaming On". An unset API key
+// returns ErrNotConfigured; callers on a keyless stack degrade to empty
+// fields (enrichment never fails the read).
+func (t *TMDB) GetSeriesDetail(ctx context.Context, tmdbID string) (*SeriesDetail, error) {
+	tmdbID = strings.TrimSpace(tmdbID)
+	if tmdbID == "" {
+		return nil, errors.New("providers: tmdb id required")
+	}
+	if t.AuthHeader == "" {
+		return nil, ErrNotConfigured
+	}
+	t.Base = t.baseURL()
+	values := url.Values{}
+	values.Set("append_to_response", "aggregate_credits,credits,external_ids,keywords,videos,content_ratings,watch/providers")
+	var resp struct {
+		Overview         string  `json:"overview"`
+		OriginalLanguage string  `json:"original_language"`
+		VoteAverage      float64 `json:"vote_average"`
+		VoteCount        int     `json:"vote_count"`
+		FirstAirDate     string  `json:"first_air_date"`
+		Status           string  `json:"status"`
+		PosterPath       string  `json:"poster_path"`
+		BackdropPath     string  `json:"backdrop_path"`
+		Networks         []struct {
+			Name string `json:"name"`
+		} `json:"networks"`
+		ProductionCountries []struct {
+			Iso  string `json:"iso_3166_1"`
+			Name string `json:"name"`
+		} `json:"production_countries"`
+		Genres []struct {
+			Name string `json:"name"`
+		} `json:"genres"`
+		Keywords struct {
+			Results []struct {
+				Name string `json:"name"`
+			} `json:"results"`
+		} `json:"keywords"`
+		Credits struct {
+			Cast []struct {
+				Name      string `json:"name"`
+				Character string `json:"character"`
+			} `json:"cast"`
+			Crew []struct {
+				Name string `json:"name"`
+				Job  string `json:"job"`
+			} `json:"crew"`
+		} `json:"credits"`
+		Videos []struct {
+			Key  string `json:"key"`
+			Site string `json:"site"`
+			Type string `json:"type"`
+		} `json:"videos"`
+		ExternalIDs struct {
+			ImdbID string `json:"imdb_id"`
+			Trakt  int    `json:"trakt"`
+		} `json:"external_ids"`
+	}
+	if err := t.getJSON(ctx, "/tv/"+tmdbID, values, &resp); err != nil {
+		return nil, err
+	}
+
+	d := &SeriesDetail{
+		TmdbID:           tmdbID,
+		Overview:         resp.Overview,
+		OriginalLanguage: resp.OriginalLanguage,
+		VoteAverage:      resp.VoteAverage,
+		VoteCount:        resp.VoteCount,
+		FirstAirDate:     resp.FirstAirDate,
+		Status:           resp.Status,
+		PosterPath:       resp.PosterPath,
+		BackdropPath:     resp.BackdropPath,
+	}
+	if len(resp.Networks) > 0 {
+		d.Network = resp.Networks[0].Name
+	}
+	if len(resp.ProductionCountries) > 0 {
+		d.ProductionCountries = make([]string, 0, len(resp.ProductionCountries))
+		for _, c := range resp.ProductionCountries {
+			if c.Name != "" {
+				d.ProductionCountries = append(d.ProductionCountries, c.Name)
+			}
+		}
+	}
+	if len(resp.Genres) > 0 {
+		d.Genres = make([]string, 0, len(resp.Genres))
+		for _, g := range resp.Genres {
+			d.Genres = append(d.Genres, g.Name)
+		}
+	}
+	if len(resp.Keywords.Results) > 0 {
+		d.Keywords = make([]string, 0, len(resp.Keywords.Results))
+		for _, k := range resp.Keywords.Results {
+			d.Keywords = append(d.Keywords, k.Name)
+		}
+	}
+	// The plain credits[] lists are the display source (the reference
+	// renders them); the aggregate_credits payload rides along for parity.
+	for _, c := range resp.Credits.Cast {
+		if c.Name == "" {
+			continue
+		}
+		d.Cast = append(d.Cast, CastCredit{Name: c.Name, Role: c.Character})
+	}
+	for _, c := range resp.Credits.Crew {
+		if c.Name == "" {
+			continue
+		}
+		d.Crew = append(d.Crew, CrewCredit{Name: c.Name, Job: c.Job})
+	}
+	// Top trailer: the first YouTube video of type Trailer.
+	for _, v := range resp.Videos {
+		if v.Site == "YouTube" && v.Type == "Trailer" && v.Key != "" {
+			d.TrailerURL = "https://www.youtube.com/watch?v=" + v.Key
+			break
+		}
+	}
+	// External id mappings (ids, never ratings).
+	d.ImdbID = resp.ExternalIDs.ImdbID
+	if resp.ExternalIDs.Trakt > 0 {
+		d.TraktID = strconv.Itoa(resp.ExternalIDs.Trakt)
+	}
+	return d, nil
 }

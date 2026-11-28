@@ -68,11 +68,15 @@ type Deps struct {
 	// Metrics, when non-nil, observes pipeline runs and imports (M7 #46).
 	// Nil-safe: the pipeline runs identically without it.
 	Metrics *metrics.Metrics
-	// Artwork, when non-nil, fills the series' PosterURL/BackdropURL wire
-	// fields (issue #149) on the detail read and the paged list. It is the
-	// keyed TMDB adapter in production; nil (no TMDB key) leaves the
-	// fields "" (R3 keyless convention).
-	Artwork Artworker
+	// Detailer, when non-nil, fills the series' enrichment wire fields
+	// (issue #157: overview, genres, keywords, scores, crew, cast,
+	// network, first air, status, language, production countries — the
+	// PosterURL/BackdropURL artwork comes in the same detail call) on the
+	// detail read and persists what the provider reported so list reads
+	// serve it without a per-row provider call (the #149/#150 house
+	// pattern). It is the keyed TMDB adapter in production; nil (no TMDB
+	// key) leaves the fields empty/nil (R3 keyless convention).
+	Detailer SeriesDetailer
 }
 
 // Service implements the TV use-cases.
@@ -180,7 +184,16 @@ func (s *Service) AddEpisode(ctx context.Context, seriesID int64, season, episod
 
 // ListSeries returns all series (used by GET /api/v1/tv).
 func (s *Service) ListSeries(ctx context.Context) ([]dom.Series, error) {
-	return s.deps.Repo.ListSeries(ctx)
+	all, err := s.deps.Repo.ListSeries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Arrays serialize as [] on the wire, never null (the OpenAPI
+	// contract) — keyless included.
+	for i := range all {
+		normalizeSeriesArrays(&all[i])
+	}
+	return all, nil
 }
 
 // ListSeriesQuery returns a server-side filtered and paginated page of series
@@ -197,6 +210,11 @@ func (s *Service) ListSeriesQuery(ctx context.Context, q paging.Query) (paging.P
 	all, err := s.deps.Repo.ListSeries(ctx)
 	if err != nil {
 		return paging.Page[dom.Series]{}, err
+	}
+	// Arrays serialize as [] on the wire, never null (the OpenAPI
+	// contract) — keyless included.
+	for i := range all {
+		normalizeSeriesArrays(&all[i])
 	}
 	return paging.Apply(all, q, func(se dom.Series) (string, bool) {
 		return se.Title, se.Monitored
@@ -270,16 +288,25 @@ func (s *Service) GetSeries(ctx context.Context, id int64) (*dom.Series, error) 
 	if err != nil {
 		return nil, err
 	}
-	// Issue #149 Stage A: fill the artwork wire fields on the detail read
-	// and persist what the provider reported so list reads serve
-	// PosterURL without a per-row provider call. Nil Artwork (keyless)
-	// leaves the persisted/empty values as-is; a persistence failure never
-	// fails the read.
-	if s.deps.Artwork != nil {
+	// Arrays serialize as [] on the wire, never null (the OpenAPI
+	// contract) — keyless included.
+	normalizeSeriesArrays(series)
+	// Issue #157: fill the enrichment wire fields (artwork + metadata)
+	// on the detail read from one TMDB detail fetch and persist what the
+	// provider reported so list reads serve it without a per-row
+	// provider call (the #149/#150 house pattern). Nil Detailer (keyless)
+	// leaves the persisted/empty values as-is; a persistence failure
+	// never fails the read.
+	if s.deps.Detailer != nil {
 		prePoster, preBackdrop := series.PosterURL, series.BackdropURL
-		enrichSeriesArtwork(ctx, s.deps.Artwork, series)
+		preMeta := seriesMetadataOf(*series)
+		enrichSeriesDetail(ctx, s.deps.Detailer, series)
+		normalizeSeriesArrays(series)
 		if series.PosterURL != prePoster || series.BackdropURL != preBackdrop {
 			_ = s.deps.Repo.SetSeriesArtwork(ctx, series.ID, series.PosterURL, series.BackdropURL)
+		}
+		if post := seriesMetadataOf(*series); !seriesMetadataEqual(preMeta, post) {
+			_ = s.deps.Repo.SetSeriesMetadata(ctx, series.ID, post)
 		}
 	}
 	return series, nil

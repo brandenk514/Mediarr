@@ -90,6 +90,34 @@ func (r *memRepo) SetSeriesArtwork(ctx context.Context, id int64, posterURL, bac
 	return nil
 }
 
+// SetSeriesMetadata satisfies the #157 persistence surface: it merges the
+// reported metadata into the stored series (zero values = unknown).
+func (r *memRepo) SetSeriesMetadata(ctx context.Context, id int64, meta dom.SeriesMetadata) error {
+	s, ok := r.series[id]
+	if !ok {
+		return dom.ErrSeriesNotFound
+	}
+	s.Genres = meta.Genres
+	s.Keywords = meta.Keywords
+	if meta.OriginalLanguage != "" {
+		s.OriginalLanguage = &meta.OriginalLanguage
+	}
+	if meta.Status != "" {
+		s.Status = &meta.Status
+	}
+	if meta.Network != "" {
+		s.Network = &meta.Network
+	}
+	s.FirstAirDate = meta.FirstAirDate
+	s.ProductionCountries = meta.ProductionCountries
+	if meta.TmdbPct > 0 {
+		pct := meta.TmdbPct
+		s.Scores = &dom.SeriesScores{TmdbPct: &pct}
+	}
+	r.series[id] = s
+	return nil
+}
+
 func (r *memRepo) SetSeriesMonitored(ctx context.Context, id int64, monitored bool) error {
 	s, ok := r.series[id]
 	if !ok {
