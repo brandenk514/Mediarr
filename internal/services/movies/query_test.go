@@ -178,17 +178,6 @@ func TestListMoviesQuery_ServerSideSort(t *testing.T) {
 	}
 }
 
-// TestListMoviesQuery_UnknownSortKeepsNaturalOrder pins that an unrecognized
-// ?sort= value does not 500 or reorder — it keeps the natural order.
-func TestListMoviesQuery_UnknownSortKeepsNaturalOrder(t *testing.T) {
-	svc, repo := newQueryService(t)
-	seedMovies(repo, "Dune", "Inception")
-
-	page, err := svc.ListMoviesQuery(context.Background(), paging.Query{Sort: "banana-desc", Page: 1, PageSize: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if page.Total != 2 || len(page.Items) != 2 {
-		t.Errorf("unknown sort => total=%d len=%d, want 2/2", page.Total, len(page.Items))
-	}
-}
+// TestListMoviesQuery_UnknownSortRejected now lives in sort_150_test.go
+// (issue #150): an unrecognized ?sort= value is rejected with
+// paging.ErrInvalidSort instead of silently keeping the natural order.

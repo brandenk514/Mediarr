@@ -187,13 +187,81 @@ func (s *Service) ListSeries(ctx context.Context) ([]dom.Series, error) {
 // (M6 #41). The TV list view expands a series to its episodes lazily; the
 // page envelope applies to the series level.
 func (s *Service) ListSeriesQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Series], error) {
+	// #150: the sort value is validated against the series allowlist
+	// server-side; unknown field/direction is an error the API maps to
+	// 400. Until the #157 TV metadata enrichment lands the allowlist is
+	// title/year/added — the fields the series row persists.
+	if err := paging.ValidateSort(q.Sort, SeriesSortFields); err != nil {
+		return paging.Page[dom.Series]{}, err
+	}
 	all, err := s.deps.Repo.ListSeries(ctx)
 	if err != nil {
 		return paging.Page[dom.Series]{}, err
 	}
 	return paging.Apply(all, q, func(se dom.Series) (string, bool) {
 		return se.Title, se.Monitored
-	}, nil), nil
+	}, seriesSortCmp(q.Sort)), nil
+}
+
+// SeriesSortFields is the closed server-side allowlist behind the series
+// ?sort= param (#150). The genre/first-air-date/rating sorts join when
+// the #157 metadata enrichment persists them.
+var SeriesSortFields = []string{"title", "year", "added"}
+
+// seriesSortCmp is the total-order comparator behind the series ?sort=
+// param (#150); nil keeps the natural (repo) order.
+func seriesSortCmp(sort string) func(a, b dom.Series) int {
+	parts := strings.SplitN(sort, "-", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	field, dir := parts[0], parts[1]
+	switch field {
+	case "title", "year", "added":
+	default:
+		return nil
+	}
+	desc := dir == "desc"
+	return func(a, b dom.Series) int {
+		var c int
+		switch field {
+		case "title":
+			c = strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title))
+		case "year":
+			c = cmpIntSeries(a.Year, b.Year)
+		case "added":
+			c = a.AddedAt.Compare(b.AddedAt)
+		}
+		if c == 0 {
+			c = cmpInt64Series(a.ID, b.ID)
+		}
+		if desc {
+			c = -c
+		}
+		return c
+	}
+}
+
+func cmpIntSeries(a, b int) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func cmpInt64Series(a, b int64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // GetSeries loads a series (used by GET /api/v1/tv/{id}).

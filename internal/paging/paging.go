@@ -11,7 +11,10 @@
 package paging
 
 import (
+	"errors"
+	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,6 +85,33 @@ func QueryFromURLValues(v url.Values) Query {
 	q.PageSize = size
 	q.Sort = strings.TrimSpace(v.Get("sort"))
 	return q
+}
+
+// ErrInvalidSort reports a ?sort= value outside the caller's allowlist.
+// The per-kind API handlers map it to 400 (issue #150: unknown sort
+// field/direction is rejected, never silently defaulted).
+var ErrInvalidSort = errors.New("paging: invalid sort")
+
+// ValidateSort checks a ?sort= value against the kind's closed field
+// allowlist. The value must be "<field>-<asc|desc>" when set; an empty
+// value keeps the natural order and is always valid. Every other shape —
+// unknown field, missing/unknown direction, trailing garbage — returns
+// an error wrapping ErrInvalidSort.
+func ValidateSort(sort string, fields []string) error {
+	if sort == "" {
+		return nil
+	}
+	field, dir, ok := strings.Cut(sort, "-")
+	if !ok {
+		return fmt.Errorf("%w: %q (want <field>-<asc|desc>)", ErrInvalidSort, sort)
+	}
+	if !slices.Contains(fields, field) {
+		return fmt.Errorf("%w: unknown sort field %q", ErrInvalidSort, field)
+	}
+	if dir != "asc" && dir != "desc" {
+		return fmt.Errorf("%w: unknown sort direction %q", ErrInvalidSort, dir)
+	}
+	return nil
 }
 
 // Apply filters items with Q (case-insensitive substring on name) and

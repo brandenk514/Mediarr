@@ -276,6 +276,12 @@ func (s *Service) ListAuthors(ctx context.Context) ([]dom.Author, error) {
 // authors (M6 #41). The books list view expands an author to its titles and
 // editions lazily; the page envelope applies to the author level.
 func (s *Service) ListAuthorsQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Author], error) {
+	// #150: the sort value is validated against the authors allowlist
+	// server-side; unknown field/direction is an error the API maps to
+	// 400.
+	if err := paging.ValidateSort(q.Sort, AuthorSortFields); err != nil {
+		return paging.Page[dom.Author]{}, err
+	}
 	all, err := s.deps.Repo.ListAuthors(ctx)
 	if err != nil {
 		return paging.Page[dom.Author]{}, err
@@ -286,7 +292,48 @@ func (s *Service) ListAuthorsQuery(ctx context.Context, q paging.Query) (paging.
 	s.applyAuthorArtwork(ctx, all)
 	return paging.Apply(all, q, func(a dom.Author) (string, bool) {
 		return a.Name, a.Monitored
-	}, nil), nil
+	}, authorSortCmp(q.Sort)), nil
+}
+
+// AuthorSortFields is the closed server-side allowlist behind the authors
+// ?sort= param (#150): the persisted Readarr author fields.
+var AuthorSortFields = []string{"title", "added"}
+
+// authorSortCmp is the total-order comparator behind the authors ?sort=
+// param (#150); nil keeps the natural (repo) order.
+func authorSortCmp(sort string) func(a, b dom.Author) int {
+	parts := strings.SplitN(sort, "-", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	field, dir := parts[0], parts[1]
+	switch field {
+	case "title", "added":
+	default:
+		return nil
+	}
+	desc := dir == "desc"
+	return func(a, b dom.Author) int {
+		var c int
+		switch field {
+		case "title":
+			c = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		case "added":
+			c = a.AddedAt.Compare(b.AddedAt)
+		}
+		if c == 0 {
+			switch {
+			case a.ID < b.ID:
+				c = -1
+			case a.ID > b.ID:
+				c = 1
+			}
+		}
+		if desc {
+			c = -c
+		}
+		return c
+	}
 }
 
 // GetAuthor loads an author (used by GET /api/v1/books/{id}).

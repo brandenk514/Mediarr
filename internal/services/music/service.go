@@ -633,6 +633,12 @@ func (s *Service) ListArtists(ctx context.Context) ([]dom.Artist, error) {
 // artists (M6 #41). The music list view expands an artist to its albums and
 // tracks lazily; the page envelope applies to the artist level.
 func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Artist], error) {
+	// #150: the sort value is validated against the artists allowlist
+	// server-side; unknown field/direction is an error the API maps to
+	// 400.
+	if err := paging.ValidateSort(q.Sort, ArtistSortFields); err != nil {
+		return paging.Page[dom.Artist]{}, err
+	}
 	all, err := s.deps.Repo.ListArtists(ctx)
 	if err != nil {
 		return paging.Page[dom.Artist]{}, err
@@ -645,7 +651,59 @@ func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.
 	}
 	return paging.Apply(all, q, func(a dom.Artist) (string, bool) {
 		return a.Name, a.Monitored
-	}, nil), nil
+	}, artistSortCmp(q.Sort)), nil
+}
+
+// ArtistSortFields is the closed server-side allowlist behind the artists
+// ?sort= param (#150): the persisted Lidarr artist fields.
+var ArtistSortFields = []string{"title", "added", "rating"}
+
+// artistSortCmp is the total-order comparator behind the artists ?sort=
+// param (#150); nil keeps the natural (repo) order. Rating 0 (unknown)
+// orders below every known value, so a descending sort sinks unrated
+// artists to the end.
+func artistSortCmp(sort string) func(a, b dom.Artist) int {
+	parts := strings.SplitN(sort, "-", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	field, dir := parts[0], parts[1]
+	switch field {
+	case "title", "added", "rating":
+	default:
+		return nil
+	}
+	desc := dir == "desc"
+	return func(a, b dom.Artist) int {
+		var c int
+		var af, bf float64
+		switch field {
+		case "title":
+			c = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		case "added":
+			c = a.AddedAt.Compare(b.AddedAt)
+		case "rating":
+			af, bf = a.Rating, b.Rating
+			switch {
+			case af < bf:
+				c = -1
+			case af > bf:
+				c = 1
+			}
+		}
+		if c == 0 {
+			switch {
+			case a.ID < b.ID:
+				c = -1
+			case a.ID > b.ID:
+				c = 1
+			}
+		}
+		if desc {
+			c = -c
+		}
+		return c
+	}
 }
 
 // GetArtist loads an artist (used by GET /api/v1/music/{id}).

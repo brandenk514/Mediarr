@@ -205,6 +205,12 @@ func (s *Service) ListMovies(ctx context.Context) ([]dom.Movie, error) {
 // rows beyond page 1 of the natural order. No provider enrichment here — that
 // is detail-only, to keep the grid cheap without a TMDB key.
 func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Movie], error) {
+	// #150: the sort value is validated against the movies allowlist
+	// server-side; unknown field/direction is an error the API maps to
+	// 400, never a silent default.
+	if err := paging.ValidateSort(q.Sort, MovieSortFields); err != nil {
+		return paging.Page[dom.Movie]{}, err
+	}
 	all, err := s.deps.Repo.ListMovies(ctx)
 	if err != nil {
 		return paging.Page[dom.Movie]{}, err
@@ -220,13 +226,21 @@ func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.P
 	return page, nil
 }
 
+// MovieSortFields is the closed server-side allowlist behind the movies
+// ?sort= param (#150, the fork's MovieSortOptionsIterable pattern): the
+// Seerr control cluster's Release Date + TMDB Rating on top of the
+// existing title/year/added. Unknown values are rejected with 400, not
+// silently defaulted.
+var MovieSortFields = []string{"title", "year", "added", "release_date", "rating"}
+
 // movieSortCmp builds the total-order comparator behind the ?sort= param
-// (#70). The keys mirror the UI's six grid sort options — title / year /
-// added, each ascending or descending. An empty or unrecognized value returns
-// nil so paging.Apply keeps the natural (insertion) order. Ties break on ID so
-// the ordering is deterministic regardless of the repository's row order; the
-// ID tiebreak is reversed along with the key, matching the previous
-// client-side sort.
+// (#70). The keys mirror the UI's grid sort options — title / year /
+// added, plus the #150 release_date and rating (the persisted provider
+// metadata). An empty or unrecognized value returns nil so paging.Apply
+// keeps the natural (insertion) order (the API rejects unknown values
+// before this point). Ties break on ID so the ordering is deterministic
+// regardless of the repository's row order; the ID tiebreak is reversed
+// along with the key, matching the previous client-side sort.
 func movieSortCmp(sort string) func(a, b dom.Movie) int {
 	parts := strings.SplitN(sort, "-", 2)
 	if len(parts) != 2 {
@@ -234,7 +248,7 @@ func movieSortCmp(sort string) func(a, b dom.Movie) int {
 	}
 	field, dir := parts[0], parts[1]
 	switch field {
-	case "title", "year", "added":
+	case "title", "year", "added", "release_date", "rating":
 	default:
 		return nil
 	}
@@ -248,6 +262,12 @@ func movieSortCmp(sort string) func(a, b dom.Movie) int {
 			c = cmpInt(a.Year, b.Year)
 		case "added":
 			c = cmpTime(a.AddedAt, b.AddedAt)
+		case "release_date":
+			// "YYYY-MM-DD" strings order lexicographically = chronologically;
+			// "" (unknown, keyless) sorts first ascending / last descending.
+			c = strings.Compare(a.ReleaseDate, b.ReleaseDate)
+		case "rating":
+			c = cmpFloatPtr(tmdbPctOf(a), tmdbPctOf(b))
 		}
 		if c == 0 {
 			c = cmpInt64(a.ID, b.ID)
@@ -257,6 +277,15 @@ func movieSortCmp(sort string) func(a, b dom.Movie) int {
 		}
 		return c
 	}
+}
+
+// tmdbPctOf extracts the persisted TMDB user score (0-100); nil when the
+// movie never enriched (keyless dev).
+func tmdbPctOf(m dom.Movie) *float64 {
+	if m.Scores == nil {
+		return nil
+	}
+	return m.Scores.TmdbPct
 }
 
 func cmpInt(a, b int) int {
@@ -286,6 +315,27 @@ func cmpTime(a, b time.Time) int {
 	case a.Before(b):
 		return -1
 	case a.After(b):
+		return 1
+	default:
+		return 0
+	}
+}
+
+// cmpFloatPtr compares two optional floats; nil (unknown) orders below
+// every known value, so an ascending sort lists unknowns first and a
+// descending sort sinks them to the end (the Seerr browse default).
+func cmpFloatPtr(a, b *float64) int {
+	var av, bv float64
+	if a != nil {
+		av = *a
+	}
+	if b != nil {
+		bv = *b
+	}
+	switch {
+	case av < bv:
+		return -1
+	case av > bv:
 		return 1
 	default:
 		return 0

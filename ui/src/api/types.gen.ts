@@ -6096,8 +6096,14 @@ export interface components {
         ListPage: number;
         /** @description Page size (default 25, max 100). */
         ListPageSize: number;
-        /** @description Server-side ordering for the Movies grid (#70). One of the six grid sort options — title / year / added, each ascending or descending. Sorting happens before pagination, so a sort surfaces rows that sit beyond page 1 of the natural order. Omit for the natural (insertion) order. */
-        MovieListSort: "title-asc" | "title-desc" | "year-asc" | "year-desc" | "added-asc" | "added-desc";
+        /** @description Server-side ordering for the Movies grid (#70, #150). One of the grid sort options — title / year / added / release_date / rating, each ascending or descending. Sorting happens before pagination, so a sort surfaces rows that sit beyond page 1 of the natural order. #150: the value is validated against this closed allowlist — an unknown field or direction is a 400, never a silent default. Omit for the natural (insertion) order. */
+        MovieListSort: "title-asc" | "title-desc" | "year-asc" | "year-desc" | "added-asc" | "added-desc" | "release_date-asc" | "release_date-desc" | "rating-asc" | "rating-desc";
+        /** @description Server-side ordering for the series grid (#150): title / year / added, each ascending or descending, validated against this closed allowlist — an unknown field or direction is a 400. The genre / first-air-date / rating sorts join when the #157 TV metadata enrichment persists them. Omit for the natural order. */
+        TVListSort: "title-asc" | "title-desc" | "year-asc" | "year-desc" | "added-asc" | "added-desc";
+        /** @description Server-side ordering for the artists grid (#150): title / added / rating, each ascending or descending, validated against this closed allowlist — an unknown field or direction is a 400. Omit for the natural order. */
+        ArtistListSort: "title-asc" | "title-desc" | "added-asc" | "added-desc" | "rating-asc" | "rating-desc";
+        /** @description Server-side ordering for the authors grid (#150): title / added, each ascending or descending, validated against this closed allowlist — an unknown field or direction is a 400. Omit for the natural order. */
+        AuthorListSort: "title-asc" | "title-desc" | "added-asc" | "added-desc";
         /** @description Maximum number of entries to return (server clamps to 1..200, default 50). */
         HistoryLimit: number;
         /** @description Free-text search query. */
@@ -6306,7 +6312,7 @@ export interface operations {
                 page?: components["parameters"]["ListPage"];
                 /** @description Page size (default 25, max 100). */
                 page_size?: components["parameters"]["ListPageSize"];
-                /** @description Server-side ordering for the Movies grid (#70). One of the six grid sort options — title / year / added, each ascending or descending. Sorting happens before pagination, so a sort surfaces rows that sit beyond page 1 of the natural order. Omit for the natural (insertion) order. */
+                /** @description Server-side ordering for the Movies grid (#70, #150). One of the grid sort options — title / year / added / release_date / rating, each ascending or descending. Sorting happens before pagination, so a sort surfaces rows that sit beyond page 1 of the natural order. #150: the value is validated against this closed allowlist — an unknown field or direction is a 400, never a silent default. Omit for the natural (insertion) order. */
                 sort?: components["parameters"]["MovieListSort"];
             };
             header?: never;
@@ -6324,6 +6330,7 @@ export interface operations {
                     "application/json": components["schemas"]["PageMovie"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
         };
@@ -6561,6 +6568,8 @@ export interface operations {
                 page?: components["parameters"]["ListPage"];
                 /** @description Page size (default 25, max 100). */
                 page_size?: components["parameters"]["ListPageSize"];
+                /** @description Server-side ordering for the series grid (#150): title / year / added, each ascending or descending, validated against this closed allowlist — an unknown field or direction is a 400. The genre / first-air-date / rating sorts join when the #157 TV metadata enrichment persists them. Omit for the natural order. */
+                sort?: components["parameters"]["TVListSort"];
             };
             header?: never;
             path?: never;
@@ -6577,6 +6586,7 @@ export interface operations {
                     "application/json": components["schemas"]["PageSeries"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
         };
@@ -7088,6 +7098,8 @@ export interface operations {
                 page?: components["parameters"]["ListPage"];
                 /** @description Page size (default 25, max 100). */
                 page_size?: components["parameters"]["ListPageSize"];
+                /** @description Server-side ordering for the artists grid (#150): title / added / rating, each ascending or descending, validated against this closed allowlist — an unknown field or direction is a 400. Omit for the natural order. */
+                sort?: components["parameters"]["ArtistListSort"];
             };
             header?: never;
             path?: never;
@@ -7104,6 +7116,7 @@ export interface operations {
                     "application/json": components["schemas"]["PageArtist"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
         };
@@ -7618,6 +7631,8 @@ export interface operations {
                 page?: components["parameters"]["ListPage"];
                 /** @description Page size (default 25, max 100). */
                 page_size?: components["parameters"]["ListPageSize"];
+                /** @description Server-side ordering for the authors grid (#150): title / added, each ascending or descending, validated against this closed allowlist — an unknown field or direction is a 400. Omit for the natural order. */
+                sort?: components["parameters"]["AuthorListSort"];
             };
             header?: never;
             path?: never;
@@ -7634,6 +7649,7 @@ export interface operations {
                     "application/json": components["schemas"]["PageAuthor"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["Internal"];
         };
