@@ -195,6 +195,11 @@ function buildListQuery(q?: ListQuery): string {
   // #70: server-side grid ordering, serialized like the other list params so
   // the backend (not the browser) sorts the full set before paging.
   if (q.sort) params.set('sort', q.sort)
+  // #150: the filter-drawer facets, serialized verbatim; empty values are
+  // omitted so the server treats them as unset.
+  for (const [key, value] of Object.entries(q.filters ?? {})) {
+    if (value !== '') params.set(key, value)
+  }
   const s = params.toString()
   return s ? `?${s}` : ''
 }

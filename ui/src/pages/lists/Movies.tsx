@@ -4,49 +4,118 @@ import { client } from '../../api/client'
 import type { ListQuery, Movie, MovieStats, PageMovie } from '../../api/types'
 import { AddButton } from '../../components/addflow'
 import {
+  FacetCheckboxGroup,
+  FacetDateRange,
+  FacetNumberRange,
+  FacetSelect,
+  FacetText,
+  FilterDrawer,
+  InfiniteSentinel,
+  SortCluster,
+  toneFor,
+  usePersistentView,
+} from '../../components/gridcontrols'
+import {
   DEFAULT_PAGE_SIZE,
   MonitoredToggle,
   Pagination,
   usePagedList,
+  type MonitoredFilter,
 } from '../../components/list'
-import { PosterGrid, type PosterItem } from '../../components/poster'
-import {
-  EmptyState,
-  Menu,
-  Toolbar,
-  TbButton,
-  ViewToggle,
-  type ViewMode,
-} from '../../components/ui'
+import { PosterCard } from '../../components/primitives/poster-card'
+import { firstLetter, ribbonFor } from '../../components/poster'
+import { EmptyState, Toolbar, TbButton, ViewToggle } from '../../components/ui'
 
-// MoviesPage is the Radarr R1 movies library: a 6-up poster grid with
-// status ribbons (Downloaded / Missing / Queued / Unreleased) and per-card
-// hover controls (Refresh movie / Edit movie), Radarr-v6 status filter
-// chips, the stats bar (Movies · Movie Files · Monitored · Unmonitored ·
-// Total File Size) and the Radarr toolbar (Update All, RSS Sync | Search
-// All, Manual Import | Edit Movies). Buttons without a backend behind them
-// are disabled with a "later phase" title (the P7 pattern); Update All and
-// per-card Refresh hit real endpoints. The list view (Title/Year/Quality/
-// Monitor) and the A–Z jump carry over from P7.
-type SortKey = 'title-asc' | 'title-desc' | 'year-asc' | 'year-desc' | 'added-asc' | 'added-desc'
+// MoviesPage is the Seerr-style movie library (#150): a dense artwork-led
+// poster grid by default (real PosterURL art with an initials stand-in
+// when keyless, the kind pill + status badge over the art, hover
+// refresh/edit actions), a heading control cluster — explicit sort
+// direction toggle + sort field dropdown + a filter button that opens a
+// slide-over drawer (NOT a funnel dropdown) with "N Active Filter(s)" and
+// Clear Active Filters — and the Radarr toolbar/stats bar carried over.
+// The grid sorts and filters server-side (the sort allowlist rejects
+// unknown values with 400) and scrolls without pagination chrome; the
+// table view stays fully functional behind the persisted view toggle.
+type SortField = 'title' | 'year' | 'added' | 'release_date' | 'rating'
+type SortDir = 'asc' | 'desc'
 
-const SORT_OPTIONS = [
-  { value: 'title-asc', label: 'Title ↑' },
-  { value: 'title-desc', label: 'Title ↓' },
-  { value: 'year-asc', label: 'Year ↑' },
-  { value: 'year-desc', label: 'Year ↓' },
-  { value: 'added-asc', label: 'Added ↑' },
-  { value: 'added-desc', label: 'Added ↓' },
+// The sort dropdown fields (the direction is the separate toggle).
+const SORT_FIELDS = [
+  { value: 'title', label: 'Title' },
+  { value: 'release_date', label: 'Release Date' },
+  { value: 'rating', label: 'TMDB Rating' },
+  { value: 'year', label: 'Year' },
+  { value: 'added', label: 'Added' },
 ] as const
 
-// Radarr v6 status chips; value = the movie's Status string to keep.
-const STATUS_CHIPS: { value: string; label: string }[] = [
+// The filter-drawer facet state (#150). The zero value filters nothing.
+interface MovieFacets {
+  genres: string[]
+  lang: string
+  runtimeMin: number | null
+  runtimeMax: number | null
+  scoreMin: number | null
+  scoreMax: number | null
+  cert: string
+  from: string
+  to: string
+  status: string
+}
+
+const EMPTY_FACETS: MovieFacets = {
+  genres: [],
+  lang: '',
+  runtimeMin: null,
+  runtimeMax: null,
+  scoreMin: null,
+  scoreMax: null,
+  cert: '',
+  from: '',
+  to: '',
+  status: '',
+}
+
+// The canonical TMDB movie genres (the drawer's genre checkboxes; the
+// match itself happens server-side against persisted genres).
+const TMDB_GENRES = [
+  'Action',
+  'Adventure',
+  'Animation',
+  'Comedy',
+  'Crime',
+  'Documentary',
+  'Drama',
+  'Family',
+  'Fantasy',
+  'History',
+  'Horror',
+  'Music',
+  'Mystery',
+  'Romance',
+  'Science Fiction',
+  'TV Movie',
+  'Thriller',
+  'War',
+  'Western',
+]
+
+const CERTIFICATIONS = ['G', 'PG', 'PG-13', 'R', 'NC-17']
+
+// Radarr v6 status chips; value = the movie's Status string (the drawer's
+// status facet drives the server-side filter).
+const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'downloaded:monitored', label: 'Downloaded (Monitored)' },
   { value: 'downloaded:unmonitored', label: 'Downloaded (Unmonitored)' },
   { value: 'missing:monitored', label: 'Missing (Monitored)' },
   { value: 'missing:unmonitored', label: 'Missing (Unmonitored)' },
   { value: 'queued', label: 'Queued' },
   { value: 'unreleased', label: 'Unreleased' },
+]
+
+const MONITORED_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'monitored', label: 'Monitored' },
+  { value: 'unmonitored', label: 'Unmonitored' },
 ]
 
 function humanBytes(n: number): string {
@@ -63,15 +132,43 @@ function humanBytes(n: number): string {
 
 export function MoviesPage() {
   const navigate = useNavigate()
-  const [sort, setSort] = useState<SortKey>('title-asc')
-  // #70: the grid sort is now server-side. `load` sends the current sort with
-  // every request; changing `sort` changes `load`'s identity, which re-runs
-  // usePagedList's load effect and refetches the (server-ordered) list.
+  const [view, setView] = usePersistentView('movies')
+  // #150: the sort is field + explicit direction; flipping the direction
+  // never changes the field (and vice versa).
+  const [sortField, setSortField] = useState<SortField>('title')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [facets, setFacets] = useState<MovieFacets>(EMPTY_FACETS)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [stats, setStats] = useState<MovieStats | null>(null)
+  // Per-card refresh results (a real GET /movies/{id}) merged over the page.
+  const [fresh, setFresh] = useState<Record<number, Movie>>({})
+  const [status, setStatus] = useState<string | null>(null)
+
+  const sort = `${sortField}-${sortDir}`
+  // The facet params serialize into the wire query (empty values are
+  // omitted by buildListQuery, so the server treats them as unset).
+  const filters = useMemo<Record<string, string>>(
+    () => ({
+      genre: facets.genres.join(','),
+      lang: facets.lang,
+      runtime_min: facets.runtimeMin === null ? '' : String(facets.runtimeMin),
+      runtime_max: facets.runtimeMax === null ? '' : String(facets.runtimeMax),
+      score_min: facets.scoreMin === null ? '' : String(facets.scoreMin),
+      score_max: facets.scoreMax === null ? '' : String(facets.scoreMax),
+      cert: facets.cert,
+      from: facets.from,
+      to: facets.to,
+      status: facets.status,
+    }),
+    [facets],
+  )
+
   const load = useCallback(
-    (q: ListQuery) => client.listMovies({ ...q, sort }),
-    [sort],
+    (q: ListQuery) => client.listMovies({ ...q, sort, filters }),
+    [sort, filters],
   )
   const {
+    items,
     data,
     loading,
     error,
@@ -79,16 +176,11 @@ export function MoviesPage() {
     setMonitored,
     page,
     setPage,
-    total,
+    hasMore,
+    loadMore,
     reload,
-  } = usePagedList<PageMovie>(load)
-
-  const [view, setView] = useState<ViewMode>('grid')
-  const [chip, setChip] = useState<string | null>(null)
-  const [stats, setStats] = useState<MovieStats | null>(null)
-  // Per-card refresh results (a real GET /movies/{id}) merged over the page.
-  const [fresh, setFresh] = useState<Record<number, Movie>>({})
-  const [status, setStatus] = useState<string | null>(null)
+    total,
+  } = usePagedList<PageMovie>(load, { mode: 'append' })
 
   const loadStats = useCallback(() => {
     client
@@ -101,25 +193,22 @@ export function MoviesPage() {
     loadStats()
   }, [loadStats, data])
 
-  const baseItems = useMemo(() => (data ? data.items : []), [data])
+  // The drawer's active count: every set facet plus the monitored filter.
+  const activeCount = useMemo(() => {
+    let n = monitored === 'all' ? 0 : 1
+    if (facets.genres.length > 0) n++
+    if (facets.lang) n++
+    if (facets.runtimeMin !== null || facets.runtimeMax !== null) n++
+    if (facets.scoreMin !== null || facets.scoreMax !== null) n++
+    if (facets.cert) n++
+    if (facets.from || facets.to) n++
+    if (facets.status) n++
+    return n
+  }, [facets, monitored])
 
-  const items = useMemo(() => {
-    const merged = baseItems.map((m) => fresh[m.ID] ?? m)
-    // #70: ordering is server-side now — the client only merges per-card
-    // refreshes and applies the client-side status-chip filter; it no longer
-    // re-sorts, because the server already returned the page in the selected
-    // order (and, crucially, ordered the FULL set, not just this page).
-    return chip ? merged.filter((m) => m.Status === chip) : merged
-  }, [baseItems, fresh, chip])
-
-  const gridItems: PosterItem[] = items.map((m) => ({
-    id: m.ID,
-    name: m.Title,
-    year: m.Year,
-    monitored: m.Monitored,
-    quality: m.QualityProfile,
-    status: m.Status,
-  }))
+  const gridItems = useMemo(() => items.map((m) => fresh[m.ID] ?? m), [items, fresh])
+  const listItems = useMemo(() => (data ? data.items : []), [data])
+  const filtered = activeCount > 0
 
   function updateAll() {
     setStatus(`Updated ${total} movies just now`)
@@ -128,21 +217,47 @@ export function MoviesPage() {
   }
 
   // Per-card refresh: re-fetch this movie from the API and merge it in.
-  async function refreshMovie(item: PosterItem) {
+  async function refreshMovie(m: Movie) {
     setStatus(null)
     try {
-      const m = await client.getMovie(item.id)
-      setFresh((prev) => ({ ...prev, [item.id]: m }))
+      const freshMovie = await client.getMovie(m.ID)
+      setFresh((prev) => ({ ...prev, [m.ID]: freshMovie }))
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : `refresh of ${item.name} failed`)
+      setStatus(e instanceof Error ? e.message : `refresh of ${m.Title} failed`)
     }
   }
+
+  function clearFilters() {
+    setFacets(EMPTY_FACETS)
+    setMonitored('all')
+  }
+
+  const facet = <K extends keyof MovieFacets>(key: K, value: MovieFacets[K]) =>
+    setFacets((prev) => ({ ...prev, [key]: value }))
 
   return (
     <div className="list-page">
       <div className="dash-head">
         <h2 data-testid="movies-title">Movies</h2>
         <div className="dash-head-right">
+          <SortCluster
+            field={sortField}
+            fields={[...SORT_FIELDS]}
+            dir={sortDir}
+            onDir={setSortDir}
+            onField={(f) => setSortField(f as SortField)}
+            testId="movies"
+          />
+          <button
+            type="button"
+            className="menu-btn"
+            onClick={() => setDrawerOpen(true)}
+            aria-haspopup="dialog"
+            data-testid="movies-filter-btn"
+          >
+            <span aria-hidden>⚲</span>
+            {activeCount} Active Filter{activeCount === 1 ? '' : 's'}
+          </button>
           <AddButton to="/movies/add" label="Add movie" testId="movies-add" />
         </div>
       </div>
@@ -214,32 +329,6 @@ export function MoviesPage() {
               title="More actions land in a later phase"
             />
             <ViewToggle view={view} onChange={setView} testId="movies-view" />
-            <Menu
-              label="Sort"
-              icon="↕"
-              options={[...SORT_OPTIONS]}
-              selected={sort}
-              // #70: a new sort resets to page 1 so the top of the freshly
-              // ordered list shows (it may be a row that sat beyond page 1
-              // of the previous ordering).
-              onSelect={(v) => {
-                setSort(v as SortKey)
-                setPage(1)
-              }}
-              testId="movies-sort"
-            />
-            <Menu
-              label="Filter"
-              icon="⚲"
-              options={[
-                { value: 'all', label: 'All' },
-                { value: 'monitored', label: 'Monitored' },
-                { value: 'unmonitored', label: 'Unmonitored' },
-              ]}
-              selected={monitored}
-              onSelect={(v) => setMonitored(v as 'all' | 'monitored' | 'unmonitored')}
-              testId="movies-filter"
-            />
           </>
         }
       />
@@ -250,19 +339,67 @@ export function MoviesPage() {
         </p>
       )}
 
-      <div className="status-chips" data-testid="movies-chips">
-        {STATUS_CHIPS.map((c) => (
-          <button
-            key={c.value}
-            type="button"
-            className={`chip ${chip === c.value ? 'active' : ''}`}
-            data-testid={`movies-chip-${c.value.replace(/[:()]/g, '-').toLowerCase()}`}
-            onClick={() => setChip(chip === c.value ? null : c.value)}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
+      <FilterDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onClear={clearFilters} activeCount={activeCount}>
+        <FacetSelect
+          label="Monitored"
+          value={monitored}
+          options={MONITORED_OPTIONS}
+          onChange={(v) => setMonitored(v as MonitoredFilter)}
+          testId="movies-facet-monitored"
+        />
+        <FacetCheckboxGroup
+          label="Genres"
+          options={TMDB_GENRES.map((g) => ({ value: g, label: g }))}
+          values={facets.genres}
+          onToggle={(values) => facet('genres', values)}
+          testId="movies-facet-genres"
+        />
+        <FacetText
+          label="Original Language (ISO)"
+          value={facets.lang}
+          onChange={(v) => facet('lang', v.trim())}
+          placeholder="en"
+          testId="movies-facet-lang"
+        />
+        <FacetNumberRange
+          label="Runtime (min)"
+          min={facets.runtimeMin}
+          max={facets.runtimeMax}
+          onMin={(v) => facet('runtimeMin', v)}
+          onMax={(v) => facet('runtimeMax', v)}
+          testId="movies-facet-runtime"
+        />
+        <FacetNumberRange
+          label="TMDB Score (0-100)"
+          min={facets.scoreMin}
+          max={facets.scoreMax}
+          onMin={(v) => facet('scoreMin', v)}
+          onMax={(v) => facet('scoreMax', v)}
+          testId="movies-facet-score"
+        />
+        <FacetSelect
+          label="Content Rating"
+          value={facets.cert}
+          options={CERTIFICATIONS.map((c) => ({ value: c, label: c }))}
+          onChange={(v) => facet('cert', v)}
+          testId="movies-facet-cert"
+        />
+        <FacetDateRange
+          label="Release Date"
+          from={facets.from}
+          to={facets.to}
+          onFrom={(v) => facet('from', v)}
+          onTo={(v) => facet('to', v)}
+          testId="movies-facet-date"
+        />
+        <FacetSelect
+          label="Status"
+          value={facets.status}
+          options={STATUS_OPTIONS}
+          onChange={(v) => facet('status', v)}
+          testId="movies-facet-status"
+        />
+      </FilterDrawer>
 
       {error && !data ? (
         <div className="card" data-testid="movies-error">
@@ -278,31 +415,66 @@ export function MoviesPage() {
             <>
               {loading && !data ? (
                 <p className="dim">Loading movies…</p>
-              ) : items.length === 0 ? (
+              ) : gridItems.length === 0 ? (
                 <EmptyState
-                  title={chip ? 'No movies with this status' : 'No movies'}
-                  message={
-                    chip
-                      ? 'Try a different status filter.'
-                      : 'Add your first movie to get started.'
-                  }
+                  title="No results"
+                  message={filtered ? 'Try adjusting or clearing your filters.' : 'Add your first movie to get started.'}
                 >
-                  {!chip && (
+                  {!filtered && (
                     <Link to="/movies/add" data-testid="movies-empty-add">
                       + Add movie
                     </Link>
                   )}
                 </EmptyState>
               ) : (
-                <PosterGrid
-                  items={gridItems}
-                  testIdPrefix="movie"
-                  gridTestId="movies-grid"
-                  azTestId="movies-az"
-                  onOpen={(i) => navigate(`/movies/${i.id}`)}
-                  onRefresh={(i) => void refreshMovie(i)}
-                  onEdit={(i) => navigate(`/movies/${i.id}`)}
-                />
+                <>
+                  <div className="poster-grid" data-testid="movies-grid">
+                    {gridItems.map((m) => {
+                      const ribbon = ribbonFor({ monitored: m.Monitored, status: m.Status })
+                      return (
+                        <div key={m.ID} data-poster-letter={firstLetter(m.Title)}>
+                          <PosterCard
+                            testId={`movie-card-${m.ID}`}
+                            title={m.Title}
+                            image={m.PosterURL || undefined}
+                            meta={m.Year ? `${m.Year} · ${m.QualityProfile}` : m.QualityProfile}
+                            status={ribbon ? { label: ribbon.text, tone: toneFor(ribbon.tone) } : undefined}
+                            kind={{ label: 'Movie' }}
+                            onOpen={() => navigate(`/movies/${m.ID}`)}
+                            hoverActions={
+                              <>
+                                <button
+                                  type="button"
+                                  className="icon-btn"
+                                  title="Refresh movie"
+                                  aria-label={`Refresh ${m.Title}`}
+                                  data-testid={`card-refresh-${m.ID}`}
+                                  onClick={() => void refreshMovie(m)}
+                                >
+                                  ⟳
+                                </button>
+                                <button
+                                  type="button"
+                                  className="icon-btn"
+                                  title="Edit movie"
+                                  aria-label={`Edit ${m.Title}`}
+                                  data-testid={`card-edit-${m.ID}`}
+                                  onClick={() => navigate(`/movies/${m.ID}`)}
+                                >
+                                  ✎
+                                </button>
+                              </>
+                            }
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {/* #150: no pagination chrome — the sentinel loads the
+                      next server page as the grid's end scrolls in. */}
+                  <InfiniteSentinel onLoadMore={loadMore} disabled={!hasMore} testId="movies-sentinel" />
+                  {hasMore && loading && <p className="dim small">Loading more…</p>}
+                </>
               )}
             </>
           )}
@@ -317,12 +489,12 @@ export function MoviesPage() {
               </div>
               {loading && !data ? (
                 <p className="dim">Loading movies…</p>
-              ) : items.length === 0 ? (
+              ) : listItems.length === 0 ? (
                 <p className="dim" data-testid="movies-empty">
                   No movies match.
                 </p>
               ) : (
-                items.map((m) => (
+                listItems.map((m) => (
                   <div className="lt-row" key={m.ID} data-testid={`movie-${m.ID}`}>
                     <span className="lt-name" title={m.Title}>
                       <Link to={`/movies/${m.ID}`} data-testid={`movie-link-${m.ID}`}>
@@ -346,7 +518,9 @@ export function MoviesPage() {
             </div>
           )}
 
-          <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} total={total} onPage={setPage} />
+          {view === 'list' && (
+            <Pagination page={page} pageSize={DEFAULT_PAGE_SIZE} total={total} onPage={setPage} />
+          )}
         </>
       )}
     </div>
