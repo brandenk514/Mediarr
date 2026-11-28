@@ -1,180 +1,168 @@
-// Discover — the unified cross-kind Discover page (issue #118, final
-// slice). The app's default landing: three feed rows (Trending,
-// Upcoming, New Releases), each a grid of kind-badged PosterCards (the
-// #115 design-system primitives, as proven in GlobalSearch) grouped by
-// kind (movie / tv / music / book — the server's deterministic per-row
-// order, the server's (row × kind) 6-item cap).
+// Discover — the Seerr-style cinematic row set (issue #151; absorbs the
+// retired Dashboard, issue #148). The app's default landing:
 //
-// Pure UI over the finished GET /api/v1/discover contract (A1+A2): the
-// response carries the three rows plus `unavailable` (per-cell failures).
-// A cell can appear in BOTH a row and `unavailable` (the keyless Google
-// Books case: Open Library fallback items AND the missing key named) —
-// the row renders its items plus the grey-out note; an unavailable entry
-// never hides a row. Only a TOTAL request failure shows a page-level
-// error; per-cell problems stay per-cell notes (the R3 keyless pattern).
+//   1. a compact per-kind summary strip (the Dashboard KPI counts),
+//   2. a recent-activity landscape row (the Dashboard's recent queue +
+//      recent history feeds),
+//   3. the discover feed rows (Trending mixed, Popular Movies / Popular
+//      Series, Upcoming Movies / Upcoming Series — the mapped reference
+//      inventory; the recorded deviations: no Series Genres / Networks
+//      rows, no dedicated music/book feed rows),
+//   4. Your Watchlist (the monitored library),
+//   5. the Movie Genres / Studios facet rows (inert tiles — see
+//      components/discover/facet-tile).
+//
+// Every row is a chevron-scroller carousel (components/discover/row.tsx):
+// horizontal scroll is the responsive mechanism at 375/768px (#123) and
+// the track is keyboard scrollable.
+//
+// Degradation (acceptance-critical): NO raw provider string (e.g.
+// 'tmdb is not configured (missing API key)') is ever rendered. The one
+// deterministic mapper in pages/discover/model.ts (cellNote / rowNotes)
+// turns each DiscoverCellError into a friendly grey-out note IN the row
+// (the restyled #118 pattern); a fully-keyless row shows the note in
+// place of the items, and the unrendered music/book cells of the split
+// rows surface their notes in one muted block at the bottom. Only a
+// TOTAL discover request failure shows a page-level error with retry.
+//
+// Data surface (UI-only, no API changes):
+//   - GET /api/v1/discover (the feed rows + per-cell `unavailable`)
+//   - GET /api/v1/dashboard?recent=20 (KPI + recent activity)
+//   - the four list endpoints with the #150 sort allowlist: all four
+//     kinds accept "added-desc" server-side (books are a full array —
+//     client-sorted by AddedAt) — Recently Added + Watchlist + facets.
 //
 // Navigation (no invented routes):
 //   - upcoming rows carry LOCAL library ids: movie / tv / music cards
 //     deep-link to the kind's detail route (/movies/:id, /tv/:id,
 //     /music/:id); book items are title ids and there is no title-level
-//     detail route (the /books/:id deep route is the AUTHOR page), so
-//     they render without an onOpen.
-//   - trending / new releases rows carry EXTERNAL ids (TMDB /
-//     MusicBrainz / Open Library / Google Books). Only the Movies add
-//     flow accepts an external id (the R3 ?tmdb=<numeric> preselect),
-//     so TMDB movie feed cards link to /movies/add?tmdb=…; every other
-//     kind's add flow is a manual search (no query params) → no link.
-
+//     detail route (the /books/:id deep route is the AUTHOR page) → inert.
+//   - trending / new-releases rows carry EXTERNAL ids (TMDB / MusicBrainz
+//     / Open Library / Google Books). Only the Movies add flow accepts an
+//     external id (the ?tmdb=<numeric> preselect) → link; every other
+//     kind's add flow is a manual search (no query params) → inert.
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { client } from '../api/client'
-import type { DiscoverCellError, DiscoverItem, DiscoverPage } from '../api/types'
-import { PosterCard } from '../components/primitives'
+import type {
+  Artist,
+  Book,
+  Dashboard,
+  DiscoverPage as DiscoverFeed,
+  Movie,
+  Series,
+} from '../api/types'
+import { ActivityCardView } from '../components/discover/activity-card'
+import { FacetTile } from '../components/discover/facet-tile'
+import { RowNotes } from '../components/discover/note'
+import { PosterCell } from '../components/discover/poster-cell'
+import { DiscoverRow } from '../components/discover/row'
+import { SummaryStrip } from '../components/discover/summary-strip'
 import { EmptyState } from '../components/ui'
+import {
+  DISCOVER_ROWS,
+  buildRecentlyAdded,
+  buildWatchlist,
+  cellsForRow,
+  feedItemsForRow,
+  feedItemMeta,
+  feedTarget,
+  mergeRecentActivity,
+  rowNotes,
+  topGenres,
+  topStudios,
+  unclaimedCells,
+} from './discover/model'
 
-// ---- row / kind model -------------------------------------------------------
+// The section sizes (page 1 samples, all client-bounded): Recently Added
+// asks 12 per kind (the merged row caps at 12 overall), Watchlist 50 per
+// kind (the row scrolls), the facet rows sample 50 movies.
+const RECENTLY_ADDED_PAGE = 12
+const WATCHLIST_PAGE = 50
+const FACET_PAGE = 50
+const LIST_UNAVAILABLE_NOTE = 'This library could not be loaded. If it keeps happening, check Settings.'
 
-// The three rows, in render order. `cellRow` is the row key the server
-// uses in the `unavailable` cells ("<kind>:<row>").
-export const DISCOVER_ROWS = [
-  {
-    id: 'trending',
-    label: 'Trending',
-    cellRow: 'trending',
-    empty: 'Nothing trending right now.',
-    emptyMessage: 'What’s hot across movies, TV, music, and books shows up here.',
-  },
-  {
-    id: 'upcoming',
-    label: 'Upcoming',
-    cellRow: 'upcoming',
-    empty: 'Nothing coming up.',
-    emptyMessage: 'Monitored air and release dates in the next 14 days appear here.',
-  },
-  {
-    id: 'newReleases',
-    label: 'New Releases',
-    cellRow: 'new_releases',
-    empty: 'No new releases right now.',
-    emptyMessage: 'The freshest releases from the feeds appear here.',
-  },
-] as const
-export type DiscoverRowId = (typeof DISCOVER_ROWS)[number]['id']
-export type DiscoverRow = (typeof DISCOVER_ROWS)[number]
-
-// The deterministic per-row kind order (movie, tv, music, book) — the
-// same order the server emits each row's cells in.
-export const DISCOVER_KINDS = ['movie', 'tv', 'music', 'book'] as const
-export type DiscoverKind = (typeof DISCOVER_KINDS)[number]
-
-// Human kind labels (the GlobalSearch convention: the singular "TV", the
-// plural "Movies / Music / Books").
-export const DISCOVER_KIND_LABEL: Record<DiscoverKind, string> = {
-  movie: 'Movies',
-  tv: 'TV',
-  music: 'Music',
-  book: 'Books',
+// The page's one loading phase + the settled data.
+interface Loaded {
+  feed: DiscoverFeed | null
+  dash: Dashboard | null
+  recent: { movies: Movie[]; series: Series[]; artists: Artist[]; books: Book[]; failed: string[] }
+  watch: { movies: Movie[]; series: Series[]; artists: Artist[]; books: Book[]; failed: string[] }
+  facetMovies: Movie[] | null
 }
-
-// ---- pure helpers (unit-testable) -------------------------------------------
-
-// groupRowItems splits a row's items into per-kind groups in the
-// deterministic kind order, dropping kinds with no items. The server
-// already emits each row in this order, but the UI groups defensively
-// (the cap is per (row × kind), not per row).
-export function groupRowItems(items: DiscoverItem[]): [DiscoverKind, DiscoverItem[]][] {
-  const groups: [DiscoverKind, DiscoverItem[]][] = []
-  for (const kind of DISCOVER_KINDS) {
-    const cell = items.filter((i) => i.kind === kind)
-    if (cell.length > 0) groups.push([kind, cell])
-  }
-  return groups
-}
-
-// cellErrorsForRow picks the unavailable cells belonging to one row (the
-// server's "<kind>:<row>" naming), keeping the server's cell order
-// (per row: movie, tv, music, book).
-export function cellErrorsForRow(row: DiscoverRow, cells: DiscoverCellError[]): DiscoverCellError[] {
-  return cells.filter((c) => {
-    const [kind, r] = c.cell.split(':')
-    return r === row.cellRow && (DISCOVER_KINDS as readonly string[]).includes(kind)
-  })
-}
-
-// itemMeta composes the card's second line from the item's one-line
-// subtitle (artist / author / studio / episode SxE) and, when known, the
-// year. Every field may be missing (year 0, subtitle '') — the join
-// keeps no stray separators. For items that carry a date (upcoming
-// rows) the human date leads; the bare year is then redundant and is
-// left out.
-export function itemMeta(item: DiscoverItem): string {
-  const parts: string[] = []
-  const date = dateLabel(item.date)
-  if (date) parts.push(date)
-  if (item.subtitle) parts.push(item.subtitle)
-  if (!date && item.year > 0) parts.push(String(item.year))
-  return parts.join(' · ')
-}
-
-// dateLabel is the human date for an RFC3339 instant (the upcoming rows'
-// air/release starts); '' when the item carries none (partial dates) or
-// the value is not a parseable date (the UI must never crash on either).
-export function dateLabel(iso: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-// targetFor picks a card's navigation target, or null (the card renders
-// without an onOpen — the PosterCard button stays inert):
-//   upcoming rows (local library ids): movie / tv / music → the kind's
-//     detail route; book items are title ids with no title-level detail
-//     route → no link.
-//   feed rows (external ids): only the Movies add flow accepts an
-//     external id (the R3 ?tmdb=<numeric> preselect, numeric-validated
-//     like MovieAddPage does) → link; every other kind's add flow is a
-//     manual search (no query params) → no link.
-export function targetFor(row: DiscoverRow, item: DiscoverItem): string | null {
-  if (row.id === 'upcoming') {
-    switch (item.kind) {
-      case 'movie':
-        return `/movies/${item.sourceId}`
-      case 'tv':
-        return `/tv/${item.sourceId}`
-      case 'music':
-        return `/music/${item.sourceId}`
-      default:
-        return null
-    }
-  }
-  if (item.kind === 'movie' && /^\d+$/.test(item.sourceId)) {
-    return `/movies/add?tmdb=${item.sourceId}`
-  }
-  return null
-}
-
-// ---- page --------------------------------------------------------------------
 
 export function DiscoverPage() {
-  const navigate = useNavigate()
-  const [page, setPage] = useState<DiscoverPage | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    setLoading(true)
+    setLoaded(null)
     setError(null)
-    client
-      .discover()
-      .then((r) => setPage(r))
-      .catch((e: unknown) => {
-        // Per-cell failures never land here: the server folds them into
-        // `unavailable` and answers 200. This path is a total failure
-        // (network, auth) — a page-level error with a retry.
+    // The discover feed is the page: a total failure is a page-level error
+    // (with retry). Everything else settles independently (Promise
+    // allSettled) so one failed feed/library degrades its own section only.
+    void (async () => {
+      try {
+        const [feedRes, dashRes, recM, recS, recA, recB, wlM, wlS, wlA, wlB, facetM] = await Promise.allSettled([
+          client.discover(),
+          client.getDashboard(20),
+          client.listMovies({ page_size: RECENTLY_ADDED_PAGE, sort: 'added-desc' }),
+          client.listSeries({ page_size: RECENTLY_ADDED_PAGE, sort: 'added-desc' }),
+          client.listArtists({ page_size: RECENTLY_ADDED_PAGE, sort: 'added-desc' }),
+          client.listBooks(),
+          client.listMovies({ monitored: true, page_size: WATCHLIST_PAGE, sort: 'added-desc' }),
+          client.listSeries({ monitored: true, page_size: WATCHLIST_PAGE, sort: 'added-desc' }),
+          client.listArtists({ monitored: true, page_size: WATCHLIST_PAGE, sort: 'added-desc' }),
+          client.listBooks(),
+          client.listMovies({ page_size: FACET_PAGE }),
+        ])
+        // A missing/unreachable client method throws synchronously here — a
+        // total failure for the page (the mocks in the app tests stub
+        // exactly the page's calls).
+        const feed = feedRes.status === 'fulfilled' ? feedRes.value : null
+        if (feedRes.status === 'rejected') {
+          const e = feedRes.reason
+          setError(e instanceof Error ? e.message : 'failed to load discover')
+          return
+        }
+        const recentFailed: string[] = []
+        if (recM.status === 'rejected') recentFailed.push('movie')
+        if (recS.status === 'rejected') recentFailed.push('tv')
+        if (recA.status === 'rejected') recentFailed.push('music')
+        if (recB.status === 'rejected') recentFailed.push('book')
+        const watchFailed: string[] = []
+        if (wlM.status === 'rejected') watchFailed.push('movie')
+        if (wlS.status === 'rejected') watchFailed.push('tv')
+        if (wlA.status === 'rejected') watchFailed.push('music')
+        if (wlB.status === 'rejected') watchFailed.push('book')
+        // Books are a full array (no pagination) — sort client-side by
+        // AddedAt desc (the other three kinds come sorted "added-desc").
+        const booksByAddedDesc = (r: PromiseSettledResult<Book[]>) =>
+          r.status === 'fulfilled'
+            ? [...r.value].sort((a, b) => Date.parse(b.AddedAt) - Date.parse(a.AddedAt))
+            : []
+        setLoaded({
+          feed,
+          dash: dashRes.status === 'fulfilled' ? dashRes.value : null,
+          recent: {
+            movies: recM.status === 'fulfilled' ? recM.value.items : [],
+            series: recS.status === 'fulfilled' ? recS.value.items : [],
+            artists: recA.status === 'fulfilled' ? recA.value.items : [],
+            books: booksByAddedDesc(recB),
+            failed: recentFailed,
+          },
+          watch: {
+            movies: wlM.status === 'fulfilled' ? wlM.value.items : [],
+            series: wlS.status === 'fulfilled' ? wlS.value.items : [],
+            artists: wlA.status === 'fulfilled' ? wlA.value.items : [],
+            books: booksByAddedDesc(wlB).filter((b) => b.Monitored),
+            failed: watchFailed,
+          },
+          facetMovies: facetM.status === 'fulfilled' ? facetM.value.items : null,
+        })
+      } catch (e) {
         setError(e instanceof Error ? e.message : 'failed to load discover')
-      })
-      .finally(() => setLoading(false))
+      }
+    })()
   }, [])
 
   useEffect(() => {
@@ -199,128 +187,300 @@ export function DiscoverPage() {
     )
   }
 
+  const feed = loaded?.feed ?? null
+  const dash = loaded?.dash ?? null
+  const loading = loaded === null
+  const recent = loaded?.recent
+  const watch = loaded?.watch
+  const facetMovies = loaded?.facetMovies ?? null
+
+  // The unrendered music/book cells of the split rows (the recorded
+  // deviations) — their friendly notes surface here so no degradation
+  // information is lost.
+  const unclaimed = feed ? unclaimedCells(DISCOVER_ROWS, feed.unavailable) : []
+
   return (
     <div className="list-page" data-testid="discover-page">
       <div className="page-head">
         <h2 data-testid="discover-page-title">Discover</h2>
       </div>
+
+      {/* 1. the compact KPI strip (the absorbed Dashboard counts). */}
+      {loading ? (
+        <SkeletonStrip />
+      ) : dash ? (
+        <SummaryStrip dash={dash} />
+      ) : (
+        <RowNotes notes={['The summary counts could not be loaded.']} />
+      )}
+
       {DISCOVER_ROWS.map((row) => (
-        <DiscoverRowView
-          key={row.id}
+        <Row key={row.id}
           row={row}
           loading={loading}
-          items={page?.[row.id] ?? []}
-          unavailable={page ? cellErrorsForRow(row, page.unavailable) : []}
-          onOpen={(to) => navigate(to)}
+          feed={feed}
+          dash={dash}
+          recent={recent}
+          watch={watch}
+          facetMovies={facetMovies}
         />
+      ))}
+
+      {!loading && unclaimed.length > 0 && (
+        <div className="mt-4" data-testid="discover-unclaimed-notes">
+          <RowNotes notes={rowNotes(unclaimed)} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---- one row -------------------------------------------------------------------
+
+// Row renders a single discover row (the row chrome + its content). Each
+// row id is a branch: the feed rows share the feed-row renderer; the
+// library rows (recently added / watchlist) and the facet rows have their
+// own. A row that has neither items nor degradation notes shows its
+// EmptyState.
+function Row({
+  row,
+  loading,
+  feed,
+  dash,
+  recent,
+  watch,
+  facetMovies,
+}: {
+  row: (typeof DISCOVER_ROWS)[number]
+  loading: boolean
+  feed: DiscoverFeed | null
+  dash: Dashboard | null
+  recent: Loaded['recent'] | undefined
+  watch: Loaded['watch'] | undefined
+  facetMovies: Movie[] | null
+}) {
+  if (loading) {
+    return (
+      <DiscoverRow id={row.id} label={row.label}>
+        <RowSkeleton />
+      </DiscoverRow>
+    )
+  }
+  switch (row.id) {
+    case 'recentlyAdded':
+      return (
+        <RecentlyAddedRow row={row} recent={recent} />
+      )
+    case 'recentActivity':
+      return <ActivityRow row={row} dash={dash} />
+    case 'watchlist':
+      return <WatchlistRow row={row} watch={watch} />
+    case 'movieGenres':
+      return <FacetRow row={row} facets={facetMovies ? topGenres(facetMovies) : []} facetFailed={facetMovies === null} />
+    case 'studios':
+      return <FacetRow row={row} facets={facetMovies ? topStudios(facetMovies) : []} facetFailed={facetMovies === null} />
+    default:
+      return <FeedRow row={row} feed={feed} />
+  }
+}
+
+// FeedRow renders one of the /api/v1/discover rows: the row's kind-filtered
+// items (mixed for trending), plus the friendly grey-out notes for the
+// unavailable cells the row claims.
+function FeedRow({ row, feed }: { row: (typeof DISCOVER_ROWS)[number]; feed: DiscoverFeed | null }) {
+  const items = feed ? feedItemsForRow(row, feed) : []
+  const notes = feed ? rowNotes(cellsForRow(row, feed.unavailable)) : []
+  return (
+    <DiscoverRow id={row.id} label={row.label}>
+      {items.map((item) => (
+        <PosterCell
+          key={`${item.kind}-${item.sourceId}`}
+          kind={item.kind}
+          title={item.title}
+          meta={feedItemMeta(item)}
+          posterUrl={item.posterUrl}
+          target={feedTarget(row, item)}
+          testId={`discover-card-${row.id}-${item.kind}-${item.sourceId}`}
+        />
+      ))}
+      <RowNotes notes={notes} />
+      {items.length === 0 && notes.length === 0 && (
+        <div className="flex w-full items-center">
+          <EmptyState
+            testId={`discover-row-empty-${row.id}`}
+            title="Nothing here right now."
+            message="Items from the feeds appear here as they become available."
+          />
+        </div>
+      )}
+    </DiscoverRow>
+  )
+}
+
+// RecentlyAddedRow: the top ~12 library items across all four kinds.
+function RecentlyAddedRow({
+  row,
+  recent,
+}: {
+  row: (typeof DISCOVER_ROWS)[number]
+  recent: Loaded['recent'] | undefined
+}) {
+  if (!recent) {
+    return (
+      <DiscoverRow id={row.id} label={row.label}>
+        <RowNotes notes={[LIST_UNAVAILABLE_NOTE]} />
+      </DiscoverRow>
+    )
+  }
+  const cards = buildRecentlyAdded(recent.movies, recent.series, recent.artists, recent.books)
+  return (
+    <DiscoverRow id={row.id} label={row.label}>
+      {cards.map((c) => (
+        <PosterCell
+          key={`${c.kind}-${c.id}`}
+          kind={c.kind}
+          title={c.title}
+          meta={c.meta}
+          posterUrl={c.posterUrl}
+          target={c.target}
+          testId={`discover-card-${row.id}-${c.kind}-${c.id}`}
+        />
+      ))}
+      {recent.failed.length > 0 && <RowNotes notes={[LIST_UNAVAILABLE_NOTE]} />}
+      {cards.length === 0 && (
+        <div className="flex w-full items-center">
+          <EmptyState
+            testId="discover-row-empty-recentlyAdded"
+            title="No library items yet."
+            message="Add your first movie, series, artist, or book and it shows up here."
+          />
+        </div>
+      )}
+    </DiscoverRow>
+  )
+}
+
+// ActivityRow: the absorbed Dashboard recent queue + recent history feeds
+// (landscape cards, newest first, capped at 10 by the model).
+function ActivityRow({ row, dash }: { row: (typeof DISCOVER_ROWS)[number]; dash: Dashboard | null }) {
+  const cards = mergeRecentActivity(dash)
+  return (
+    <DiscoverRow id={row.id} label={row.label}>
+      {cards.map((c) => (
+        <ActivityCardView key={c.key} card={c} testId={`discover-card-${row.id}-${c.key}`} />
+      ))}
+      {dash === null && <RowNotes notes={['Recent activity could not be loaded.']} />}
+      {cards.length === 0 && dash !== null && (
+        <div className="flex w-full items-center">
+          <EmptyState
+            testId="discover-row-empty-recentActivity"
+            title="No recent activity."
+            message="Queue updates and history events appear here."
+          />
+        </div>
+      )}
+    </DiscoverRow>
+  )
+}
+
+// WatchlistRow: the monitored library items (the reference watchlist,
+// redefined as monitored items), grouped by kind in the deterministic
+// kind order.
+function WatchlistRow({
+  row,
+  watch,
+}: {
+  row: (typeof DISCOVER_ROWS)[number]
+  watch: Loaded['watch'] | undefined
+}) {
+  if (!watch) {
+    return (
+      <DiscoverRow id={row.id} label={row.label}>
+        <RowNotes notes={[LIST_UNAVAILABLE_NOTE]} />
+      </DiscoverRow>
+    )
+  }
+  const cards = buildWatchlist(watch.movies, watch.series, watch.artists, watch.books)
+  return (
+    <DiscoverRow id={row.id} label={row.label}>
+      {cards.map((c) => (
+        <PosterCell
+          key={`${c.kind}-${c.id}`}
+          kind={c.kind}
+          title={c.title}
+          meta={c.meta}
+          posterUrl={c.posterUrl}
+          target={c.target}
+          testId={`discover-card-${row.id}-${c.kind}-${c.id}`}
+        />
+      ))}
+      {watch.failed.length > 0 && <RowNotes notes={[LIST_UNAVAILABLE_NOTE]} />}
+      {cards.length === 0 && (
+        <div className="flex w-full items-center">
+          <EmptyState
+            testId="discover-row-empty-watchlist"
+            title="Your watchlist is empty."
+            message="Monitor library items and they collect here."
+          />
+        </div>
+      )}
+    </DiscoverRow>
+  )
+}
+
+// FacetRow: one facet row (genres / studios). The tiles are inert (divs):
+// #150's list filters accept only a multi-value genre list (a single
+// studio's movies can't be queried server-side) and the list pages don't
+// read URL params, so a link would not filter — the tiles document what
+// the library holds.
+function FacetRow({
+  row,
+  facets,
+  facetFailed,
+}: {
+  row: (typeof DISCOVER_ROWS)[number]
+  facets: { name: string; count: number }[]
+  facetFailed: boolean
+}) {
+  return (
+    <DiscoverRow id={row.id} label={row.label}>
+      {facets.map((f) => (
+        <FacetTile key={f.name} name={f.name} count={f.count} testId={`discover-card-${row.id}-${f.name.replace(/\s+/g, '-').toLowerCase()}`} />
+      ))}
+      {facetFailed && <RowNotes notes={[LIST_UNAVAILABLE_NOTE]} />}
+      {facets.length === 0 && (
+        <div className="flex w-full items-center">
+          <EmptyState
+            testId={`discover-row-empty-${row.id}`}
+            title={`No ${row.label.toLowerCase()} yet.`}
+            message="These appear here once the library has items with them."
+          />
+        </div>
+      )}
+    </DiscoverRow>
+  )
+}
+
+// ---- loading placeholders (the reference's 10-placeholder loading rows) ----------
+
+function SkeletonStrip() {
+  return (
+    <div className="flex flex-wrap gap-2" data-testid="discover-kpi-loading">
+      {Array.from({ length: 4 }, (_, i) => (
+        <div key={i} className="h-16 min-w-28 flex-1 animate-pulse rounded-lg border border-border bg-surface-raised/40" />
       ))}
     </div>
   )
 }
 
-// DiscoverRowView renders one row: the row title, then — in the page's
-// single loading phase — a dim loading line (the established loading
-// pattern: Calendar, R3 Discover, Global Search). Once loaded: the
-// per-kind grids (when the row has items), the per-cell grey-out notes
-// (when cells are unavailable), or — a row with zero items AND no
-// unavailable cells — the EmptyState. A zero-item row whose cells are
-// unavailable shows the notes alone: they ARE the row's content (the
-// feed is unconfigured), and an EmptyState would read as "empty" when
-// the real answer is "missing key".
-function DiscoverRowView({
-  row,
-  loading,
-  items,
-  unavailable,
-  onOpen,
-}: {
-  row: DiscoverRow
-  loading: boolean
-  items: DiscoverItem[]
-  unavailable: DiscoverCellError[]
-  onOpen: (to: string) => void
-}) {
-  const groups = groupRowItems(items)
+function RowSkeleton() {
   return (
-    <section className="discover-row" data-testid={`discover-row-${row.id}`}>
-      <h3 className="discover-row-title" data-testid={`discover-row-title-${row.id}`}>
-        {row.label}
-      </h3>
-      {loading ? (
-        <p className="dim" data-testid={`discover-row-loading-${row.id}`}>
-          Loading {row.label.toLowerCase()}…
-        </p>
-      ) : groups.length === 0 && unavailable.length === 0 ? (
-        <EmptyState
-          testId={`discover-row-empty-${row.id}`}
-          title={row.empty}
-          message={row.emptyMessage}
-        />
-      ) : (
-        <>
-          {groups.length > 0 && (
-            <div className="poster-grid" data-testid={`discover-row-grid-${row.id}`}>
-              {groups.map(([kind, cellItems]) =>
-                cellItems.map((item, i) => (
-                  <DiscoverCard
-                    key={`${kind}-${item.sourceId}-${i}`}
-                    item={item}
-                    kind={kind}
-                    row={row}
-                    onOpen={onOpen}
-                  />
-                )),
-              )}
-            </div>
-          )}
-          {unavailable.map((c) => (
-            <UnavailableNote key={c.cell} cell={c} />
-          ))}
-        </>
-      )}
-    </section>
-  )
-}
-
-// UnavailableNote is one cell's grey-out note (the R3 keyless pattern):
-// it names the feed (the kind label) plus the server's reason, and it
-// never hides the row's items — a cell can carry BOTH items and a note
-// (the keyless Google Books fallback case).
-function UnavailableNote({ cell }: { cell: DiscoverCellError }) {
-  const [kind] = cell.cell.split(':')
-  const label = DISCOVER_KIND_LABEL[kind as DiscoverKind] ?? kind
-  return (
-    <p className="dim small" data-testid={`discover-unavailable-${cell.cell.replace(':', '-')}`}>
-      {label}: {cell.reason}
-    </p>
-  )
-}
-
-// DiscoverCard is one poster cell: the #115 PosterCard whose status
-// badge over the art is the KIND badge (the GlobalSearch pattern), the
-// poster or the initials stand-in (posterUrl '' → undefined →
-// posterInitials), the composed meta line, and — where targetFor found
-// one — a navigation target.
-function DiscoverCard({
-  item,
-  kind,
-  row,
-  onOpen,
-}: {
-  item: DiscoverItem
-  kind: DiscoverKind
-  row: DiscoverRow
-  onOpen: (to: string) => void
-}) {
-  const to = targetFor(row, item)
-  return (
-    <PosterCard
-      title={item.title}
-      image={item.posterUrl || undefined}
-      meta={itemMeta(item) || undefined}
-      status={{ label: DISCOVER_KIND_LABEL[kind], tone: 'accent' }}
-      onOpen={to ? () => onOpen(to) : undefined}
-      testId={`discover-card-${row.id}-${kind}-${item.sourceId}`}
-    />
+    <>
+      {Array.from({ length: 8 }, (_, i) => (
+        <div key={i} className="w-36 shrink-0 animate-pulse rounded-lg border border-border bg-surface-raised/40">
+          <div className="aspect-[2/3] w-full rounded-t-lg" />
+        </div>
+      ))}
+    </>
   )
 }
