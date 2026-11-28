@@ -6104,6 +6104,30 @@ export interface components {
         ArtistListSort: "title-asc" | "title-desc" | "added-asc" | "added-desc" | "rating-asc" | "rating-desc";
         /** @description Server-side ordering for the authors grid (#150): title / added, each ascending or descending, validated against this closed allowlist — an unknown field or direction is a 400. Omit for the natural order. */
         AuthorListSort: "title-asc" | "title-desc" | "added-asc" | "added-desc";
+        /** @description #150 filter-drawer facet: match movies carrying ANY of these comma-separated TMDB genres (case-insensitive). Keyless movies (no persisted genres) never match. */
+        MovieListGenre: string;
+        /** @description #150 filter-drawer facet: the original language ISO code (e.g. "en"). Keyless movies never match. */
+        MovieListLang: string;
+        /** @description #150 filter-drawer facet: minimum runtime in minutes (inclusive). A malformed value is a 400. */
+        MovieListRuntimeMin: number;
+        /** @description #150 filter-drawer facet: maximum runtime in minutes (inclusive). A malformed value is a 400. */
+        MovieListRuntimeMax: number;
+        /** @description #150 filter-drawer facet: minimum TMDB user score 0-100 (inclusive). A malformed value is a 400. */
+        MovieListScoreMin: number;
+        /** @description #150 filter-drawer facet: maximum TMDB user score 0-100 (inclusive). A malformed value is a 400. */
+        MovieListScoreMax: number;
+        /** @description #150 filter-drawer facet: the content rating / certification (e.g. "PG-13"). Keyless movies never match. */
+        MovieListCert: string;
+        /** @description #150 filter-drawer facet: release-date range start "YYYY-MM-DD" (inclusive). Movies with an unknown release date never match a bounded range. A malformed date is a 400. */
+        MovieListFrom: string;
+        /** @description #150 filter-drawer facet: release-date range end "YYYY-MM-DD" (inclusive). A malformed date is a 400. */
+        MovieListTo: string;
+        /** @description #150 filter-drawer facet: the derived Radarr status chip value (downloaded:monitored, downloaded:unmonitored, missing:monitored, missing:unmonitored, queued, unreleased). */
+        MovieListStatus: string;
+        /** @description #150 filter-drawer facet: the artist genre (case-insensitive). */
+        MusicListGenre: string;
+        /** @description #150 filter-drawer facet: the artist status (continuing / ended / inactive). */
+        MusicListStatus: string;
         /** @description Maximum number of entries to return (server clamps to 1..200, default 50). */
         HistoryLimit: number;
         /** @description Free-text search query. */
@@ -6314,6 +6338,26 @@ export interface operations {
                 page_size?: components["parameters"]["ListPageSize"];
                 /** @description Server-side ordering for the Movies grid (#70, #150). One of the grid sort options — title / year / added / release_date / rating, each ascending or descending. Sorting happens before pagination, so a sort surfaces rows that sit beyond page 1 of the natural order. #150: the value is validated against this closed allowlist — an unknown field or direction is a 400, never a silent default. Omit for the natural (insertion) order. */
                 sort?: components["parameters"]["MovieListSort"];
+                /** @description #150 filter-drawer facet: match movies carrying ANY of these comma-separated TMDB genres (case-insensitive). Keyless movies (no persisted genres) never match. */
+                genre?: components["parameters"]["MovieListGenre"];
+                /** @description #150 filter-drawer facet: the original language ISO code (e.g. "en"). Keyless movies never match. */
+                lang?: components["parameters"]["MovieListLang"];
+                /** @description #150 filter-drawer facet: minimum runtime in minutes (inclusive). A malformed value is a 400. */
+                runtime_min?: components["parameters"]["MovieListRuntimeMin"];
+                /** @description #150 filter-drawer facet: maximum runtime in minutes (inclusive). A malformed value is a 400. */
+                runtime_max?: components["parameters"]["MovieListRuntimeMax"];
+                /** @description #150 filter-drawer facet: minimum TMDB user score 0-100 (inclusive). A malformed value is a 400. */
+                score_min?: components["parameters"]["MovieListScoreMin"];
+                /** @description #150 filter-drawer facet: maximum TMDB user score 0-100 (inclusive). A malformed value is a 400. */
+                score_max?: components["parameters"]["MovieListScoreMax"];
+                /** @description #150 filter-drawer facet: the content rating / certification (e.g. "PG-13"). Keyless movies never match. */
+                cert?: components["parameters"]["MovieListCert"];
+                /** @description #150 filter-drawer facet: release-date range start "YYYY-MM-DD" (inclusive). Movies with an unknown release date never match a bounded range. A malformed date is a 400. */
+                from?: components["parameters"]["MovieListFrom"];
+                /** @description #150 filter-drawer facet: release-date range end "YYYY-MM-DD" (inclusive). A malformed date is a 400. */
+                to?: components["parameters"]["MovieListTo"];
+                /** @description #150 filter-drawer facet: the derived Radarr status chip value (downloaded:monitored, downloaded:unmonitored, missing:monitored, missing:unmonitored, queued, unreleased). */
+                status?: components["parameters"]["MovieListStatus"];
             };
             header?: never;
             path?: never;
@@ -7100,6 +7144,10 @@ export interface operations {
                 page_size?: components["parameters"]["ListPageSize"];
                 /** @description Server-side ordering for the artists grid (#150): title / added / rating, each ascending or descending, validated against this closed allowlist — an unknown field or direction is a 400. Omit for the natural order. */
                 sort?: components["parameters"]["ArtistListSort"];
+                /** @description #150 filter-drawer facet: the artist genre (case-insensitive). */
+                genre?: components["parameters"]["MusicListGenre"];
+                /** @description #150 filter-drawer facet: the artist status (continuing / ended / inactive). */
+                status?: components["parameters"]["MusicListStatus"];
             };
             header?: never;
             path?: never;

@@ -257,6 +257,16 @@ paths:
         - $ref: "#/components/parameters/ListPage"
         - $ref: "#/components/parameters/ListPageSize"
         - $ref: "#/components/parameters/MovieListSort"
+        - $ref: "#/components/parameters/MovieListGenre"
+        - $ref: "#/components/parameters/MovieListLang"
+        - $ref: "#/components/parameters/MovieListRuntimeMin"
+        - $ref: "#/components/parameters/MovieListRuntimeMax"
+        - $ref: "#/components/parameters/MovieListScoreMin"
+        - $ref: "#/components/parameters/MovieListScoreMax"
+        - $ref: "#/components/parameters/MovieListCert"
+        - $ref: "#/components/parameters/MovieListFrom"
+        - $ref: "#/components/parameters/MovieListTo"
+        - $ref: "#/components/parameters/MovieListStatus"
       responses:
         "200":
           description: One page of movies.
@@ -927,6 +937,8 @@ paths:
         - $ref: "#/components/parameters/ListPage"
         - $ref: "#/components/parameters/ListPageSize"
         - $ref: "#/components/parameters/ArtistListSort"
+        - $ref: "#/components/parameters/MusicListGenre"
+        - $ref: "#/components/parameters/MusicListStatus"
       responses:
         "200":
           description: One page of artists.
@@ -4708,6 +4720,122 @@ components:
           - title-desc
           - added-asc
           - added-desc
+    MovieListGenre:
+      name: genre
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: match movies carrying ANY of these
+        comma-separated TMDB genres (case-insensitive). Keyless movies
+        (no persisted genres) never match.
+      schema:
+        type: string
+    MovieListLang:
+      name: lang
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the original language ISO code
+        (e.g. "en"). Keyless movies never match.
+      schema:
+        type: string
+    MovieListRuntimeMin:
+      name: runtime_min
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: minimum runtime in minutes (inclusive).
+        A malformed value is a 400.
+      schema:
+        type: integer
+        minimum: 0
+    MovieListRuntimeMax:
+      name: runtime_max
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: maximum runtime in minutes (inclusive).
+        A malformed value is a 400.
+      schema:
+        type: integer
+        minimum: 0
+    MovieListScoreMin:
+      name: score_min
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: minimum TMDB user score 0-100
+        (inclusive). A malformed value is a 400.
+      schema:
+        type: number
+        minimum: 0
+    MovieListScoreMax:
+      name: score_max
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: maximum TMDB user score 0-100
+        (inclusive). A malformed value is a 400.
+      schema:
+        type: number
+        minimum: 0
+    MovieListCert:
+      name: cert
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the content rating / certification
+        (e.g. "PG-13"). Keyless movies never match.
+      schema:
+        type: string
+    MovieListFrom:
+      name: from
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: release-date range start "YYYY-MM-DD"
+        (inclusive). Movies with an unknown release date never match a
+        bounded range. A malformed date is a 400.
+      schema:
+        type: string
+        format: date
+    MovieListTo:
+      name: to
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: release-date range end "YYYY-MM-DD"
+        (inclusive). A malformed date is a 400.
+      schema:
+        type: string
+        format: date
+    MovieListStatus:
+      name: status
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the derived Radarr status chip value
+        (downloaded:monitored, downloaded:unmonitored,
+        missing:monitored, missing:unmonitored, queued, unreleased).
+      schema:
+        type: string
+    MusicListGenre:
+      name: genre
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the artist genre (case-insensitive).
+      schema:
+        type: string
+    MusicListStatus:
+      name: status
+      in: query
+      required: false
+      description: >-
+        #150 filter-drawer facet: the artist status
+        (continuing / ended / inactive).
+      schema:
+        type: string
     HistoryLimit:
       name: limit
       in: query

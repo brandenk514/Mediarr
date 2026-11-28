@@ -204,16 +204,64 @@ func (s *Service) ListMovies(ctx context.Context) ([]dom.Movie, error) {
 // ?sort= is set the filtered set is ordered before paging, so a sort surfaces
 // rows beyond page 1 of the natural order. No provider enrichment here — that
 // is detail-only, to keep the grid cheap without a TMDB key.
-func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Movie], error) {
+// ListFilters is the #150 filter-drawer facet set for the movies list
+// endpoint, parsed from query params by the API layer. The zero value
+// filters nothing. Unknown (keyless) metadata never matches a set facet
+// — filtering is never an error.
+type ListFilters struct {
+	// Genres matches ANY of the listed genres (case-insensitive; the
+	// drawer's multi-select ORs).
+	Genres []string
+	// Language is the original language ISO code.
+	Language string
+	// RuntimeMin/RuntimeMax bound the runtime in minutes (nil = open).
+	RuntimeMin *int
+	RuntimeMax *int
+	// ScoreMin/ScoreMax bound the TMDB user score 0-100 (nil = open).
+	ScoreMin *float64
+	ScoreMax *float64
+	// Certification is the content rating (e.g. "PG-13").
+	Certification string
+	// ReleaseFrom/ReleaseTo bound the release date "YYYY-MM-DD"
+	// (lexicographic; "" = open).
+	ReleaseFrom string
+	ReleaseTo   string
+	// Status is the derived Radarr status chip value
+	// (e.g. "downloaded:monitored").
+	Status string
+}
+
+// IsZero reports whether no facet is set (the drawer was never opened).
+func (f ListFilters) IsZero() bool {
+	return len(f.Genres) == 0 && f.Language == "" && f.RuntimeMin == nil && f.RuntimeMax == nil &&
+		f.ScoreMin == nil && f.ScoreMax == nil && f.Certification == "" &&
+		f.ReleaseFrom == "" && f.ReleaseTo == "" && f.Status == ""
+}
+
+func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query, filters ...ListFilters) (paging.Page[dom.Movie], error) {
 	// #150: the sort value is validated against the movies allowlist
 	// server-side; unknown field/direction is an error the API maps to
 	// 400, never a silent default.
 	if err := paging.ValidateSort(q.Sort, MovieSortFields); err != nil {
 		return paging.Page[dom.Movie]{}, err
 	}
+	var f ListFilters
+	if len(filters) > 0 {
+		f = filters[0]
+	}
 	all, err := s.deps.Repo.ListMovies(ctx)
 	if err != nil {
 		return paging.Page[dom.Movie]{}, err
+	}
+	// #150: the facet set filters the full list server-side BEFORE
+	// paging, so the grid's totals and pages reflect the drawer. The
+	// status facet needs the derived status, which is computed from the
+	// wanted/queue rows here (the same inputs buildViews derives from).
+	if !f.IsZero() {
+		all, err = s.applyMovieFilters(ctx, all, f)
+		if err != nil {
+			return paging.Page[dom.Movie]{}, err
+		}
 	}
 	page := paging.Apply(all, q, func(m dom.Movie) (string, bool) {
 		return m.Title, m.Monitored
@@ -224,6 +272,102 @@ func (s *Service) ListMoviesQuery(ctx context.Context, q paging.Query) (paging.P
 	}
 	page.Items = views
 	return page, nil
+}
+
+// applyMovieFilters narrows the list to the movies matching every set
+// facet (#150). The status facet derives each movie's status from the
+// wanted/queue rows — the same derivation buildViews applies, computed
+// here so the filter runs before paging.
+func (s *Service) applyMovieFilters(ctx context.Context, all []dom.Movie, f ListFilters) ([]dom.Movie, error) {
+	needStatus := f.Status != ""
+	var wantByMovie map[int64]*dom.Wanted
+	var activeQueue map[int64]bool
+	if needStatus {
+		wantedRows, err := s.deps.Repo.ListWanted(ctx)
+		if err != nil {
+			return nil, err
+		}
+		wantByMovie = make(map[int64]*dom.Wanted, len(wantedRows))
+		for i := range wantedRows {
+			wantByMovie[wantedRows[i].MovieID] = &wantedRows[i]
+		}
+		queueRows, err := s.deps.Repo.ListQueue(ctx)
+		if err != nil {
+			return nil, err
+		}
+		activeQueue = map[int64]bool{}
+		for _, q := range queueRows {
+			if q.State == dom.QueueQueued || q.State == dom.QueueDownloading {
+				activeQueue[q.MovieID] = true
+			}
+		}
+	}
+	now := time.Now()
+	out := make([]dom.Movie, 0, len(all))
+	for _, m := range all {
+		if !movieMatchesFilters(m, f, wantByMovie[m.ID] != nil && wantByMovie[m.ID].Status == dom.WantedSatisfied,
+			activeQueue[m.ID], now) {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// movieMatchesFilters reports whether one movie matches every set facet.
+func movieMatchesFilters(m dom.Movie, f ListFilters, wantedSatisfied, inQueue bool, now time.Time) bool {
+	if len(f.Genres) > 0 && !genreMatches(m.Genres, f.Genres) {
+		return false
+	}
+	if f.Language != "" && (m.OriginalLanguage == nil || !strings.EqualFold(*m.OriginalLanguage, f.Language)) {
+		return false
+	}
+	if f.RuntimeMin != nil && (m.Runtime == nil || *m.Runtime < *f.RuntimeMin) {
+		return false
+	}
+	if f.RuntimeMax != nil && (m.Runtime == nil || *m.Runtime > *f.RuntimeMax) {
+		return false
+	}
+	if f.ScoreMin != nil && (m.Scores == nil || m.Scores.TmdbPct == nil || *m.Scores.TmdbPct < *f.ScoreMin) {
+		return false
+	}
+	if f.ScoreMax != nil && (m.Scores == nil || m.Scores.TmdbPct == nil || *m.Scores.TmdbPct > *f.ScoreMax) {
+		return false
+	}
+	if f.Certification != "" && (m.Certification == nil || !strings.EqualFold(*m.Certification, f.Certification)) {
+		return false
+	}
+	if f.ReleaseFrom != "" || f.ReleaseTo != "" {
+		// A bounded release-date range requires a KNOWN date: keyless
+		// rows ("") never match ("" would sort below every from-bound
+		// and past every to-bound).
+		if m.ReleaseDate == "" {
+			return false
+		}
+		if f.ReleaseFrom != "" && m.ReleaseDate < f.ReleaseFrom {
+			return false
+		}
+		if f.ReleaseTo != "" && m.ReleaseDate > f.ReleaseTo {
+			return false
+		}
+	}
+	if f.Status != "" && dom.DeriveMovieStatus(wantedSatisfied, inQueue, m.Monitored, dom.ParseReleaseDate(m.ReleaseDate), now) != dom.MovieStatus(f.Status) {
+		return false
+	}
+	return true
+}
+
+// genreMatches reports whether the movie carries any of the filter
+// genres (case-insensitive).
+func genreMatches(have, want []string) bool {
+	for _, w := range want {
+		for _, h := range have {
+			if strings.EqualFold(h, w) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // MovieSortFields is the closed server-side allowlist behind the movies

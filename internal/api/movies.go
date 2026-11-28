@@ -2,8 +2,12 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
+	"time"
 
 	moviesdom "github.com/brandenk514/mediarr/internal/domains/movies"
 	"github.com/brandenk514/mediarr/internal/paging"
@@ -83,12 +87,21 @@ func (s *Server) AddMovie(w http.ResponseWriter, r *http.Request) {
 // ListMovies handles GET /api/v1/movies. It returns a server-side filtered,
 // sorted, paginated envelope (M6 #41, sort #70) so the UI's list view does
 // pagination, filtering and ordering server-side:
-// ?q=<search>&monitored=<bool>&page=&page_size=&sort=<title|year|added|release_date|rating>-<asc|desc>.
-// #150: the sort value is validated against the closed allowlist — an
-// unknown field/direction is a 400, never a silent default.
+// ?q=&monitored=&page=&page_size=&sort=<title|year|added|release_date|rating>-<asc|desc>
+// plus the #150 filter-drawer facets:
+// &genre=<a,b>&lang=<iso>&runtime_min=&runtime_max=&score_min=&score_max=
+// &cert=<rating>&from=YYYY-MM-DD&to=YYYY-MM-DD&status=<chip>.
+// #150: the sort value is validated against the closed allowlist and every
+// facet param is type-checked — unknown or malformed values are a 400,
+// never a silent default.
 func (s *Server) ListMovies(w http.ResponseWriter, r *http.Request) {
 	q := paging.QueryFromURLValues(r.URL.Query())
-	page, err := s.moviesDeps.Svc.ListMoviesQuery(r.Context(), q)
+	f, err := movieListFilters(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	page, err := s.moviesDeps.Svc.ListMoviesQuery(r.Context(), q, f)
 	if err != nil {
 		if errors.Is(err, paging.ErrInvalidSort) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -98,6 +111,84 @@ func (s *Server) ListMovies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+// movieListFilters parses the #150 facet params. Malformed values are
+// errors (the handler maps them to 400); set-but-empty means unset.
+func movieListFilters(v url.Values) (moviesvc.ListFilters, error) {
+	f := moviesvc.ListFilters{}
+	if g := strings.TrimSpace(v.Get("genre")); g != "" {
+		for _, part := range strings.Split(g, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				f.Genres = append(f.Genres, part)
+			}
+		}
+	}
+	f.Language = strings.TrimSpace(v.Get("lang"))
+	f.Certification = strings.TrimSpace(v.Get("cert"))
+	f.Status = strings.TrimSpace(v.Get("status"))
+
+	var err error
+	if f.RuntimeMin, err = queryIntPtr(v, "runtime_min"); err != nil {
+		return f, err
+	}
+	if f.RuntimeMax, err = queryIntPtr(v, "runtime_max"); err != nil {
+		return f, err
+	}
+	if f.ScoreMin, err = queryFloatPtr(v, "score_min"); err != nil {
+		return f, err
+	}
+	if f.ScoreMax, err = queryFloatPtr(v, "score_max"); err != nil {
+		return f, err
+	}
+	if f.ReleaseFrom, err = queryDate(v, "from"); err != nil {
+		return f, err
+	}
+	if f.ReleaseTo, err = queryDate(v, "to"); err != nil {
+		return f, err
+	}
+	return f, nil
+}
+
+// queryIntPtr parses an optional positive integer query param; a set but
+// malformed value is an error.
+func queryIntPtr(v url.Values, name string) (*int, error) {
+	raw := strings.TrimSpace(v.Get(name))
+	if raw == "" {
+		return nil, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return nil, fmt.Errorf("invalid %s %q", name, raw)
+	}
+	return &n, nil
+}
+
+// queryFloatPtr parses an optional non-negative float query param; a set
+// but malformed value is an error.
+func queryFloatPtr(v url.Values, name string) (*float64, error) {
+	raw := strings.TrimSpace(v.Get(name))
+	if raw == "" {
+		return nil, nil
+	}
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil || n < 0 {
+		return nil, fmt.Errorf("invalid %s %q", name, raw)
+	}
+	return &n, nil
+}
+
+// queryDate parses an optional "YYYY-MM-DD" query param; a set but
+// malformed value is an error (never silently ignored).
+func queryDate(v url.Values, name string) (string, error) {
+	raw := strings.TrimSpace(v.Get(name))
+	if raw == "" {
+		return "", nil
+	}
+	if _, err := time.Parse("2006-01-02", raw); err != nil {
+		return "", fmt.Errorf("invalid %s %q (want YYYY-MM-DD)", name, raw)
+	}
+	return raw, nil
 }
 
 // setMovieMonitoredRequest is the body for PUT /api/v1/movies/{id}.

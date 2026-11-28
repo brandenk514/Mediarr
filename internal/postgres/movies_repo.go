@@ -186,7 +186,7 @@ func applyMetadata(m *movies.Movie, runtime int, origLang, cert string, tmdbPct 
 	}
 	if tmdbPct > 0 {
 		m.Scores = &movies.MovieScores{TmdbPct: &tmdbPct}
-}
+	}
 }
 
 // SetMovieMonitored toggles a movie's monitored flag.

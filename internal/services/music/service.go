@@ -632,12 +632,31 @@ func (s *Service) ListArtists(ctx context.Context) ([]dom.Artist, error) {
 // ListArtistsQuery returns a server-side filtered and paginated page of
 // artists (M6 #41). The music list view expands an artist to its albums and
 // tracks lazily; the page envelope applies to the artist level.
-func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.Page[dom.Artist], error) {
+// ArtistFilters is the #150 filter-drawer facet set for the artists
+// list endpoint: the persisted Lidarr artist fields. The zero value
+// filters nothing.
+type ArtistFilters struct {
+	// Genre is the artist genre (case-insensitive).
+	Genre string
+	// Status is the artist status (continuing / ended / inactive).
+	Status string
+}
+
+// IsZero reports whether no facet is set (the drawer was never opened).
+func (f ArtistFilters) IsZero() bool {
+	return f.Genre == "" && f.Status == ""
+}
+
+func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query, filters ...ArtistFilters) (paging.Page[dom.Artist], error) {
 	// #150: the sort value is validated against the artists allowlist
 	// server-side; unknown field/direction is an error the API maps to
 	// 400.
 	if err := paging.ValidateSort(q.Sort, ArtistSortFields); err != nil {
 		return paging.Page[dom.Artist]{}, err
+	}
+	var f ArtistFilters
+	if len(filters) > 0 {
+		f = filters[0]
 	}
 	all, err := s.deps.Repo.ListArtists(ctx)
 	if err != nil {
@@ -648,6 +667,20 @@ func (s *Service) ListArtistsQuery(ctx context.Context, q paging.Query) (paging.
 	// too, not just on the unpaginated service method (found live in run 5).
 	for i := range all {
 		all[i].PosterURL = all[i].Cover
+	}
+	// #150: the facet set filters the full list server-side BEFORE paging.
+	if !f.IsZero() {
+		filtered := make([]dom.Artist, 0, len(all))
+		for _, a := range all {
+			if f.Genre != "" && !strings.EqualFold(a.Genre, f.Genre) {
+				continue
+			}
+			if f.Status != "" && a.Status != f.Status {
+				continue
+			}
+			filtered = append(filtered, a)
+		}
+		all = filtered
 	}
 	return paging.Apply(all, q, func(a dom.Artist) (string, bool) {
 		return a.Name, a.Monitored

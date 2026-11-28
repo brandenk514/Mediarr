@@ -124,11 +124,16 @@ func (s *Server) AddArtist(w http.ResponseWriter, r *http.Request) {
 
 // ListArtists handles GET /api/v1/music/artists. It returns a server-side
 // filtered, sorted, paginated envelope (M6 #41): ?q=&monitored=&page=
-// &page_size=&sort=<title|added|rating>-<asc|desc>. #150: the sort value
-// is validated against the closed allowlist — unknown is a 400.
+// &page_size=&sort=<title|added|rating>-<asc|desc> plus the #150 filter
+// drawer facets &genre=<g>&status=<continuing|ended|inactive>. #150: the
+// sort value is validated against the closed allowlist — unknown is a 400.
 func (s *Server) ListArtists(w http.ResponseWriter, r *http.Request) {
 	q := paging.QueryFromURLValues(r.URL.Query())
-	page, err := s.musicDeps.Svc.ListArtistsQuery(r.Context(), q)
+	f := musicsvc.ArtistFilters{
+		Genre:  strings.TrimSpace(r.URL.Query().Get("genre")),
+		Status: strings.TrimSpace(r.URL.Query().Get("status")),
+	}
+	page, err := s.musicDeps.Svc.ListArtistsQuery(r.Context(), q, f)
 	if err != nil {
 		if errors.Is(err, paging.ErrInvalidSort) {
 			writeError(w, http.StatusBadRequest, err.Error())
