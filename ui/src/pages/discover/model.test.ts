@@ -173,10 +173,15 @@ describe('cellNote (the one deterministic DiscoverCellError → friendly mapper)
     expect(cellNote(cell('book', 'upcoming', RAW[5]))).toContain('books library')
   })
 
-  it('prefixes the note with the cell kind label', () => {
-    const note = cellNote(cell('tv', 'upcoming', RAW[4]))
-    expect(note.startsWith('TV: ')).toBe(true)
-    expect(cellNote(cell('music', 'trending', RAW[2]))).toMatch(/^Music: /)
+  it('prefixes only the generic (feed-specific) note with the kind label; known reasons are feed-independent', () => {
+    // Unknown reason → the note names the feed.
+    expect(cellNote(cell('movie', 'trending', 'tmdb trending movies: GET https://api.tmdb.org/... 502'))).toMatch(
+      /^Movies: /,
+    )
+    // Known not-configured reasons carry no kind prefix (one note per feed,
+    // rendered once by rowNotes' dedupe).
+    expect(cellNote(cell('tv', 'upcoming', RAW[4]))).not.toMatch(/^TV: /)
+    expect(cellNote(cell('music', 'trending', RAW[2]))).not.toMatch(/^Music: /)
   })
 
   it('an unknown (pass-through) reason gets the generic friendly note, never the raw text', () => {
@@ -187,7 +192,7 @@ describe('cellNote (the one deterministic DiscoverCellError → friendly mapper)
     expect(note).toContain('unavailable')
   })
 
-  it('rowNotes dedupes identical mapped notes and keeps order', () => {
+  it('rowNotes dedupes identical mapped notes (one per reason) and keeps order', () => {
     const notes = rowNotes([
       cell('movie', 'upcoming', 'calendar is not configured'),
       cell('tv', 'upcoming', 'calendar is not configured'),
@@ -402,9 +407,9 @@ describe('topGenres / topStudios', () => {
 
   it('counts genres case-insensitively and returns the top n by (count desc, name asc)', () => {
     expect(topGenres(movies, 8)).toEqual([
+      { name: 'Action', count: 2 },
       { name: 'Drama', count: 2 },
       { name: 'Sci-Fi', count: 2 },
-      { name: 'Action', count: 2 },
     ])
   })
 
