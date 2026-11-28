@@ -2375,6 +2375,75 @@ button.danger:hover {
   margin: 0.25rem 0 0;
 }
 
+/* ---- #151: cinematic row chrome — chevron scrollers + scroll track ----
+   Horizontal scroll is the responsive mechanism at 375/768px (#123):
+   the track scrolls, the fixed-width cells never shrink or clip. */
+.discover-row-carousel .discover-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.discover-row-carousel .discover-row-title {
+  margin: 0 0 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.discover-row-scrollers {
+  display: inline-flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.discover-row-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.discover-row-chevron:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.discover-row-chevron:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.discover-row-chevron:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.discover-row-track {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  padding-bottom: 0.5rem; /* room for the scrollbar */
+  scrollbar-width: thin;
+}
+
+.discover-row-track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
 /* ---- #119: unified cross-kind Library grid ----
    Each kind section: a heading (label + total) above the poster grid. The
    grid (.poster-grid) and the dim notes carry their own spacing. */

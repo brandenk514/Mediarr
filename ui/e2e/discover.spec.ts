@@ -52,10 +52,13 @@ const RAW_REASONS = [
 
 async function gotoDiscover(page: Page): Promise<void> {
   await page.goto('/discover')
-  if (page.url().includes('/login')) {
-    await signIn(page)
-    await expect(page).toHaveURL(/\/discover$/)
-  }
+  // Unsigned in, the app redirects every route to /login — wait for the
+  // form before acting (the redirect is not instant), then sign in and let
+  // the app's returnTo carry the flow to /discover (the token lives in page
+  // memory, so never page.goto once authenticated).
+  await expect(page.getByTestId('username')).toBeVisible()
+  await signIn(page)
+  await expect(page).toHaveURL(/\/discover$/)
   // The page has ONE loading phase: when the trending row settles (cards,
   // a friendly note, or its EmptyState) every row has settled.
   await expect
@@ -157,15 +160,25 @@ test('keyless dev stack: friendly notes for the keyed cells, real art for the ke
   await expect(page.locator('[data-testid^="discover-card-trending-book-"]').first()).toBeVisible()
 })
 
-test('empty (healthy) rows on a fresh stack show their EmptyState', async ({ page }) => {
+test('every row settles to cards, a friendly note, or its EmptyState — no blank track', async ({ page }) => {
   await gotoDiscover(page)
 
-  // No library items on a fresh stack: the watchlist row is empty (and has
-  // no unavailable cells), so it shows the EmptyState — not a blank track.
-  await expect(page.getByTestId('discover-row-empty-watchlist')).toBeVisible()
-  // The calendar is wired but empty: the upcoming rows are legitimately
-  // empty cells (not "calendar is not configured") → EmptyState too.
-  await expect(page.getByTestId('discover-row-empty-upcomingMovies')).toBeVisible()
+  // Data-independent invariant: whatever this stack's libraries hold, each
+  // row must resolve to at least one of (a) real cells, (b) friendly
+  // grey-out notes (keyless / failed cells), or (c) its EmptyState. A row
+  // that renders a bare empty track is a layout bug.
+  for (const id of ROWS) {
+    const track = page.getByTestId(`discover-row-${id}`).locator('.discover-row-track')
+    await expect
+      .poll(async () =>
+        track
+          .locator(
+            '[data-testid^="discover-card-"], .discover-row-note, [data-testid^="discover-row-empty-"]',
+          )
+          .count(),
+      )
+      .toBeGreaterThan(0)
+  }
 })
 
 test('the KPI strip cards are links into the kind list routes', async ({ page }) => {
