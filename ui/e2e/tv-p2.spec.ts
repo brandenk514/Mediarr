@@ -48,11 +48,11 @@ test('series page renders the P2 grid: toolbar, posters, view toggle', async ({ 
     await expect(page.getByTestId(id)).toBeVisible()
   }
 
-  // Grid with the two seeded cards: the #150 PosterCard shows the
-  // Monitored status badge and the quality footer line.
+  // Grid with the two seeded cards: the #150 PosterCard shows the title,
+  // the quality in its meta line, and a badge only for unmonitored items
+  // (ribbonFor: a monitored series with no status renders no badge).
   const cardA = page.getByTestId(`series-card-${a}`)
   await expect(cardA).toBeVisible()
-  await expect(cardA).toContainText('Monitored')
   await expect(cardA).toContainText('HD-1080p')
   await expect(page.getByTestId(`series-card-${z}`)).toBeVisible()
 

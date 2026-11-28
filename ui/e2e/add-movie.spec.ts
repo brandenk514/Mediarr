@@ -32,16 +32,17 @@ test('add a movie through the form and see it in the grid', async ({ page }) => 
   await expect(page.getByTestId('movies-grid')).toBeVisible()
   // Local dev databases accumulate probe movies across runs, and the grid
   // loads 25 at a time: with the default title sort the freshest probe can
-  // sit past the first batch. Sort newest-added first (which restarts the
-  // grid from the first page) so the new movie leads the grid regardless
-  // of database state (CI runs against a fresh database).
+  // sit past the first batch. The #150 sort control is a field dropdown
+  // plus an independent direction toggle — pick "Added" as the field, then
+  // flip the direction, so the new movie leads the grid regardless of
+  // database state (CI runs against a fresh database).
   await page.getByTestId('movies-sort-btn').click()
-  await page.getByTestId('movies-sort-opt-added-desc').click()
-  // Grid cards carry the title in their tooltip (the R1 grid design shows the
-  // status ribbon + monitored/quality footer, not the title text), so assert
-  // on the title attribute of the new movie's poster cell.
+  await page.getByTestId('movies-sort-opt-added').click()
+  await page.getByTestId('movies-sort-dir').click()
+  // The #150 grid cell carries the title in its title attribute (and as
+  // visible text), so assert on it to find the new movie's card.
   await expect(
-    page.getByTestId('movies-grid').locator(`.poster-cell[title="${title}"]`),
+    page.getByTestId('movies-grid').locator(`[title="${title}"]`),
   ).toBeVisible()
 })
 
