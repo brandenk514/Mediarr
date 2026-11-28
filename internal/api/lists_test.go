@@ -227,6 +227,18 @@ func (r *listMoviesRepo) SetMovieArtwork(ctx context.Context, id int64, posterUR
 	return nil
 }
 
+// SetMovieMetadata is the #150 metadata setter; the list tests never
+// exercise the enrich path that calls it.
+func (r *listMoviesRepo) SetMovieMetadata(ctx context.Context, id int64, meta moviesdom.MovieMetadata) error {
+	m, ok := r.movies[id]
+	if !ok {
+		return moviesdom.ErrMovieNotFound
+	}
+	m.Genres = meta.Genres
+	r.movies[id] = m
+	return nil
+}
+
 // newListTestServer returns an authenticated movies server plus a valid bearer
 // token, so the contract tests can hit the real requireAuth-wrapped routes.
 func newListTestServer(t *testing.T, repo moviesdom.Repo) (*Server, string) {

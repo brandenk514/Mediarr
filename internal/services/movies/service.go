@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -434,6 +435,7 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 			preID, preName := view.CollectionID, collectionNameOf(view.CollectionName)
 			preRelease := view.ReleaseDate
 			prePoster, preBackdrop := view.PosterURL, view.BackdropURL
+			preMeta := movieMetadataOf(view)
 			_ = s.deps.Enricher.EnrichMovie(ctx, &view) // best effort
 			// Radarr R3: persist the collection the provider reported so
 			// the collections page can group without a live TMDB call.
@@ -453,6 +455,14 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 			if view.PosterURL != prePoster || view.BackdropURL != preBackdrop {
 				_ = s.deps.Repo.SetMovieArtwork(ctx, view.ID, view.PosterURL, view.BackdropURL)
 			}
+			// Issue #150: persist the provider metadata (genres, runtime,
+			// original language, certification, TMDB score) the same way,
+			// so the list endpoint can filter and sort on it. Only write
+			// when the provider reported something new; zero values mean
+			// the provider reported nothing (keyless dev).
+			if postMeta := movieMetadataOf(view); !movieMetadataEqual(preMeta, postMeta) {
+				_ = s.deps.Repo.SetMovieMetadata(ctx, view.ID, postMeta)
+			}
 		}
 		w := wantByMovie[m.ID]
 		view.Status = dom.DeriveMovieStatus(
@@ -465,6 +475,34 @@ func (s *Service) buildViews(ctx context.Context, in []dom.Movie, enrich bool) (
 		out = append(out, view)
 	}
 	return out, nil
+}
+
+// movieMetadataOf snapshots the #150 persisted-metadata fields of a movie
+// (genres, runtime, original language, certification, TMDB score) as the
+// flat zero-is-unknown wire shape the repository stores. The pointer-typed
+// enrichment fields collapse to their zero values when unknown.
+func movieMetadataOf(m dom.Movie) dom.MovieMetadata {
+	meta := dom.MovieMetadata{Genres: m.Genres}
+	if m.Runtime != nil {
+		meta.Runtime = *m.Runtime
+	}
+	if m.OriginalLanguage != nil {
+		meta.OriginalLanguage = *m.OriginalLanguage
+	}
+	if m.Certification != nil {
+		meta.Certification = *m.Certification
+	}
+	if m.Scores != nil && m.Scores.TmdbPct != nil {
+		meta.TmdbPct = *m.Scores.TmdbPct
+	}
+	return meta
+}
+
+// movieMetadataEqual reports whether two metadata snapshots carry the same
+// values — the persist guard that keeps unchanged detail reads from
+// re-writing the metadata row.
+func movieMetadataEqual(a, b dom.MovieMetadata) bool {
+	return reflect.DeepEqual(a, b)
 }
 
 // GetWanted loads a movie's wanted (release) row (used by
