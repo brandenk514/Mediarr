@@ -23,19 +23,32 @@ export const SEARCH_DEBOUNCE_MS = 300
 // constraint only names the envelope fields this hook reads. Search is
 // debounced; changing the search resets the page to 1 and collapses any
 // expanded children so a stale expanded row can't outlive its item.
+//
+// mode (#150): 'page' (default) keeps the existing page semantics — `data`
+// is the current page and the view renders Pagination chrome. 'append' is
+// the grid's infinite scroll: `items` accumulates pages as `loadMore`
+// fires (no pagination chrome), a query/sort/filter change or a reload
+// restarts from page 1, and `hasMore` reports whether more pages exist.
+// In append mode `load` must be memoized (useCallback) with dependencies
+// that only change when the request CONTENT changes (sort/facets) — its
+// identity is what signals a content change to the restart logic.
 export function usePagedList<P extends { items: unknown[]; total: number }>(
   load: (q: ListQuery) => Promise<P>,
+  opts?: { mode?: 'page' | 'append' },
 ) {
+  const mode = opts?.mode ?? 'page'
   const [text, setText] = useState('')
   const [q, setQ] = useState('')
   const [monitored, setMonitored] = useState<MonitoredFilter>('all')
   const [page, setPage] = useState(1)
   const [data, setData] = useState<P | null>(null)
+  const [accum, setAccum] = useState<P['items']>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
   const [bump, setBump] = useState(0)
   const reqId = useRef(0)
+  const lastPage = useRef(0)
 
   // Debounce the free-text search box into `q`.
   useEffect(() => {
@@ -45,6 +58,15 @@ export function usePagedList<P extends { items: unknown[]; total: number }>(
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [text])
+
+  // Append mode: whenever the request CONTENT changes (a new load identity —
+  // the page's sort/facet change — a new debounced query, a monitored filter)
+  // or the mode flips, restart the accumulation from page 1. Without this, a
+  // mid-scroll change keeps the stale cursor and the grid resumes from the
+  // wrong page with a hole in the list.
+  useEffect(() => {
+    if (mode === 'append') setPage(1)
+  }, [load, q, monitored, mode])
 
   useEffect(() => {
     let cancelled = false
@@ -58,6 +80,24 @@ export function usePagedList<P extends { items: unknown[]; total: number }>(
         if (cancelled || id !== reqId.current) return
         setData(p)
         setError(null)
+        if (mode === 'append') {
+          // Decide append-vs-replace BEFORE the setAccum updater runs: the
+          // updater executes later (at render time), after lastPage.current
+          // has already been advanced below, so reading the ref inside it
+          // would always see the already-updated value.
+          const isFirstPage = page === 1
+          const isNextPage = page === lastPage.current + 1
+          if (!isFirstPage && !isNextPage) {
+            // Stale out-of-sequence response (e.g. a sort flip fired this
+            // fetch from the old cursor before the restart above landed):
+            // drop it — the restart reloads page 1 and rebuilds the list.
+            return
+          }
+          // Only a strictly-next page appends; a fresh start (or an empty
+          // accumulation) replaces so the grid never shows duplicated rows.
+          setAccum((prev) => (isFirstPage || prev.length === 0 ? p.items : [...prev, ...p.items]))
+          lastPage.current = page
+        }
       })
       .catch((e: unknown) => {
         if (cancelled || id !== reqId.current) return
@@ -69,9 +109,13 @@ export function usePagedList<P extends { items: unknown[]; total: number }>(
     return () => {
       cancelled = true
     }
-  }, [load, q, monitored, page, bump])
+  }, [load, q, monitored, page, bump, mode])
 
-  const reload = useCallback(() => setBump((b) => b + 1), [])
+  const reload = useCallback(() => {
+    // append mode restarts the accumulation from page 1 on a reload.
+    if (mode === 'append') setPage(1)
+    setBump((b) => b + 1)
+  }, [mode])
   const toggleExpanded = useCallback((id: number) => {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -81,22 +125,36 @@ export function usePagedList<P extends { items: unknown[]; total: number }>(
     })
   }, [])
 
+  const total = data?.total ?? 0
+  const items = mode === 'append' ? accum : ((data?.items ?? []) as P['items'])
+
   return {
     text,
     setText,
     q,
     setQ,
     monitored,
-    setMonitored,
+    // In append mode a monitored change restarts the grid from page 1.
+    setMonitored: useCallback(
+      (m: MonitoredFilter) => {
+        setMonitored(m)
+        if (mode === 'append') setPage(1)
+      },
+      [mode],
+    ),
     page,
     setPage,
     data,
+    items,
+    // append mode: the infinite-scroll surface.
+    hasMore: mode === 'append' && items.length < total,
+    loadMore: useCallback(() => setPage((p) => p + 1), []),
     loading,
     error,
     reload,
     expanded,
     toggleExpanded,
-    total: data?.total ?? 0,
+    total,
   }
 }
 
