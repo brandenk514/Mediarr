@@ -5396,6 +5396,37 @@ components:
         Job:
           type: string
           description: Crew job (director, screenwriter, ...).
+    SeriesScores:
+      type: object
+      nullable: true
+      description: >-
+        External scores for a series; the whole object is null until a
+        metadata provider fills it. TMDB serves only the TMDB vote
+        percentage — IMDb/Trakt appear as ids (ImdbID/TraktID), never as
+        invented ratings (issue #157).
+      properties:
+        TmdbPct:
+          type: number
+          nullable: true
+          description: TMDB vote average scaled to 0-100.
+    SeriesCast:
+      type: object
+      required: [Name, Role]
+      properties:
+        Name:
+          type: string
+        Role:
+          type: string
+          description: Character played; empty when unknown.
+    SeriesCrew:
+      type: object
+      required: [Name, Job]
+      properties:
+        Name:
+          type: string
+        Job:
+          type: string
+          description: Crew job (Creator, Director, Writer, ...).
     AlternativeTitle:
       type: object
       required: [Title, Type]
@@ -5571,6 +5602,92 @@ components:
           description: >-
             Upstream TMDB backdrop URL, w1280 size (issue #149 Stage A).
             Detail-only: "" on list items and when keyless or no art.
+        # Issue #157 enrichment. Display-only fields sourced from the TMDB
+        # series detail fetch (the reference TV_DETAILS_APPEND_TO_RESPONSE
+        # set): null/empty when the provider is unconfigured or the lookup
+        # failed — the UI renders em-dashes, never an error. The flat
+        # facets (Genres, Keywords, Status, OriginalLanguage, Network,
+        # FirstAirDate, ProductionCountries, Scores) are persisted by the
+        # enricher so list reads carry them without a per-row provider
+        # call; Overview, the external ids, the trailer, and the full
+        # cast/crew lists are detail-only.
+        Overview:
+          type: string
+          nullable: true
+          description: >-
+            Plot overview; null when unknown (issue #157; detail-only —
+            not persisted, null on list items).
+        Genres:
+          type: array
+          items:
+            type: string
+          description: Genre names; empty when unknown (issue #157).
+        Keywords:
+          type: array
+          items:
+            type: string
+          description: Topic tags; empty when unknown (issue #157).
+        Status:
+          type: string
+          nullable: true
+          description: >-
+            Series status (e.g. Continuing, Ended); null when unknown
+            (issue #157).
+        OriginalLanguage:
+          type: string
+          nullable: true
+          description: >-
+            ISO language code (e.g. en); null when unknown (issue #157).
+        Network:
+          type: string
+          nullable: true
+          description: >-
+            Primary network/broadcaster; null when unknown (issue #157).
+        FirstAirDate:
+          type: string
+          description: >-
+            First air date, "YYYY-MM-DD" (persisted by the #157
+            enricher); "" when unknown (keyless dev).
+        ProductionCountries:
+          type: array
+          items:
+            type: string
+          description: >-
+            Production country names; empty when unknown (issue #157).
+        Scores:
+          $ref: "#/components/schemas/SeriesScores"
+        ImdbID:
+          type: string
+          description: >-
+            External id mapping (issue #157): the IMDb id where present;
+            "" when unknown. An id, not a rating — TMDB does not serve
+            IMDb ratings. Detail-only: "" on list items.
+        TraktID:
+          type: string
+          description: >-
+            External id mapping (issue #157): the Trakt id where present;
+            "" when unknown. An id, not a rating. Detail-only: "" on
+            list items.
+        TrailerURL:
+          type: string
+          description: >-
+            Top YouTube trailer URL (issue #157, videos[]); "" when the
+            payload has no trailer. Detail-only: "" on list items.
+        Cast:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeriesCast"
+          description: >-
+            Full cast list (name + character); empty when unknown
+            (issue #157). Detail-only: [] on list items — the UI renders
+            it behind "View Full Crew".
+        Crew:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeriesCrew"
+          description: >-
+            Full crew list (name + job); empty when unknown (issue
+            #157). Detail-only: [] on list items.
     AddSeriesRequest:
       type: object
       required: [title]

@@ -239,14 +239,30 @@ func TestGetSeries_EnrichesAndPersistsDetail(t *testing.T) {
 	if len(list) != 1 {
 		t.Fatalf("list len = %d, want 1", len(list))
 	}
-	if got := list[0].Overview; got == nil || *got != "A drug kingpin becomes a chemistry teacher." {
-		t.Fatalf("list Overview = %v, want persisted value", got)
+	// The list serves the PERSISTED metadata (the flat facets, the #150
+	// MovieMetadata pattern) — not the detail-only fields (Overview,
+	// cast/crew, trailer, external ids), which are fetched on the detail
+	// read and intentionally not persisted.
+	if got := list[0].Overview; got != nil {
+		t.Fatalf("list Overview = %v, want nil (detail-only, not persisted)", got)
+	}
+	if got := list[0].Genres; len(got) != 2 || got[0] != "Drama" {
+		t.Fatalf("list Genres = %v, want persisted value", got)
+	}
+	if got := list[0].Status; got == nil || *got != "Ended" {
+		t.Fatalf("list Status = %v, want persisted value", got)
+	}
+	if got := list[0].FirstAirDate; got != "2008-01-20" {
+		t.Fatalf("list FirstAirDate = %q, want persisted value", got)
+	}
+	if got := list[0].Scores; got == nil || got.TmdbPct == nil || *got.TmdbPct != 89 {
+		t.Fatalf("list Scores = %v, want persisted value", got)
 	}
 	if want := "https://image.tmdb.org/t/p/w342/bb-poster.jpg"; list[0].PosterURL != want {
 		t.Fatalf("list PosterURL = %q, want %q (persisted)", list[0].PosterURL, want)
 	}
-	if len(list[0].Cast) != 1 || list[0].Cast[0].Name != "Bryan Cranston" {
-		t.Fatalf("list Cast = %+v, want persisted value", list[0].Cast)
+	if len(list[0].Cast) != 0 || len(list[0].Crew) != 0 {
+		t.Fatalf("list cast/crew must be [] (detail-only, not persisted): %+v / %+v", list[0].Cast, list[0].Crew)
 	}
 	if d.detailCall != 1 {
 		t.Fatalf("provider detail calls = %d, want 1 (list must not enrich)", d.detailCall)

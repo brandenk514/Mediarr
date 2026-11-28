@@ -3092,6 +3092,21 @@ export interface components {
             /** @description Crew job (director, screenwriter, ...). */
             Job: string;
         };
+        /** @description External scores for a series; the whole object is null until a metadata provider fills it. TMDB serves only the TMDB vote percentage — IMDb/Trakt appear as ids (ImdbID/TraktID), never as invented ratings (issue #157). */
+        SeriesScores: {
+            /** @description TMDB vote average scaled to 0-100. */
+            TmdbPct?: number | null;
+        } | null;
+        SeriesCast: {
+            Name: string;
+            /** @description Character played; empty when unknown. */
+            Role: string;
+        };
+        SeriesCrew: {
+            Name: string;
+            /** @description Crew job (Creator, Director, Writer, ...). */
+            Job: string;
+        };
         AlternativeTitle: {
             Title: string;
             /** @description Source of the alternative title; empty when unknown. */
@@ -3213,6 +3228,33 @@ export interface components {
             PosterURL?: string;
             /** @description Upstream TMDB backdrop URL, w1280 size (issue #149 Stage A). Detail-only: "" on list items and when keyless or no art. */
             BackdropURL?: string;
+            /** @description Plot overview; null when unknown (issue #157; detail-only — not persisted, null on list items). */
+            Overview?: string | null;
+            /** @description Genre names; empty when unknown (issue */
+            Genres?: string[];
+            /** @description Topic tags; empty when unknown (issue */
+            Keywords?: string[];
+            /** @description Series status (e.g. Continuing, Ended); null when unknown (issue #157). */
+            Status?: string | null;
+            /** @description ISO language code (e.g. en); null when unknown (issue #157). */
+            OriginalLanguage?: string | null;
+            /** @description Primary network/broadcaster; null when unknown (issue #157). */
+            Network?: string | null;
+            /** @description First air date, "YYYY-MM-DD" (persisted by the #157 enricher); "" when unknown (keyless dev). */
+            FirstAirDate?: string;
+            /** @description Production country names; empty when unknown (issue #157). */
+            ProductionCountries?: string[];
+            Scores?: components["schemas"]["SeriesScores"];
+            /** @description External id mapping (issue #157): the IMDb id where present; "" when unknown. An id, not a rating — TMDB does not serve IMDb ratings. Detail-only: "" on list items. */
+            ImdbID?: string;
+            /** @description External id mapping (issue #157): the Trakt id where present; "" when unknown. An id, not a rating. Detail-only: "" on list items. */
+            TraktID?: string;
+            /** @description Top YouTube trailer URL (issue #157, videos[]); "" when the payload has no trailer. Detail-only: "" on list items. */
+            TrailerURL?: string;
+            /** @description Full cast list (name + character); empty when unknown (issue #157). Detail-only: [] on list items — the UI renders it behind "View Full Crew". */
+            Cast?: components["schemas"]["SeriesCast"][];
+            /** @description Full crew list (name + job); empty when unknown (issue #157). Detail-only: [] on list items. */
+            Crew?: components["schemas"]["SeriesCrew"][];
         };
         AddSeriesRequest: {
             title: string;
