@@ -39,6 +39,37 @@ type Series struct {
 	// R3 keyless convention).
 	PosterURL   string
 	BackdropURL string
+	// Enrichment (issue #157): the TV detail-page metadata card, sourced
+	// from the TMDB series detail fetch and persisted on the row so list
+	// reads serve it without a per-row provider call (the #118/#149 house
+	// pattern). Serialized with bare Go field names; pointer/nil fields
+	// are null on the wire, arrays serialize as [] (never null). Every
+	// field is empty/nil on a keyless stack or when the lookup failed —
+	// the R3 keyless convention: never an error, never raw "not
+	// configured" text.
+	//
+	// Overview/Status/OriginalLanguage/Network are *string (null =
+	// unknown). FirstAirDate is "" when unknown (the repo stores the
+	// column, so it rides list reads too). Cast/crew come back as the
+	// full lists — #152 renders them behind "View Full Crew".
+	//
+	// Scores is nil until a provider fills it; TMDB serves only the TMDB
+	// vote percentage. ImdbID/TraktID are external id mappings (ids,
+	// never ratings — TMDB does not serve IMDb/Trakt scores).
+	Overview            *string
+	Genres              []string
+	Keywords            []string
+	Status              *string
+	OriginalLanguage    *string
+	Network             *string
+	FirstAirDate        string // "YYYY-MM-DD"; "" when unknown
+	ProductionCountries []string
+	Scores              *SeriesScores
+	ImdbID              string
+	TraktID             string
+	TrailerURL          string // detail-only (not persisted); "" when none
+	Cast                []SeriesCast
+	Crew                []SeriesCrew
 }
 
 // SeriesPatch is a partial series update: nil fields are left unchanged.
@@ -50,6 +81,45 @@ type SeriesPatch struct {
 	SeriesType     *string
 	SeasonFolder   *bool
 	Tags           *[]string
+}
+
+// SeriesScores are the external scores a series carries (issue #157).
+// Every field is nil when unknown — the movie MovieScores convention.
+// TMDB serves only the TMDB vote percentage; IMDb/Trakt appear as ids
+// (Series.ImdbID / Series.TraktID), never as invented ratings.
+type SeriesScores struct {
+	TmdbPct *float64 // TMDB vote_average scaled 0-100
+}
+
+// SeriesCast is one credited cast member (issue #157): the display name
+// and the character they play.
+type SeriesCast struct {
+	Name string
+	Role string
+}
+
+// SeriesCrew is one crew member (issue #157): the display name and the
+// job they did (Director, Writer, Creator, ...).
+type SeriesCrew struct {
+	Name string
+	Job  string
+}
+
+// SeriesMetadata is the persisted subset of the series enrichment (issue
+// #157, mirroring movies.MovieMetadata from #150): the flat zero-is-
+// unknown wire shape the repository stores, so list reads can serve the
+// values without a per-row provider call. It intentionally holds no
+// pointer types (zero = unknown, the column-default convention).
+// TrailerURL is detail-only and not persisted.
+type SeriesMetadata struct {
+	Genres              []string
+	Keywords            []string
+	OriginalLanguage    string
+	Status              string
+	Network             string
+	FirstAirDate        string
+	ProductionCountries []string
+	TmdbPct             float64
 }
 
 // Episode is a single known episode within a series.
@@ -145,6 +215,14 @@ type Repo interface {
 	// PosterURL without a per-row provider call. Best-effort: a failure
 	// must never fail the read that triggered it. ''/'' = keyless/no art.
 	SetSeriesArtwork(ctx context.Context, id int64, posterURL, backdropURL string) error
+	// SetSeriesMetadata persists the provider metadata the enrichment
+	// reported (issue #157: genres, keywords, original language, status,
+	// network, first air date, production countries, TMDB score), so
+	// list reads serve it without a per-row provider call (the #150
+	// movie pattern). Best-effort: a failure must never fail the read
+	// that triggered it. Zero values = the provider reported nothing
+	// (keyless dev).
+	SetSeriesMetadata(ctx context.Context, id int64, meta SeriesMetadata) error
 
 	// Episodes
 	CreateEpisode(ctx context.Context, e Episode) (int64, error)

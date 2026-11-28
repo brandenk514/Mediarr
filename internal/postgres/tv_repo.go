@@ -51,19 +51,47 @@ func (r *TVRepo) GetSeries(ctx context.Context, id int64) (*tv.Series, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, tvdb_id, tmdb_id, title, year, quality_profile, monitored,
 		       series_type, season_folder, tags, added_at,
-		       poster_url, backdrop_url
+		       poster_url, backdrop_url,
+		       genres, keywords, original_language, status, network,
+		       first_air_date, production_countries, tmdb_pct
 		FROM tv_series WHERE id = $1`, id)
 	s := &tv.Series{}
+	var origLang, status, network string
+	var firstAir string
+	var tmdbPct float64
 	err := row.Scan(&s.ID, &s.TVDBID, &s.TMDBID, &s.Title, &s.Year,
 		&s.QualityProfile, &s.Monitored, &s.SeriesType, &s.SeasonFolder,
-		&s.Tags, &s.AddedAt, &s.PosterURL, &s.BackdropURL)
+		&s.Tags, &s.AddedAt, &s.PosterURL, &s.BackdropURL,
+		&s.Genres, &s.Keywords, &origLang, &status, &network,
+		&firstAir, &s.ProductionCountries, &tmdbPct)
 	if err == sql.ErrNoRows {
 		return nil, tv.ErrSeriesNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("tv: get series: %w", err)
 	}
+	applySeriesMetadata(s, origLang, status, network, firstAir, tmdbPct)
 	return s, nil
+}
+
+// applySeriesMetadata lifts the flat persisted metadata columns (issue
+// #157) onto the pointer enrichment fields: an empty column is "unknown"
+// and stays nil/"" (the zero-is-unknown convention).
+func applySeriesMetadata(s *tv.Series, origLang, status, network, firstAir string, tmdbPct float64) {
+	if origLang != "" {
+		s.OriginalLanguage = &origLang
+	}
+	if status != "" {
+		s.Status = &status
+	}
+	if network != "" {
+		s.Network = &network
+	}
+	s.FirstAirDate = firstAir
+	if tmdbPct > 0 {
+		pct := tmdbPct
+		s.Scores = &tv.SeriesScores{TmdbPct: &pct}
+	}
 }
 
 // ListSeries returns all series, oldest first.
@@ -71,7 +99,9 @@ func (r *TVRepo) ListSeries(ctx context.Context) ([]tv.Series, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, tvdb_id, tmdb_id, title, year, quality_profile, monitored,
 		       series_type, season_folder, tags, added_at,
-		       poster_url, backdrop_url
+		       poster_url, backdrop_url,
+		       genres, keywords, original_language, status, network,
+		       first_air_date, production_countries, tmdb_pct
 		FROM tv_series ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("tv: list series: %w", err)
@@ -80,11 +110,16 @@ func (r *TVRepo) ListSeries(ctx context.Context) ([]tv.Series, error) {
 	var out []tv.Series
 	for rows.Next() {
 		var s tv.Series
+		var origLang, status, network, firstAir string
+		var tmdbPct float64
 		if err := rows.Scan(&s.ID, &s.TVDBID, &s.TMDBID, &s.Title, &s.Year,
 			&s.QualityProfile, &s.Monitored, &s.SeriesType, &s.SeasonFolder,
-			&s.Tags, &s.AddedAt, &s.PosterURL, &s.BackdropURL); err != nil {
+			&s.Tags, &s.AddedAt, &s.PosterURL, &s.BackdropURL,
+			&s.Genres, &s.Keywords, &origLang, &status, &network,
+			&firstAir, &s.ProductionCountries, &tmdbPct); err != nil {
 			return nil, fmt.Errorf("tv: scan series: %w", err)
 		}
+		applySeriesMetadata(&s, origLang, status, network, firstAir, tmdbPct)
 		out = append(out, s)
 	}
 	return out, rows.Err()
@@ -101,6 +136,29 @@ func (r *TVRepo) SetSeriesArtwork(ctx context.Context, id int64, posterURL, back
 		WHERE id = $1`, id, posterURL, backdropURL)
 	if err != nil {
 		return fmt.Errorf("tv: set artwork: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return tv.ErrSeriesNotFound
+	}
+	return nil
+}
+
+// SetSeriesMetadata persists the provider metadata the enrichment
+// reported (issue #157), so list reads serve it without a per-row
+// provider call (the #150 movie pattern). The columns are NOT NULL with
+// zero/empty defaults (migration 0037), so an unknown value is stored as
+// the column default.
+func (r *TVRepo) SetSeriesMetadata(ctx context.Context, id int64, meta tv.SeriesMetadata) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE tv_series
+		SET genres = $2, keywords = $3, original_language = $4, status = $5,
+		    network = $6, first_air_date = $7, production_countries = $8,
+		    tmdb_pct = $9
+		WHERE id = $1`, id, nullSafeTags(meta.Genres), nullSafeTags(meta.Keywords),
+		meta.OriginalLanguage, meta.Status, meta.Network, meta.FirstAirDate,
+		nullSafeTags(meta.ProductionCountries), meta.TmdbPct)
+	if err != nil {
+		return fmt.Errorf("tv: set metadata: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return tv.ErrSeriesNotFound
